@@ -1,0 +1,53 @@
+# DockPeek 🔍
+
+A native, lightweight macOS utility built in Swift that brings live window hover previews ("Window Peeking") to the macOS Dock — similar to DockDoor and DockMate.
+
+## Features
+
+- **Live Window Hover Previews:** Hover over any active application icon in the macOS Dock to see live thumbnail previews of all open windows for that app.
+- **Smart Alignment:** Automatically detects Dock orientation (Bottom, Left, or Right) and positions the floating preview HUD cleanly adjacent to the hovered icon.
+- **Click to Focus:** Clicking any window preview immediately brings that specific window to the front and activates the application.
+- **Quick Close (`x`):** Hover over a window card to reveal a close button to dismiss windows directly from the preview without switching into the app.
+- **Menu Bar Companion:** Runs as an accessory (`LSUIElement`) with a menu bar status icon. It checks permission status and gives one-click access to privacy settings.
+- **0% Idle Overhead:** Pure event-driven detection using macOS Accessibility and mouse boundary checks.
+
+---
+
+## Getting Started
+
+### 1. Launch the App
+To launch the newly built app bundle:
+```bash
+open DockPeek/DockPeek.app
+```
+*(Optionally, drag `DockPeek.app` to your `/Applications` folder).*
+
+### 2. Grant macOS Permissions
+Because macOS protects other applications' windows and screen contents, two standard permissions are required:
+
+1. **Accessibility (`System Settings > Privacy & Security > Accessibility`)**:
+   - Allows DockPeek to identify which application icon you are hovering over in the Dock, and to programmatically raise/focus individual windows when clicked.
+2. **Screen Recording (`System Settings > Privacy & Security > Screen & System Audio Recording`)**:
+   - Allows macOS to generate live visual thumbnails of running application windows.
+
+When you launch DockPeek for the first time, click the **DockPeek icon** in your menu bar (top right) to see the permission status and open the settings shortcuts.
+
+---
+
+## Rebuilding
+
+To rebuild the app bundle from source at any time:
+```bash
+cd DockPeek
+./build_app.sh
+```
+
+---
+
+## Architecture
+
+- **`DockObserver.swift`**: Monitors cursor position relative to the Dock and queries `AXUIElement` on `com.apple.dock` to extract the target application PID and icon coordinates.
+- **`WindowService.swift`**: Enumerates active application windows using `CGWindowListCopyWindowInfo` and captures live thumbnails using `CGWindowListCreateImage`. Manages window raising via `AXUIElementPerformAction(kAXRaiseAction)`.
+- **`PreviewPanel.swift` & `PreviewView.swift`**: Non-activating, floating `NSPanel` hosting a SwiftUI view with native `.ultraThinMaterial` styling, drop shadows, and hover animations.
+- **`Permissions.swift`**: Queries and prompts for macOS Accessibility and Screen Recording permissions.
+- **`AppDelegate.swift`**: Manages the menu bar status item and coordinates events between the observer and the preview panel.
