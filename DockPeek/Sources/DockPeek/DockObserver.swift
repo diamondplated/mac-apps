@@ -27,10 +27,10 @@ public class DockObserver {
     
     private var globalMouseMonitor: Any?
     private var localMouseMonitor: Any?
-    private var dismissTimer: Timer?
+    private var hoverCheckTimer: Timer?
+    private var dismissalState = HoverDismissalState()
     public private(set) var currentHoveredPID: pid_t?
     public private(set) var currentDockItemFrame: CGRect?
-    public var isMouseInsidePanel: Bool = false
     
     private let systemWideElement = AXUIElementCreateSystemWide()
     
@@ -44,12 +44,13 @@ public class DockObserver {
         stop()
         
         // Listen to global mouse movement across the desktop and dock
-        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved]) { [weak self] _ in
+        let movementEvents: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged]
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: movementEvents) { [weak self] _ in
             self?.handleMouseMoved(screenPoint: NSEvent.mouseLocation)
         }
         
         // Listen to local mouse movement in our own process windows
-        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved]) { [weak self] event in
+        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: movementEvents) { [weak self] event in
             self?.handleMouseMoved(screenPoint: NSEvent.mouseLocation)
             return event
         }
@@ -64,11 +65,11 @@ public class DockObserver {
             NSEvent.removeMonitor(monitor)
             localMouseMonitor = nil
         }
-        dismissTimer?.invalidate()
-        dismissTimer = nil
-        currentHoveredPID = nil
-        currentDockItemFrame = nil
-        isMouseInsidePanel = false
+        let hadHover = currentHoveredPID != nil
+        resetHoverState()
+        if hadHover {
+            delegate?.dockObserverDidUnhover(self)
+        }
     }
     
     /// Determines screen containing given point, falling back to primary screen
@@ -115,12 +116,6 @@ public class DockObserver {
         let primaryHeight = primaryScreen.frame.height
         let y = primaryHeight - carbonRect.origin.y - carbonRect.height
         return CGRect(x: carbonRect.origin.x, y: y, width: carbonRect.width, height: carbonRect.height)
-    }
-    
-    /// Calculates the full transit corridor between the dock item and the preview panel,
-    /// expanded generously to permit natural diagonal cursor movement without accidental dismissal.
-    public func transitCorridor(between dockRect: CGRect, and panelRect: CGRect) -> CGRect {
-        return dockRect.union(panelRect).insetBy(dx: -25, dy: -20)
     }
     
     private struct DockItemInfo {
@@ -191,7 +186,7 @@ public class DockObserver {
         if let dockItem = findDockItem(at: axPoint),
            let targetApp = findRunningApplication(matching: dockItem.title, dockItemElement: dockItem.element) {
             
-            cancelDismissal()
+            dismissalState.reset()
             currentDockItemFrame = dockItem.rect
             
             if currentHoveredPID != targetApp.processIdentifier {
@@ -205,42 +200,15 @@ public class DockObserver {
                     orientation: self.dockOrientation(for: screen)
                 )
                 DispatchQueue.main.async { [weak self] in
-                    guard let self = self else { return }
+                    guard let self = self, self.currentHoveredPID == item.pid else { return }
                     self.delegate?.dockObserver(self, didHoverItem: item)
                 }
             }
+            startHoverChecks()
             return
         }
         
-        // 2. Mouse is NOT over a Dock icon.
-        // Check if the preview panel is open and visible:
-        if let panel = previewPanel, panel.isVisible, panel.alphaValue > 0.05 {
-            // (a) Mouse is inside preview panel frame: keep open indefinitely
-            if panel.frame.contains(screenPoint) || isMouseInsidePanel {
-                cancelDismissal()
-                return
-            }
-            
-            // (b) Mouse is within the transit corridor between the dock item and the preview panel
-            if let dockFrame = currentDockItemFrame {
-                let corridor = transitCorridor(between: dockFrame, and: panel.frame)
-                if corridor.contains(screenPoint) {
-                    cancelDismissal()
-                    return
-                }
-            }
-        }
-        
-        // 3. Mouse is over the currently hovered dock item rect (with small border buffer)
-        if let dockFrame = currentDockItemFrame, currentHoveredPID != nil {
-            if dockFrame.insetBy(dx: -8, dy: -8).contains(screenPoint) {
-                cancelDismissal()
-                return
-            }
-        }
-        
-        // 4. Cursor is outside all active areas: schedule dismissal with generous delay
-        scheduleDismissal(delay: 0.6)
+        recheckPointerPosition()
     }
     
     private func findRunningApplication(matching title: String, dockItemElement: AXUIElement) -> NSRunningApplication? {
@@ -273,57 +241,40 @@ public class DockObserver {
         return nil
     }
     
-    public func scheduleDismissal(delay: TimeInterval = 0.6) {
+    /// Recheck actual geometry, including after tracking views are replaced or miss an exit.
+    public func recheckPointerPosition() {
         guard currentHoveredPID != nil else { return }
-        
-        if dismissTimer == nil {
-            dismissTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
-                guard let self = self else { return }
-                self.dismissTimer = nil
-                
-                let currentMouse = NSEvent.mouseLocation
-                
-                // Guard 1: Verify mouse is not inside the preview panel
-                if let panel = self.previewPanel, panel.isVisible, panel.alphaValue > 0.05 {
-                    if panel.frame.insetBy(dx: -4, dy: -4).contains(currentMouse) || self.isMouseInsidePanel {
-                        return
-                    }
-                    
-                    // Guard 2: Verify mouse is not inside the transit corridor
-                    if let dockFrame = self.currentDockItemFrame {
-                        let corridor = self.transitCorridor(between: dockFrame, and: panel.frame)
-                        if corridor.contains(currentMouse) {
-                            return
-                        }
-                    }
-                }
-                
-                // Guard 3: Verify mouse is not still hovering the dock item
-                if let dockFrame = self.currentDockItemFrame {
-                    if dockFrame.insetBy(dx: -8, dy: -8).contains(currentMouse) {
-                        return
-                    }
-                }
-                
-                // Mouse has truly departed: unhover and dismiss
-                self.currentHoveredPID = nil
-                self.currentDockItemFrame = nil
-                self.isMouseInsidePanel = false
-                self.delegate?.dockObserverDidUnhover(self)
-            }
+
+        let panelFrame = previewPanel.flatMap { $0.isVisible ? $0.frame : nil }
+        if dismissalState.shouldDismiss(
+            pointer: NSEvent.mouseLocation,
+            dockFrame: currentDockItemFrame,
+            previewFrame: panelFrame,
+            now: ProcessInfo.processInfo.systemUptime
+        ) {
+            resetHoverState()
+            delegate?.dockObserverDidUnhover(self)
         }
     }
-    
-    public func cancelDismissal() {
-        dismissTimer?.invalidate()
-        dismissTimer = nil
+
+    private func startHoverChecks() {
+        guard hoverCheckTimer == nil else { return }
+
+        // Only sample while a Dock hover is active. This recovers from dropped movement
+        // events even if the pointer stops, without polling Accessibility or thumbnails.
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            self?.recheckPointerPosition()
+        }
+        timer.tolerance = 0.02
+        RunLoop.main.add(timer, forMode: .common)
+        hoverCheckTimer = timer
     }
     
     public func resetHoverState() {
-        dismissTimer?.invalidate()
-        dismissTimer = nil
+        hoverCheckTimer?.invalidate()
+        hoverCheckTimer = nil
+        dismissalState.reset()
         currentHoveredPID = nil
         currentDockItemFrame = nil
-        isMouseInsidePanel = false
     }
 }

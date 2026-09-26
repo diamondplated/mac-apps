@@ -42,6 +42,7 @@ final class TrackingContainerView: NSView {
 public class PreviewPanel: NSPanel {
     private var hostingView: NSHostingView<AnyView>?
     private var containerView: TrackingContainerView?
+    private var presentationID = UUID()
     
     public var onMouseEntered: (() -> Void)?
     public var onMouseMoved: (() -> Void)?
@@ -83,6 +84,9 @@ public class PreviewPanel: NSPanel {
             hide()
             return
         }
+
+        // An older fade-out must not order out a newly shown preview.
+        presentationID = UUID()
         
         let screen = DockObserver.screen(for: dockItem.frame.origin)
         
@@ -170,13 +174,16 @@ public class PreviewPanel: NSPanel {
     }
     
     public func hide() {
-        guard self.alphaValue > 0 else { return }
+        let dismissalID = UUID()
+        presentationID = dismissalID
+        guard isVisible else { return }
         
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.12
             self.animator().alphaValue = 0.0
         }, completionHandler: { [weak self] in
-            self?.orderOut(nil)
+            guard let self = self, self.presentationID == dismissalID else { return }
+            self.orderOut(nil)
         })
     }
 }

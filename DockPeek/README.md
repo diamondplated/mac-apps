@@ -9,7 +9,8 @@ A native, lightweight macOS utility built in Swift that brings live window hover
 - **Click to Focus:** Clicking any window preview immediately brings that specific window to the front and activates the application.
 - **Quick Close (`x`):** Hover over a window card to reveal a close button to dismiss windows directly from the preview without switching into the app.
 - **Menu Bar Companion:** Runs as an accessory (`LSUIElement`) with a menu bar status icon. It checks permission status and gives one-click access to privacy settings.
-- **0% Idle Overhead:** Pure event-driven detection using macOS Accessibility and mouse boundary checks.
+- **Reliable Dismissal:** Previews close after the pointer spends about 0.6 seconds outside the Dock icon and preview, with a grace period for crossing between them.
+- **Lightweight Hover Checks:** Event-driven Dock detection, with pointer-position checks only during an active hover to recover from missed mouse-exit events.
 
 ---
 
@@ -47,7 +48,18 @@ cd DockPeek
 ## Architecture
 
 - **`DockObserver.swift`**: Monitors cursor position relative to the Dock and queries `AXUIElement` on `com.apple.dock` to extract the target application PID and icon coordinates.
+- **`HoverDismissalState.swift`**: Uses current pointer geometry and a bounded departure grace period; no cached mouse-enter flag or permanent transit corridor.
 - **`WindowService.swift`**: Enumerates active application windows using `CGWindowListCopyWindowInfo` and captures live thumbnails using `CGWindowListCreateImage`. Manages window raising via `AXUIElementPerformAction(kAXRaiseAction)`.
 - **`PreviewPanel.swift` & `PreviewView.swift`**: Non-activating, floating `NSPanel` hosting a SwiftUI view with native `.ultraThinMaterial` styling, drop shadows, and hover animations.
 - **`Permissions.swift`**: Queries and prompts for macOS Accessibility and Screen Recording permissions.
 - **`AppDelegate.swift`**: Manages the menu bar status item and coordinates events between the observer and the preview panel.
+
+## Verification
+
+Run the hover-dismissal regression tests from the repository root:
+
+```sh
+swift test --package-path DockPeek
+```
+
+After launching a rebuilt app, check that moving from a Dock icon into its preview keeps it open, while moving out and stopping closes it after about 0.6 seconds. Also check stopping in the gap, leaving beside the preview, dragging away, and moving rapidly between applications. Repeat with side-mounted Docks and additional displays when available.
