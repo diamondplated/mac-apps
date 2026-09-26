@@ -18,6 +18,10 @@ let package = Package(
             name: "DockPeek",
             dependencies: [],
             path: "Sources/DockPeek"
+        ),
+        .testTarget(
+            name: "DockPeekTests",
+            dependencies: ["DockPeek"]
         )
     ]
 )

@@ -124,28 +124,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate, DockObserverDelegate,
     
     private func setupPreviewPanel() {
         dockObserver.previewPanel = previewPanel
-        previewPanel.onMouseEntered = { [weak self] in
-            guard let self = self else { return }
-            self.dockObserver.isMouseInsidePanel = true
-            self.dockObserver.cancelDismissal()
+        let recheckPointer: () -> Void = { [weak self] in
+            self?.dockObserver.recheckPointerPosition()
         }
-        previewPanel.onMouseMoved = { [weak self] in
-            guard let self = self else { return }
-            self.dockObserver.isMouseInsidePanel = true
-            self.dockObserver.cancelDismissal()
-        }
-        previewPanel.onMouseExited = { [weak self] in
-            guard let self = self else { return }
-            self.dockObserver.isMouseInsidePanel = false
-            let mousePt = NSEvent.mouseLocation
-            if let dockFrame = self.dockObserver.currentDockItemFrame {
-                let corridor = self.dockObserver.transitCorridor(between: dockFrame, and: self.previewPanel.frame)
-                if corridor.contains(mousePt) {
-                    return
-                }
-            }
-            self.dockObserver.scheduleDismissal(delay: 0.6)
-        }
+        previewPanel.onMouseEntered = recheckPointer
+        previewPanel.onMouseMoved = recheckPointer
+        previewPanel.onMouseExited = recheckPointer
     }
     
     // MARK: - DockObserverDelegate
