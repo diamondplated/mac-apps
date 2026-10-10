@@ -3,7 +3,52 @@ import MacToolsCore
 import SwiftUI
 
 private enum LibrarySelection: Hashable {
-    case all, installed, settings, updates, app(ManagedApp)
+    case all, installed, settings, updates, app(ManagedApp), utility(UtilityTool)
+}
+
+private enum UtilityTool: String, CaseIterable, Identifiable {
+    case permissions, startup, sleep, storage, resources, network
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .permissions: "Permission Doctor"
+        case .startup: "Startup Detective"
+        case .sleep: "SleepPeek"
+        case .storage: "SpaceWatch"
+        case .resources: "HogWatch"
+        case .network: "NetPeek"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .permissions: "checkmark.shield"
+        case .startup: "sunrise"
+        case .sleep: "moon.zzz"
+        case .storage: "externaldrive"
+        case .resources: "chart.xyaxis.line"
+        case .network: "network"
+        }
+    }
+    var summary: String {
+        switch self {
+        case .permissions: "Get your tools working with the right access."
+        case .startup: "Find out what starts with your Mac."
+        case .sleep: "See what’s keeping your Mac awake."
+        case .storage: "Find large files and see what’s growing."
+        case .resources: "Spot apps that keep your Mac busy."
+        case .network: "Find where a connection breaks down."
+        }
+    }
+    var color: Color {
+        switch self {
+        case .permissions: .indigo
+        case .startup: .orange
+        case .sleep: .purple
+        case .storage: .teal
+        case .resources: .pink
+        case .network: .blue
+        }
+    }
 }
 
 struct LibraryView: View {
@@ -16,14 +61,19 @@ struct LibraryView: View {
         NavigationSplitView {
             List(selection: $selection) {
                 Section("Library") {
-                    Label("All Apps", systemImage: "square.grid.2x2")
-                        .badge(ManagedApp.allCases.count).tag(LibrarySelection.all)
+                    Label("Overview", systemImage: "square.grid.2x2")
+                        .badge(ManagedApp.allCases.count + UtilityTool.allCases.count).tag(LibrarySelection.all)
                     Label("Installed", systemImage: "checkmark.circle")
                         .badge(library.installedCount).tag(LibrarySelection.installed)
                 }
                 Section("Your Apps") {
                     ForEach(ManagedApp.allCases) { app in
                         Label(app.name, systemImage: app.symbolName).tag(LibrarySelection.app(app))
+                    }
+                }
+                Section("Utilities") {
+                    ForEach(UtilityTool.allCases) { tool in
+                        Label(tool.title, systemImage: tool.symbol).tag(LibrarySelection.utility(tool))
                     }
                 }
                 Section {
@@ -38,7 +88,7 @@ struct LibraryView: View {
                     Image(systemName: "square.stack.3d.up.fill").font(.title3).foregroundStyle(.indigo)
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Mac Tools").font(.headline)
-                        Text("A small collection for your Mac").font(.caption).foregroundStyle(.secondary)
+                        Text("Everyday tools, together").font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 0)
                 }.padding(16)
@@ -50,7 +100,8 @@ struct LibraryView: View {
                         ToolSettingsView(library: library)
                     } else if selection == .updates {
                         ManagerUpdatesView(updater: updater)
-                    } else if case let .app(app) = selection { detail(app) }
+                    } else if case let .utility(tool) = selection { utilityPage(tool) }
+                    else if case let .app(app) = selection { detail(app) }
                     else { collection }
                     activity
                 }
@@ -86,10 +137,11 @@ struct LibraryView: View {
     private var title: String {
         switch selection {
         case .app(let app): app.name
+        case .utility(let tool): tool.title
         case .installed: "Installed"
         case .settings: "Tool Settings"
         case .updates: "Mac Tools Updates"
-        default: "All Apps"
+        default: "Overview"
         }
     }
 
@@ -101,15 +153,17 @@ struct LibraryView: View {
     private var collection: some View {
         VStack(alignment: .leading, spacing: 24) {
             VStack(alignment: .leading, spacing: 8) {
-                Text(selection == .installed ? "Ready when you are." : "Make yourself at home.")
+                Text(selection == .installed ? "Ready when you are." : "Small tools. A calmer Mac.")
                     .font(.system(size: 31, weight: .bold, design: .rounded))
-                Text("Window previews and thoughtful screenshots. Keep your everyday tools together.")
+                Text("Capture, navigate, and make sense of your Mac. Your everyday tools, in one place.")
                     .font(.body).foregroundStyle(.secondary)
             }
             HStack(spacing: 0) {
-                metric("IN YOUR COLLECTION", value: "\(ManagedApp.allCases.count)", symbol: "square.grid.2x2")
+                metric("IN YOUR COLLECTION", value: "\(ManagedApp.allCases.count + UtilityTool.allCases.count)", symbol: "square.grid.2x2")
                 Divider().frame(height: 40).padding(.horizontal, 24)
                 metric("INSTALLED", value: "\(library.installedCount)", symbol: "checkmark.circle")
+                Divider().frame(height: 40).padding(.horizontal, 24)
+                metric("BUILT IN", value: "\(UtilityTool.allCases.count)", symbol: "sparkles")
                 Spacer()
                 if library.updateCount > 0 {
                     Button("Update All (\(library.updateCount))") { Task { await library.updateAll() } }
@@ -117,9 +171,21 @@ struct LibraryView: View {
                 }
             }.padding(22).background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 16))
             if visibleApps.isEmpty {
-                ContentUnavailableView("Your apps will appear here", systemImage: "tray", description: Text("Choose All Apps to install your first tool."))
+                ContentUnavailableView("Your apps will appear here", systemImage: "tray", description: Text("Choose Overview to install your first tool."))
             } else {
-                ForEach(visibleApps) { app in appCard(app) }
+                Text("Everyday apps").font(.title3.bold())
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 330), spacing: 16)], spacing: 16) {
+                    ForEach(visibleApps) { app in appCard(app) }
+                }
+            }
+            if selection != .installed {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Know your Mac").font(.title3.bold())
+                    Text("Six useful places to start when something feels off.").foregroundStyle(.secondary)
+                }
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 16)], spacing: 16) {
+                    ForEach(UtilityTool.allCases) { tool in utilityCard(tool) }
+                }
             }
             installDestination
             if library.installedCount < ManagedApp.allCases.count && ManagedApp.allCases.contains(where: {
@@ -156,12 +222,11 @@ struct LibraryView: View {
                     Text(app.summary).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
-            HStack(spacing: 8) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 105), alignment: .leading)], alignment: .leading, spacing: 8) {
                 ForEach(features(app), id: \.self) { feature in
                     Text(feature).font(.caption).padding(.horizontal, 10).padding(.vertical, 5)
                         .background(.quaternary.opacity(0.5), in: Capsule())
                 }
-                Spacer(minLength: 0)
             }
             Divider()
             HStack {
@@ -227,15 +292,19 @@ struct LibraryView: View {
             if state?.installedURL == nil { installDestination }
             VStack(alignment: .leading, spacing: 12) {
                 Text("Make it yours").font(.title3.bold())
-                Text(app == .dockPeek
-                     ? "Grant Accessibility and Screen Recording, then hover an app in your Dock. Use DockPeek’s menu bar icon for its permission status."
-                     : "Grant Screen Recording, then use ScreenWren’s menu bar icon to capture and annotate. Set shortcuts and launch at login in its Settings.")
+                Text(onboarding(app))
                     .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 HStack {
-                    if app == .dockPeek {
+                    if app == .dockPeek || app == .scrollSplit {
                         Button("Accessibility Settings") { library.openSettings("com.apple.preference.security?Privacy_Accessibility") }
                     }
-                    Button("Screen Recording Settings") { library.openSettings("com.apple.preference.security?Privacy_ScreenCapture") }
+                    if app == .dockPeek || app == .screenWren {
+                        Button("Screen Recording Settings") { library.openSettings("com.apple.preference.security?Privacy_ScreenCapture") }
+                    }
+                    if app == .scrollSplit {
+                        Button("Input Monitoring") { library.openSettings("com.apple.preference.security?Privacy_ListenEvent") }
+                    }
+                    Button("Check Setup") { selection = .utility(.permissions) }
                     Button("Login Items") { library.openSettings("com.apple.LoginItems-Settings.extension") }
                 }.buttonStyle(.bordered)
             }
@@ -298,7 +367,7 @@ struct LibraryView: View {
             } else {
                 Image(systemName: app.symbolName).font(.system(size: size * 0.46, weight: .medium))
                     .foregroundStyle(.white).frame(width: size, height: size)
-                    .background(LinearGradient(colors: app == .dockPeek ? [.indigo, .blue] : [.teal, .cyan], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: size * 0.23))
+                    .background(LinearGradient(colors: appColors(app), startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: size * 0.23))
             }
         }.frame(width: size, height: size).accessibilityHidden(true)
     }
@@ -311,7 +380,64 @@ struct LibraryView: View {
     }
 
     private func features(_ app: ManagedApp) -> [String] {
-        app == .dockPeek ? ["Live previews", "Window switching", "Browser tabs"] : ["Region & window capture", "Markup", "Text recognition"]
+        switch app {
+        case .dockPeek: ["Live previews", "Window switching", "Browser tabs"]
+        case .screenWren: ["Region & window capture", "Markup", "Text recognition"]
+        case .scrollSplit: ["Mouse direction", "Wheel speed", "Trackpad preserved"]
+        case .linkRoutes: ["Domain rules", "Browser profiles", "Link preview"]
+        }
+    }
+
+    private func appColors(_ app: ManagedApp) -> [Color] {
+        switch app {
+        case .dockPeek: [.indigo, .blue]
+        case .screenWren: [.teal, .cyan]
+        case .scrollSplit: [.teal, .green]
+        case .linkRoutes: [.indigo, .purple]
+        }
+    }
+
+    private func onboarding(_ app: ManagedApp) -> String {
+        switch app {
+        case .dockPeek: "Grant Accessibility and Screen Recording, then hover an app in your Dock. Use DockPeek’s menu bar icon for its permission status."
+        case .screenWren: "Grant Screen Recording, then capture and annotate from the menu bar. Set shortcuts and launch at login in Tool Settings."
+        case .scrollSplit: "Open ScrollSplit to enable scrolling and grant its requested access. Set wheel direction and speed in Tool Settings. Smooth scrolling devices pass through unchanged."
+        case .linkRoutes: "Choose browsers and domain rules in Tool Settings. Open LinkRoutes to make it your default link handler when you’re ready."
+        }
+    }
+
+    private func utilityCard(_ tool: UtilityTool) -> some View {
+        Button { selection = .utility(tool) } label: {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    Image(systemName: tool.symbol).font(.system(size: 23, weight: .medium))
+                        .foregroundStyle(tool.color).frame(width: 48, height: 48)
+                        .background(tool.color.opacity(0.10), in: RoundedRectangle(cornerRadius: 13))
+                    Spacer()
+                    Image(systemName: "arrow.up.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(tool.title).font(.headline).foregroundStyle(.primary)
+                    Text(tool.summary).font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Text("Included in Mac Tools").font(.caption).foregroundStyle(.tertiary)
+            }
+            .padding(22).frame(maxWidth: .infinity, minHeight: 192, alignment: .topLeading)
+            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 17))
+            .overlay(RoundedRectangle(cornerRadius: 17).strokeBorder(.quaternary, lineWidth: 1))
+        }.buttonStyle(.plain).accessibilityLabel("Open \(tool.title). \(tool.summary)")
+    }
+
+    @ViewBuilder private func utilityPage(_ tool: UtilityTool) -> some View {
+        switch tool {
+        case .permissions: PermissionDoctorView(library: library)
+        case .startup: StartupDetectiveView()
+        case .sleep: SleepPeekView()
+        case .storage: SpaceWatchView()
+        case .resources: HogWatchView()
+        case .network: NetPeekView()
+        }
     }
 
     private func versionDescription(_ state: ManagedAppState?) -> String {

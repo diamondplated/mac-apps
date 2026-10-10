@@ -52,7 +52,7 @@ jobs:
       - name: Test all apps
         shell: bash
         run: |
-          for package in DockPeek ScreenWren MacTools; do
+          for package in DockPeek ScreenWren ScrollSplit LinkRoutes MacTools; do
             swift test --package-path "$package" --parallel
           done
       - name: Build, verify, and optionally publish

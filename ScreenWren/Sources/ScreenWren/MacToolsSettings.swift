@@ -1,5 +1,6 @@
 import AppKit
 import Carbon
+import CoreGraphics
 
 /// Native preference access for the suite manager. No capture or application UI is started.
 @MainActor
@@ -39,6 +40,7 @@ struct MacToolsSettingsBridge {
         let aspectRatio: Double
         let presets: [SelectionPreset]
         let shortcuts: [ShortcutValue]
+        let permissions: [String: Bool]
     }
 
     struct Patch: Decodable {
@@ -58,13 +60,16 @@ struct MacToolsSettingsBridge {
     let loginState: () -> (enabled: Bool, status: String)
     let setLoginEnabled: (Bool) throws -> Void
     let notify: (Bool) -> Void
+    let permissionState: () -> [String: Bool]
 
     init(defaults: UserDefaults, loginState: @escaping () -> (enabled: Bool, status: String),
-         setLoginEnabled: @escaping (Bool) throws -> Void, notify: @escaping (Bool) -> Void = { _ in }) {
+         setLoginEnabled: @escaping (Bool) throws -> Void, notify: @escaping (Bool) -> Void = { _ in },
+         permissionState: @escaping () -> [String: Bool] = { ["screenRecording": CGPreflightScreenCaptureAccess()] }) {
         self.defaults = defaults
         self.loginState = loginState
         self.setLoginEnabled = setLoginEnabled
         self.notify = notify
+        self.permissionState = permissionState
     }
 
     static func isInstalledBundle(_ url: URL, homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) -> Bool {
@@ -104,7 +109,7 @@ struct MacToolsSettingsBridge {
                         aspectRatio: preferences.aspectRatio.map(Double.init) ?? 0, presets: preferences.presets,
                         shortcuts: ShortcutCommand.allCases.map {
             ShortcutValue(command: $0, title: $0.title, shortcut: shortcuts.shortcut(for: $0))
-        })
+        }, permissions: permissionState())
     }
 
     private func validateKeys(_ object: [String: Any], allowed: Set<String>, required: Set<String> = []) throws {

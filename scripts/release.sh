@@ -114,19 +114,39 @@ trap 'rm -rf "$WORK"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 mkdir -p "$WORK/payloads" "$WORK/output"
-# Fresh builds live separately; preserve the normal local ScreenWren signatures.
-"$PROJECT_DIR/DockPeek/build_app.sh" --no-install --arch universal
-ditto "$PROJECT_DIR/DockPeek/DockPeek.app" "$WORK/payloads/DockPeek.app"
-SCREEN_SOURCE="$WORK/ScreenWren"
-mkdir -p "$SCREEN_SOURCE"
-for path in Package.swift Sources Tests Resources Info.plist LoginItem-Info.plist build-app.sh; do
-    ditto "$PROJECT_DIR/ScreenWren/$path" "$SCREEN_SOURCE/$path"
+# Copy complete package inputs for each app without credentials, previous bundles,
+# worktrees, or caches. Resolve every target before building the isolated copy.
+build_isolated_payload() {
+    local name=$1 source_dir="$WORK/source/$1" build_script
+    mkdir -p "$source_dir"
+    for path in Package.swift Sources Tests; do
+        ditto "$PROJECT_DIR/$name/$path" "$source_dir/$path"
+    done
+    for path in Resources Package.resolved; do
+        if [ -e "$PROJECT_DIR/$name/$path" ]; then ditto "$PROJECT_DIR/$name/$path" "$source_dir/$path"; fi
+    done
+    if [ "$name" = DockPeek ]; then
+        build_script=build_app.sh
+    else
+        build_script=build-app.sh
+        ditto "$PROJECT_DIR/$name/Info.plist" "$source_dir/Info.plist"
+    fi
+    ditto "$PROJECT_DIR/$name/$build_script" "$source_dir/$build_script"
+    if [ "$name" = ScreenWren ]; then
+        ditto "$PROJECT_DIR/$name/LoginItem-Info.plist" "$source_dir/LoginItem-Info.plist"
+    fi
+    swift package --package-path "$source_dir" describe >/dev/null
+    if [ "$name" = DockPeek ]; then
+        "$source_dir/$build_script" --no-install --arch universal
+        ditto "$source_dir/DockPeek.app" "$WORK/payloads/DockPeek.app"
+    else
+        SCREENWREN_SIGNING_IDENTITY="$SIGNING_IDENTITY" SCREENWREN_SIGNING_TIMESTAMP="$SIGNING_TIMESTAMP" "$source_dir/$build_script"
+        ditto "$source_dir/dist/$name.app" "$WORK/payloads/$name.app"
+    fi
+}
+for name in DockPeek ScreenWren ScrollSplit LinkRoutes; do
+    build_isolated_payload "$name"
 done
-if [ -f "$PROJECT_DIR/ScreenWren/Package.resolved" ]; then cp "$PROJECT_DIR/ScreenWren/Package.resolved" "$SCREEN_SOURCE/Package.resolved"; fi
-# All declared targets must resolve in the isolated package, including test targets.
-swift package --package-path "$SCREEN_SOURCE" describe >/dev/null
-SCREENWREN_SIGNING_IDENTITY="$SIGNING_IDENTITY" SCREENWREN_SIGNING_TIMESTAMP="$SIGNING_TIMESTAMP" "$SCREEN_SOURCE/build-app.sh"
-ditto "$SCREEN_SOURCE/dist/ScreenWren.app" "$WORK/payloads/ScreenWren.app"
 
 notarize_and_staple() {
     local app=$1 name=$2 archive="$WORK/notary-$2.zip" result="$WORK/notary-$2.json"
@@ -147,11 +167,13 @@ PY
 if [ "$MODE" = notarized ]; then
     # Release-only DockPeek copy adopts Developer ID; its local TCC signature stays intact.
     codesign --force --options runtime --timestamp --sign "$SIGNING_IDENTITY" "$WORK/payloads/DockPeek.app"
-    notarize_and_staple "$WORK/payloads/DockPeek.app" DockPeek
-    notarize_and_staple "$WORK/payloads/ScreenWren.app" ScreenWren
+    for name in DockPeek ScreenWren ScrollSplit LinkRoutes; do
+        notarize_and_staple "$WORK/payloads/$name.app" "$name"
+    done
 fi
 MACTOOLS_DIST_DIR="$WORK/output" MACTOOLS_DOCKPEEK_APP="$WORK/payloads/DockPeek.app" \
 MACTOOLS_SCREENWREN_APP="$WORK/payloads/ScreenWren.app" \
+MACTOOLS_SCROLLSPLIT_APP="$WORK/payloads/ScrollSplit.app" MACTOOLS_LINKROUTES_APP="$WORK/payloads/LinkRoutes.app" \
 SCREENWREN_SIGNING_IDENTITY="$SIGNING_IDENTITY" SCREENWREN_SIGNING_TIMESTAMP="$SIGNING_TIMESTAMP" \
     "$PROJECT_DIR/build-app.sh" --reuse-payloads
 APP="$WORK/output/Mac Tools.app"
@@ -165,8 +187,15 @@ if [ "$MODE" = notarized ]; then
 else
     printf 'Locally signed; not notarized.\n\nThis build uses the project’s persistent local signing certificate. Gatekeeper trust on other Macs requires manual approval.\n' > "$WORK/output/RELEASE-NOTES.md"
 fi
+if [ -f "$PROJECT_DIR/docs/releases/$VERSION.md" ]; then
+    printf '\n' >> "$WORK/output/RELEASE-NOTES.md"
+    cat "$PROJECT_DIR/docs/releases/$VERSION.md" >> "$WORK/output/RELEASE-NOTES.md"
+fi
 codesign --verify --deep --strict "$APP"
-for name in DockPeek ScreenWren; do codesign --verify --deep --strict "$APP/Contents/Resources/Applications/$name.app"; done
+for name in DockPeek ScreenWren ScrollSplit LinkRoutes; do codesign --verify --deep --strict "$APP/Contents/Resources/Applications/$name.app"; done
+for name in ScreenWren ScrollSplit LinkRoutes; do
+    "$APP/Contents/Resources/Applications/$name.app/Contents/MacOS/$name" --self-check
+done
 unzip -tq "$ARCHIVE"
 mkdir "$WORK/roundtrip"
 ditto -x -k "$ARCHIVE" "$WORK/roundtrip"
@@ -193,11 +222,23 @@ assert e.get('url') == expected, 'Unexpected archive URL'
 assert e.get('length') == str(os.path.getsize(archive)), 'Archive size mismatch'
 assert e.get('{'+ns['sparkle']+'}edSignature') == open(archive + '.ed25519').read().strip(), 'Archive signature mismatch'
 PY
-python3 - "$WORK/output/release.json" "$VERSION" "$BUILD" "$MODE" "$SOURCE_REPOSITORY" "$(git -C "$PROJECT_DIR" rev-parse HEAD)" <<'PY'
-import json, sys
-path, version, build, mode, repository, revision=sys.argv[1:]
+python3 - "$WORK/output/release.json" "$VERSION" "$BUILD" "$MODE" "$SOURCE_REPOSITORY" "$(git -C "$PROJECT_DIR" rev-parse HEAD)" "$APP" <<'PY'
+import hashlib, json, pathlib, plistlib, sys
+path, version, build, mode, repository, revision, app=sys.argv[1:]
+managed_apps=[]
+for name in ['DockPeek','ScreenWren','ScrollSplit','LinkRoutes']:
+    bundle=pathlib.Path(app)/'Contents/Resources/Applications'/f'{name}.app'
+    with (bundle/'Contents/Info.plist').open('rb') as source:
+        info=plistlib.load(source)
+    digest=hashlib.sha256()
+    with (bundle/'Contents/MacOS'/name).open('rb') as binary:
+        for block in iter(lambda: binary.read(1024*1024), b''): digest.update(block)
+    managed_apps.append(dict(name=name, bundleIdentifier=info['CFBundleIdentifier'],
+        version=info['CFBundleShortVersionString'], build=info['CFBundleVersion'],
+        minimumSystemVersion=info['LSMinimumSystemVersion'], executableSHA256=digest.hexdigest()))
 with open(path,'w') as output:
-    json.dump(dict(version=version, build=int(build), signingMode=mode, sourceRepository=repository, sourceRevision=revision),output,indent=2)
+    json.dump(dict(version=version, build=int(build), signingMode=mode, sourceRepository=repository,
+        sourceRevision=revision, managedApps=managed_apps),output,indent=2)
 PY
 (cd "$WORK/output" && shasum -a 256 "Mac-Tools-$VERSION.zip" appcast.xml > SHA256SUMS)
 mv "$WORK/output" "$DESTINATION"

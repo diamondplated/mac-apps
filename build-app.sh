@@ -5,7 +5,19 @@ PROJECT_DIR=$(cd -- "$(dirname -- "$0")" && pwd)
 DIST_DIR=${MACTOOLS_DIST_DIR:-"$PROJECT_DIR/dist"}
 DOCKPEEK_APP=${MACTOOLS_DOCKPEEK_APP:-"$PROJECT_DIR/DockPeek/DockPeek.app"}
 SCREENWREN_APP=${MACTOOLS_SCREENWREN_APP:-"$PROJECT_DIR/ScreenWren/dist/ScreenWren.app"}
+SCROLLSPLIT_APP=${MACTOOLS_SCROLLSPLIT_APP:-"$PROJECT_DIR/ScrollSplit/dist/ScrollSplit.app"}
+LINKROUTES_APP=${MACTOOLS_LINKROUTES_APP:-"$PROJECT_DIR/LinkRoutes/dist/LinkRoutes.app"}
 APP_PATH="$DIST_DIR/Mac Tools.app"
+PAYLOAD_NAMES=(DockPeek ScreenWren ScrollSplit LinkRoutes)
+select_payload() {
+    case "$1" in
+        DockPeek) source_app="$DOCKPEEK_APP"; identifier=com.andrew.dockpeek; minimum=14.0 ;;
+        ScreenWren) source_app="$SCREENWREN_APP"; identifier=io.github.diamondplated.ScreenWren; minimum=26.0 ;;
+        ScrollSplit) source_app="$SCROLLSPLIT_APP"; identifier=com.andrew.scrollsplit; minimum=14.0 ;;
+        LinkRoutes) source_app="$LINKROUTES_APP"; identifier=com.andrew.linkroutes; minimum=14.0 ;;
+        *) echo "Unknown managed app: $1" >&2; exit 1 ;;
+    esac
+}
 REUSE_PAYLOADS=0
 case "${1:-}" in
     '') [ "$#" -eq 0 ] || exit 64 ;;
@@ -38,24 +50,24 @@ esac
 if [ "$REUSE_PAYLOADS" = 0 ]; then
     "$PROJECT_DIR/DockPeek/build_app.sh" --no-install --arch universal
     "$PROJECT_DIR/ScreenWren/build-app.sh"
+    "$PROJECT_DIR/ScrollSplit/build-app.sh"
+    "$PROJECT_DIR/LinkRoutes/build-app.sh"
 fi
 # Validate reused payloads before doing any compilation or signing.
-for name in DockPeek ScreenWren; do
-    if [ "$name" = DockPeek ]; then
-        source_app="$DOCKPEEK_APP"
-        identifier=com.andrew.dockpeek
-        minimum=14.0
-    else
-        source_app="$SCREENWREN_APP"
-        identifier=io.github.diamondplated.ScreenWren
-        minimum=26.0
-    fi
+for name in "${PAYLOAD_NAMES[@]}"; do
+    select_payload "$name"
     codesign --verify --deep --strict "$source_app"
     test "$(plutil -extract CFBundleIdentifier raw "$source_app/Contents/Info.plist")" = "$identifier"
     test "$(plutil -extract CFBundleExecutable raw "$source_app/Contents/Info.plist")" = "$name"
+    test "$(plutil -extract CFBundlePackageType raw "$source_app/Contents/Info.plist")" = APPL
+    test -n "$(plutil -extract CFBundleShortVersionString raw "$source_app/Contents/Info.plist")"
+    test -n "$(plutil -extract CFBundleVersion raw "$source_app/Contents/Info.plist")"
+    test "$(codesign -dv --verbose=4 "$source_app" 2>&1 | sed -n 's/^Identifier=//p')" = "$identifier"
     test "$(plutil -extract LSMinimumSystemVersion raw "$source_app/Contents/Info.plist")" = "$minimum"
     for architecture in arm64 x86_64; do
         lipo "$source_app/Contents/MacOS/$name" -verify_arch "$architecture"
+        binary_minimum=$(xcrun vtool -arch "$architecture" -show-build "$source_app/Contents/MacOS/$name" | awk '$1 == "minos" { print $2 }')
+        test "$binary_minimum" = "$minimum"
     done
 done
 HELPER="$SCREENWREN_APP/Contents/Library/LoginItems/ScreenWrenLoginItem.app"
@@ -107,16 +119,8 @@ for architecture in arm64 x86_64; do
     test "$binary_minimum" = 14.0
 done
 
-for name in DockPeek ScreenWren; do
-    if [ "$name" = DockPeek ]; then
-        source_app="$DOCKPEEK_APP"
-        identifier=com.andrew.dockpeek
-        minimum=14.0
-    else
-        source_app="$SCREENWREN_APP"
-        identifier=io.github.diamondplated.ScreenWren
-        minimum=26.0
-    fi
+for name in "${PAYLOAD_NAMES[@]}"; do
+    select_payload "$name"
     codesign --verify --deep --strict "$source_app"
     test "$(plutil -extract CFBundleIdentifier raw "$source_app/Contents/Info.plist")" = "$identifier"
     test "$(plutil -extract LSMinimumSystemVersion raw "$source_app/Contents/Info.plist")" = "$minimum"
@@ -167,13 +171,15 @@ else
     codesign --force --options runtime --sign "$SIGNING_IDENTITY" "$TIMESTAMP_OPTION" ${MANAGER_ENTITLEMENTS[@]+"${MANAGER_ENTITLEMENTS[@]}"} "$STAGING_APP"
 fi
 codesign --verify --deep --strict "$STAGING_APP"
-for name in DockPeek ScreenWren; do
+for name in "${PAYLOAD_NAMES[@]}"; do
     embedded="$STAGING_APP/Contents/Resources/Applications/$name.app"
     codesign --verify --deep --strict "$embedded"
 done
 # Confirm packaging and enclosing-signature creation did not alter any payload bytes.
-python3 "$PROJECT_DIR/scripts/compare-bundles.py" "$DOCKPEEK_APP" "$STAGING_APP/Contents/Resources/Applications/DockPeek.app"
-python3 "$PROJECT_DIR/scripts/compare-bundles.py" "$SCREENWREN_APP" "$STAGING_APP/Contents/Resources/Applications/ScreenWren.app"
+for name in "${PAYLOAD_NAMES[@]}"; do
+    select_payload "$name"
+    python3 "$PROJECT_DIR/scripts/compare-bundles.py" "$source_app" "$STAGING_APP/Contents/Resources/Applications/$name.app"
+done
 
 ARCHIVE_NAME="Mac-Tools-$VERSION.zip"
 ditto -c -k --sequesterRsrc --keepParent "$STAGING_APP" "$STAGING_DIR/$ARCHIVE_NAME"

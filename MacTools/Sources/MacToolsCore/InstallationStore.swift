@@ -1,3 +1,4 @@
+import CoreFoundation
 import CryptoKit
 import Foundation
 
@@ -10,6 +11,7 @@ struct InstallationStore: @unchecked Sendable {
     var verifySignature: @Sendable (URL, ManagedApp) throws -> Void = Self.checkSignature
     var copy: @Sendable (URL, URL) throws -> Void = { try FileManager.default.copyItem(at: $0, to: $1) }
     var trash: @Sendable (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
+    var removeTransaction: @Sendable (URL) throws -> Void = { try FileManager.default.removeItem(at: $0) }
     var settingsTimeout: TimeInterval = 15
 
     struct Metadata {
@@ -138,8 +140,12 @@ struct InstallationStore: @unchecked Sendable {
             }
             throw originalError
         }
-        // A cleanup failure does not invalidate a successfully verified installation.
-        try? FileManager.default.removeItem(at: transaction)
+        // The verified target stays installed, but a displaced registered bundle
+        // must not be left behind silently: removing it later can affect login state.
+        do { try removeTransaction(transaction) }
+        catch {
+            throw AppManagerError.message("\(app.name) was installed successfully, but its previous copy could not be removed at \(transaction.path): \(error.localizedDescription). Remove that recovery folder, then verify launch at login in settings.")
+        }
     }
 
     func uninstall(_ app: ManagedApp) throws {
@@ -207,6 +213,33 @@ struct InstallationStore: @unchecked Sendable {
             throw AppManagerError.message("\(app.name) returned an invalid settings response. Update the app and try again.")
         }
         return response
+    }
+
+    /// ServiceManagement registration belongs to the bundle on disk, not UserDefaults.
+    /// Capture it before moving that bundle and restore only an explicit enabled choice.
+    func loginRegistrationToPreserve(_ app: ManagedApp) throws -> Bool {
+        guard let installed = try existing(app) else { return false }
+        let data = try Data(contentsOf: installed.appendingPathComponent("Contents/Info.plist"))
+        let info = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+        // Older apps have no safe headless endpoint. Never launch their GUI as a probe.
+        guard info?["MacToolsSettingsProtocolVersion"] as? Int == 1 else { return false }
+        return try Self.loginEnabled(in: settings(app))
+    }
+
+    func restoreLoginRegistration(_ app: ManagedApp) throws {
+        let response = try settings(app, patch: Data(#"{"launchAtLogin":true}"#.utf8))
+        guard try Self.loginEnabled(in: response) else {
+            throw AppManagerError.message("\(app.name)'s launch at login registration needs attention. Enable it in the app's settings and approve it in System Settings if requested.")
+        }
+    }
+
+    static func loginEnabled(in data: Data) throws -> Bool {
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let value = json["launchAtLogin"] as? NSNumber,
+              CFGetTypeID(value) == CFBooleanGetTypeID() else {
+            throw AppManagerError.message("The app did not report a valid launch at login state.")
+        }
+        return value.boolValue
     }
 
     func fingerprint(_ url: URL) throws -> String {

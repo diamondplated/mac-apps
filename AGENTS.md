@@ -2,7 +2,7 @@
 
 - Preserve Andrew's selected model and reasoning effort; keep work bounded and
   reuse successful verification unless subsequent changes justify repeating it.
-- This repository owns Mac Tools, DockPeek, and ScreenWren. Do not make new
+- This repository owns Mac Tools, DockPeek, ScreenWren, ScrollSplit, and LinkRoutes. Do not make new
   development changes in the previous standalone ScreenWren checkout.
 - Follow `ScreenWren/AGENTS.md` for its persistent signing and interactive
   installation workflow. Never commit local signing configuration or credentials.
