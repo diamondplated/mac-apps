@@ -1,7 +1,10 @@
 # Mac Tools
 
 One native macOS app to install, update, open, and configure **DockPeek** and
-**ScreenWren**. Their source, tests, packaging, and manager live in this repository.
+**ScreenWren**. Their source, tests, packaging, and manager live in this private repository.
+Public downloads and automatic updates use
+[diamondplated/mac-tools-releases](https://github.com/diamondplated/mac-tools-releases/releases),
+a separate repository containing release artifacts, not app source.
 
 | App | What it does | Requires |
 | --- | --- | --- |
@@ -10,6 +13,12 @@ One native macOS app to install, update, open, and configure **DockPeek** and
 | [ScreenWren](ScreenWren/README.md) | Precise screenshots, markup, redaction, and text recognition | macOS 26+ |
 
 ## Use the manager
+
+Get **Mac Tools.app** from the [public downloads](https://github.com/diamondplated/mac-tools-releases/releases).
+The 1.1.0 distribution (build 2) uses the persistent local signing certificate and
+is **not notarized**. Its update feed and archives are also signed with the
+project's separate Sparkle key. Initial installation on another Mac may require
+manual approval in macOS Privacy & Security.
 
 Open **Mac Tools.app** and choose **All Apps**. Each app has Install/Update and
 Open actions. Its detail page adds Quit, Show in Finder, Settings, and Uninstall.
@@ -77,7 +86,9 @@ Local signed builds are not automatically notarized.
 The manager's pinned Sparkle dependency is downloaded during the first build.
 The update signing key is stored in the native Keychain, separate from the app's
 code-signing certificate. See [release packaging](docs/RELEASING.md) for Developer
-ID signing, notarization, signed feeds, and publication.
+ID signing, notarization, signed feeds, and publication to the public downloads
+repository. Developer ID credentials are not currently provisioned; the notarized
+release command fails until they are available.
 
 To reuse already verified Universal 2 tool builds when changing only the manager:
 

@@ -79,14 +79,10 @@ final class UpdaterConfigurationTests: XCTestCase {
         XCTAssertEqual(info["SUVerifyUpdateBeforeExtraction"] as? Bool, true)
         XCTAssertEqual(info["SURequireSignedFeed"] as? Bool, true)
         XCTAssertEqual(info["SUSignedFeedFailureExpirationInterval"] as? Int, 0)
-        // A build without release hosting must remain disabled, rather than contacting
-        // the private source repository or silently falling back to an unsigned feed.
-        if (info["SUFeedURL"] as? String)?.isEmpty == true {
-            XCTAssertNotNil(UpdateConfiguration.unavailableReason(bundleURL: bundleURL, info: info))
-        } else {
-            XCTAssertNil(UpdateConfiguration.unavailableReason(bundleURL: bundleURL, info: info))
-            XCTAssertNotNil(UpdateConfiguration.trustedHTTPSURL(info["MacToolsReleasesURL"]))
-        }
+        XCTAssertEqual(info["SUFeedURL"] as? String, "https://github.com/diamondplated/mac-tools-releases/releases/latest/download/appcast.xml")
+        XCTAssertEqual(info["MacToolsReleasesURL"] as? String, "https://github.com/diamondplated/mac-tools-releases/releases")
+        XCTAssertNil(UpdateConfiguration.unavailableReason(bundleURL: bundleURL, info: info))
+        XCTAssertNotNil(UpdateConfiguration.trustedHTTPSURL(info["MacToolsReleasesURL"]))
     }
 
     @MainActor

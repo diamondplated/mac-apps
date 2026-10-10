@@ -15,9 +15,8 @@
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
-    <!-- Release hosting is pending. The empty URL keeps updates disabled until configured. -->
-    <key>SUFeedURL</key><string></string>
-    <key>MacToolsReleasesURL</key><string></string>
+    <key>SUFeedURL</key><string>https://github.com/diamondplated/mac-tools-releases/releases/latest/download/appcast.xml</string>
+    <key>MacToolsReleasesURL</key><string>https://github.com/diamondplated/mac-tools-releases/releases</string>
     <key>SUPublicEDKey</key><string>Sme1tNynNNJGZWUU6LwNDbWGLOlqoQMjsmtjubvr4+o=</string>
     <key>SUEnableAutomaticChecks</key><true/>
     <key>SUScheduledCheckInterval</key><integer>86400</integer>

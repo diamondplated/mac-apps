@@ -201,12 +201,24 @@ PY
 mv "$WORK/output" "$DESTINATION"
 echo "Verified $MODE release: $DESTINATION"
 if [ "$PUBLISH" = 1 ]; then
-    # The single publication step follows all signature, archive, and (when requested)
-    # notarization/Gatekeeper checks. Never overwrite an existing release or asset.
+    # Upload into a draft so /latest cannot expose a partially uploaded update.
+    # Never overwrite an existing release or asset; failed uploads leave a draft.
     TARGET_ARGS=()
     if [ "$RELEASE_REPOSITORY" = "$SOURCE_REPOSITORY" ]; then TARGET_ARGS=(--target "$(git -C "$PROJECT_DIR" rev-parse HEAD)"); fi
-    gh release create "v$VERSION" --repo "$RELEASE_REPOSITORY" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"} \
+    gh release create "v$VERSION" --draft --repo "$RELEASE_REPOSITORY" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"} \
         --title "Mac Tools $VERSION" --notes-file "$DESTINATION/RELEASE-NOTES.md" \
         "$DESTINATION/Mac-Tools-$VERSION.zip" "$DESTINATION/appcast.xml" \
         "$DESTINATION/Mac-Tools-$VERSION.md" "$DESTINATION/Mac-Tools-$VERSION.zip.ed25519" "$DESTINATION/SHA256SUMS" "$DESTINATION/release.json"
+    python3 - "$RELEASE_REPOSITORY" "$VERSION" "$DESTINATION" <<'PY'
+import json, pathlib, subprocess, sys
+repository, version, directory=sys.argv[1:]
+release=json.loads(subprocess.check_output(['gh','api',f'repos/{repository}/releases/tags/v{version}']))
+if not release['draft']: raise SystemExit('Expected an unpublished draft release.')
+assets={asset['name']:asset for asset in release['assets']}
+for name in [f'Mac-Tools-{version}.zip','appcast.xml',f'Mac-Tools-{version}.md',f'Mac-Tools-{version}.zip.ed25519','SHA256SUMS','release.json']:
+    asset=assets.get(name)
+    if not asset or asset.get('state') != 'uploaded' or asset['size'] != (pathlib.Path(directory)/name).stat().st_size:
+        raise SystemExit('Release asset missing or incomplete; draft retained: ' + name)
+PY
+    gh release edit "v$VERSION" --repo "$RELEASE_REPOSITORY" --draft=false --latest
 fi
