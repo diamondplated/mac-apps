@@ -10,7 +10,7 @@ final class ToolPreferencesTests: XCTestCase {
     override func setUp() {
         suite = "DockPeekTests.\(UUID().uuidString)"
         defaults = UserDefaults(suiteName: suite)!
-        preferences = ToolPreferences(defaults: defaults)
+        preferences = ToolPreferences(defaults: defaults, permissionState: { ["accessibility": true, "screenRecording": false] })
     }
     override func tearDown() {
         defaults.removePersistentDomain(forName: suite)
@@ -38,6 +38,15 @@ final class ToolPreferencesTests: XCTestCase {
         XCTAssertEqual(reloaded.dismissalDelay, 1.25)
         XCTAssertEqual(requestedLogin, true)
         XCTAssertNil(defaults.object(forKey: "launchAtLogin"))
+    }
+    func testSnapshotIncludesReadOnlyOwnProcessPermissionEvidence() throws {
+        let before = defaults.dictionaryRepresentation() as NSDictionary
+        let data = try JSONEncoder().encode(preferences.snapshot(loginStatus: .notRegistered))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let permissions = try XCTUnwrap(json["permissions"] as? [String: Bool])
+        XCTAssertEqual(permissions, ["accessibility": true, "screenRecording": false])
+        XCTAssertEqual(defaults.dictionaryRepresentation() as NSDictionary, before)
+        XCTAssertThrowsError(try patch(#"{"permissions":{"screenRecording":true}}"#))
     }
     func testMalformedPatchesDoNotPartiallyApply() {
         let invalid = [

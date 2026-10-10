@@ -26,6 +26,49 @@ if [ -e "$INSTALLED_APP" ] || [ -L "$INSTALLED_APP" ]; then
     test "$(plutil -extract CFBundleIdentifier raw "$INSTALLED_APP/Contents/Info.plist")" = com.andrew.mactools
 fi
 
+# LaunchServices changes to a manager build may affect its embedded app identities.
+# Preserve the enabled registrations of actual installed tools, never payloads.
+LOGIN_APPS=()
+snapshot_tool_login() {
+    local app identifier executable app_key snapshot enabled
+    for app in /Applications/*.app "$HOME"/Applications/*.app; do
+        [ -d "$app" ] && [ ! -L "$app" ] || continue
+        identifier=$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist" 2>/dev/null || true)
+        case "$identifier" in
+            com.andrew.dockpeek) executable=DockPeek; app_key=dockPeek ;;
+            io.github.diamondplated.ScreenWren) executable=ScreenWren; app_key=screenWren ;;
+            com.andrew.scrollsplit) executable=ScrollSplit; app_key=scrollSplit ;;
+            com.andrew.linkroutes) executable=LinkRoutes; app_key=linkRoutes ;;
+            *) continue ;;
+        esac
+        [ "$(plutil -extract MacToolsSettingsProtocolVersion raw "$app/Contents/Info.plist" 2>/dev/null || true)" = 1 ] || continue
+        test "$(plutil -extract CFBundleExecutable raw "$app/Contents/Info.plist")" = "$executable"
+        codesign --verify --deep --strict "$app"
+        snapshot=$("$app/Contents/MacOS/$executable" --mac-tools-settings read)
+        test "$(printf '%s' "$snapshot" | plutil -extract schemaVersion raw -o - -)" = 1
+        test "$(printf '%s' "$snapshot" | plutil -extract app raw -o - -)" = "$app_key"
+        enabled=$(printf '%s' "$snapshot" | plutil -extract launchAtLogin raw -expect bool -o - -)
+        case "$enabled" in
+            true) LOGIN_APPS+=("$app/Contents/MacOS/$executable") ;;
+            false) ;;
+            *) echo "$executable did not report a valid launch at login state; installation stopped." >&2; return 1 ;;
+        esac
+    done
+}
+restore_tool_login() {
+    local executable snapshot failed=0
+    for executable in ${LOGIN_APPS[@]+"${LOGIN_APPS[@]}"}; do
+        if ! snapshot=$(printf '%s' '{"launchAtLogin":true}' | "$executable" --mac-tools-settings write) ||
+           [ "$(printf '%s' "$snapshot" | plutil -extract launchAtLogin raw -expect bool -o - -)" != true ]; then
+            echo "Could not preserve launch at login for $executable. Enable it in Mac Tools settings and approve it in System Settings if requested." >&2
+            failed=1
+        fi
+    done
+    return "$failed"
+}
+snapshot_tool_login
+REGISTRATION_MAY_CHANGE=0
+
 STAGING_DIR=$(mktemp -d /Applications/.mactools-install.XXXXXX)
 INSTALL_COMMITTED=0
 APP_PLACED=0
@@ -45,6 +88,9 @@ cleanup() {
         fi
     fi
     rm -rf "$STAGING_DIR"
+    if [ "$REGISTRATION_MAY_CHANGE" = 1 ]; then
+        restore_tool_login || status=1
+    fi
     exit "$status"
 }
 trap cleanup EXIT
@@ -68,6 +114,7 @@ if [ -n "$RUNNING_PIDS" ]; then
         sleep 0.1
     done
 fi
+REGISTRATION_MAY_CHANGE=1
 if [ -d "$INSTALLED_APP" ]; then
     mkdir -p "$PROJECT_DIR/dist"
     ditto -c -k --sequesterRsrc --keepParent "$INSTALLED_APP" \
@@ -78,8 +125,13 @@ mv "$STAGING_DIR/Mac Tools.app" "$INSTALLED_APP"
 APP_PLACED=1
 validate_app "$INSTALLED_APP"
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+REGISTRATION_MAY_CHANGE=1
 "$LSREGISTER" -u "$SOURCE_APP" || true
 "$LSREGISTER" -f "$INSTALLED_APP"
 INSTALL_COMMITTED=1
+# Finish removing displaced payload copies before re-registering installed tools.
+if [ -d "$STAGING_DIR/previous.app" ]; then rm -rf "$STAGING_DIR/previous.app"; fi
+REGISTRATION_MAY_CHANGE=0
+restore_tool_login
 open "$INSTALLED_APP"
 echo "Installed and opened $INSTALLED_APP"

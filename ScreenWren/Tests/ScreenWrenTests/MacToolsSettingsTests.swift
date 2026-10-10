@@ -12,7 +12,7 @@ final class MacToolsSettingsTests: XCTestCase {
         var enabled = false
         let bridge = MacToolsSettingsBridge(defaults: defaults,
             loginState: { (enabled, enabled ? "On" : "Off") },
-            setLoginEnabled: { enabled = $0; calls += 1 })
+            setLoginEnabled: { enabled = $0; calls += 1 }, permissionState: { ["screenRecording": false] })
         try body(bridge, defaults, { calls })
     }
 
@@ -55,6 +55,7 @@ final class MacToolsSettingsTests: XCTestCase {
                 #"{"showsThumbnail":1}"#,
                 #"{"showsThumbnail":null}"#,
                 #"{"unknown":true}"#,
+                #"{"permissions":{"screenRecording":true}}"#,
                 #"{"selectionWidth":10}"#,
                 #"{"selectionWidth":3,"selectionHeight":100}"#,
                 #"{"aspectRatio":101}"#,
@@ -97,12 +98,23 @@ final class MacToolsSettingsTests: XCTestCase {
         var notifications: [Bool] = []
         let bridge = MacToolsSettingsBridge(defaults: defaults, loginState: { (false, "Off") },
             setLoginEnabled: { _ in throw MacToolsSettingsBridge.Failure(message: "Denied") },
-            notify: { notifications.append($0) })
+            notify: { notifications.append($0) }, permissionState: { ["screenRecording": false] })
         XCTAssertThrowsError(try bridge.write(Data(#"{"showsThumbnail":true,"launchAtLogin":true}"#.utf8)))
         XCTAssertFalse(WorkflowPreferences(defaults: defaults).showsThumbnail)
         XCTAssertTrue(notifications.isEmpty)
         _ = try bridge.write(Data(#"{"showsThumbnail":true}"#.utf8))
         _ = try bridge.write(Data(#"{"resetShortcuts":true}"#.utf8))
         XCTAssertEqual(notifications, [false, true])
+    }
+
+    @MainActor func testSnapshotIncludesReadOnlyOwnProcessPermissionEvidence() throws {
+        try withBridge { bridge, defaults, calls in
+            let before = defaults.dictionaryRepresentation() as NSDictionary
+            let data = try JSONEncoder().encode(bridge.snapshot())
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            XCTAssertEqual(json["permissions"] as? [String: Bool], ["screenRecording": false])
+            XCTAssertEqual(defaults.dictionaryRepresentation() as NSDictionary, before)
+            XCTAssertEqual(calls(), 0)
+        }
     }
 }

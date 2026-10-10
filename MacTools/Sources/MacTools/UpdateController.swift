@@ -97,7 +97,7 @@ struct ManagerUpdatesView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
             }.disabled(!updater.isConfigured)
-            Text("New Mac Tools releases include newer versions of DockPeek and ScreenWren. Choose Update in All Apps when you’re ready to update your installed tools.")
+            Text("New releases include updated versions of your apps and built-in utilities. Choose Update in Overview when you’re ready to update installed apps.")
                 .foregroundStyle(.secondary)
             HStack(spacing: 14) {
                 Button("Check for Updates…", action: updater.checkForUpdates)

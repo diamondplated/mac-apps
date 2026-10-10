@@ -1,6 +1,8 @@
 import Foundation
 import CoreFoundation
 import ServiceManagement
+import ApplicationServices
+import CoreGraphics
 
 struct DockPeekSettingsSnapshot: Encodable {
     let schemaVersion = 1
@@ -10,6 +12,7 @@ struct DockPeekSettingsSnapshot: Encodable {
     let previewsEnabled: Bool
     let showsTabs: Bool
     let dismissalDelay: Double
+    let permissions: [String: Bool]
 }
 
 struct DockPeekSettingsPatch {
@@ -60,8 +63,15 @@ final class ToolPreferences {
     static let changedNotification = Notification.Name("com.andrew.mactools.settingsChanged")
     static let bundleIdentifier = "com.andrew.dockpeek"
     private let defaults: UserDefaults
+    private let permissionState: () -> [String: Bool]
 
-    init(defaults: UserDefaults = .standard) { self.defaults = defaults }
+    init(defaults: UserDefaults = .standard, permissionState: @escaping () -> [String: Bool] = {
+        // Preflight only: the settings CLI must never request permission or capture content.
+        ["accessibility": AXIsProcessTrusted(), "screenRecording": CGPreflightScreenCaptureAccess()]
+    }) {
+        self.defaults = defaults
+        self.permissionState = permissionState
+    }
 
     var previewsEnabled: Bool { defaults.object(forKey: "previewsEnabled") as? Bool ?? true }
     var showsTabs: Bool { defaults.object(forKey: "showsTabs") as? Bool ?? true }
@@ -84,7 +94,8 @@ final class ToolPreferences {
         }
         return DockPeekSettingsSnapshot(
             launchAtLogin: loginStatus == .enabled, loginStatus: status,
-            previewsEnabled: previewsEnabled, showsTabs: showsTabs, dismissalDelay: dismissalDelay
+            previewsEnabled: previewsEnabled, showsTabs: showsTabs, dismissalDelay: dismissalDelay,
+            permissions: permissionState()
         )
     }
 

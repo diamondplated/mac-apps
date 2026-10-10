@@ -17,6 +17,53 @@ struct ToolSettingsSnapshot: Decodable {
     var aspectRatio: Double?
     var presets: [SizePreset]?
     var shortcuts: [ToolShortcut]?
+    var enabled: Bool?
+    var reverseVertical: Bool?
+    var reverseHorizontal: Bool?
+    var speedMultiplier: Double?
+    var permissions: [String: Bool]?
+    var permissionsSource: String?
+    var eventTapStatus: String?
+
+    var hasLiveScrollPermissions: Bool { permissionsSource == "runningApp" }
+    var liveEventTapActive: Bool? { hasLiveScrollPermissions ? permissions?["eventTapActive"] : nil }
+    var scrollPermissionContext: String {
+        if hasLiveScrollPermissions { return "Reported by the running ScrollSplit app." }
+        switch eventTapStatus {
+        case "differentCopyRunning": return "A different copy of ScrollSplit is running. Open the installed copy to check its permissions."
+        case "ambiguousCopies": return "Multiple copies of ScrollSplit are running. Quit the extra copies, then open the installed app."
+        case "notRunning": return "ScrollSplit is not running. Open it to check its permissions."
+        default:
+            return permissionsSource == "currentProcess"
+                ? "These checks came from a diagnostic process. Open ScrollSplit to check permissions for the running app."
+                : "Running app permissions are unavailable. Open ScrollSplit to check them."
+        }
+    }
+    var defaultBrowserIdentifier: String?
+    var rules: [BrowserRouteRule]?
+    var availableBrowsers: [AvailableBrowser]?
+    var isDefaultBrowser: Bool?
+}
+
+struct BrowserRouteRule: Codable, Equatable, Identifiable {
+    var id: String = UUID().uuidString
+    var domain: String
+    var includeSubdomains: Bool = true
+    var browserIdentifier: String
+    var profileDirectory: String?
+}
+
+struct AvailableBrowser: Decodable, Identifiable {
+    let identifier: String
+    let name: String
+    let profiles: [BrowserProfile]
+    var id: String { identifier }
+}
+
+struct BrowserProfile: Decodable, Identifiable {
+    let directory: String
+    let name: String
+    var id: String { directory }
 }
 
 struct SizePreset: Codable, Equatable, Identifiable {
@@ -56,7 +103,22 @@ final class ToolSettingsModel: ObservableObject {
     @Published var saving = false
     @Published var message: String?
     @Published var error: String?
+    @Published var routeRules: [BrowserRouteRule] = []
+    @Published private(set) var savedRouteRules: [BrowserRouteRule] = []
+    var hasUnsavedRoutes: Bool { routeRules != savedRouteRules }
     private var requestGeneration = 0
+
+    func synchronizeRouteDraft(_ rules: [BrowserRouteRule]) {
+        guard !hasUnsavedRoutes else { return }
+        acceptSavedRoutes(rules)
+    }
+
+    func acceptSavedRoutes(_ rules: [BrowserRouteRule]) {
+        routeRules = rules
+        savedRouteRules = rules
+    }
+
+    func discardRouteChanges() { routeRules = savedRouteRules }
 
     func load(_ app: ManagedApp, library: LibraryModel) async {
         guard !saving, !loading, !library.isBusy else { return }

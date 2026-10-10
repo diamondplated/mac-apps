@@ -1,7 +1,8 @@
 # Mac Tools
 
-One native macOS app to install, update, open, and configure **DockPeek** and
-**ScreenWren**. Their source, tests, packaging, and manager live in this private repository.
+One native macOS app to install, update, open, and configure **DockPeek**,
+**ScreenWren**, **ScrollSplit**, and **LinkRoutes**, with six built-in diagnostic
+workspaces. Their source, tests, packaging, and manager live in this private repository.
 Public downloads and automatic updates use
 [diamondplated/mac-tools-releases](https://github.com/diamondplated/mac-tools-releases/releases),
 a separate repository containing release artifacts, not app source.
@@ -11,18 +12,26 @@ a separate repository containing release artifacts, not app source.
 | Mac Tools | Install apps and manage all tool settings | macOS 14+ |
 | [DockPeek](DockPeek/README.md) | Live Dock window previews, switching, and browser tabs | macOS 14+ |
 | [ScreenWren](ScreenWren/README.md) | Precise screenshots, markup, redaction, and text recognition | macOS 26+ |
+| [ScrollSplit](ScrollSplit/README.md) | Mouse-wheel direction and speed without changing trackpad gestures | macOS 14+ |
+| [LinkRoutes](LinkRoutes/README.md) | Send websites to chosen browsers and supported profiles | macOS 14+ |
+
+The manager includes **Permission Doctor**, **Startup Detective**, **SleepPeek**,
+**SpaceWatch**, **HogWatch**, and **NetPeek**. These utilities run in Mac Tools and
+do not need separate installation. See [the utility guide](docs/UTILITIES.md).
 
 ## Use the manager
 
 Get **Mac Tools.app** from the [public downloads](https://github.com/diamondplated/mac-tools-releases/releases).
-The 1.1.0 distribution (build 2) uses the persistent local signing certificate and
+The 1.2.0 distribution (build 3) uses the persistent local signing certificate and
 is **not notarized**. Its update feed and archives are also signed with the
 project's separate Sparkle key. Initial installation on another Mac may require
 manual approval in macOS Privacy & Security.
 
-Open **Mac Tools.app** and choose **All Apps**. Each app has Install/Update and
+Open **Mac Tools.app** and choose **Overview**. Each app has Install/Update and
 Open actions. Its detail page adds Quit, Show in Finder, Settings, and Uninstall.
 Uninstall moves the app to the Trash and keeps preferences and saved captures.
+Choose another default browser in LinkRoutes before uninstalling it if it is your
+current link handler; Mac Tools blocks removal until this is resolved.
 Updates quit a running app, replace its bundle, and reopen it. A failed update
 restores the previous bundle and reopens that copy.
 
@@ -31,7 +40,7 @@ Choose **Just Me** to install new apps in `~/Applications`, or **All Users** for
 bundles. A conflicting bundle or multiple installed copies must be resolved
 before installation; the manager never silently overwrites another app.
 
-The two app installers are included inside Mac Tools, so installing them works
+The four app installers are included inside Mac Tools, so installing them works
 offline and requires no development tools. Update Mac Tools itself to receive
 new included app versions. The manager compares versions/builds and app contents
 to recognize local rebuilds, and prevents downgrades. It reports unsupported
@@ -41,7 +50,7 @@ Choose **Mac Tools Updates** for automatic daily checks and optional automatic
 download and installation of manager updates. **Mac Tools → Check for Updates…**
 also checks on demand. Sparkle verifies both the update feed and downloaded
 archive against the release signing key. After a manager update, use **Update**
-in All Apps to install its newer tool versions.
+in Overview to install its newer tool versions.
 
 ## All tool settings
 
@@ -53,12 +62,18 @@ Settings use each tool's existing preferences and apply to running tools.
 - **ScreenWren:** launch at login, capture destination, quick-action thumbnail,
   selection adjustment, exact dimensions, aspect ratio, saved size presets,
   and all seven keyboard shortcuts, including clearing and restoring defaults.
+- **ScrollSplit:** startup, enable state, vertical/horizontal direction, mouse-wheel
+  speed, and current permission/runtime status. Open its native settings to enable
+  scrolling and approve any required macOS access.
+- **LinkRoutes:** startup, fallback browser, ordered domain rules, subdomain
+  matching, and supported browser profiles. Making it the default link handler is
+  an explicit action in its native settings.
 - **macOS permissions:** direct links to Accessibility, Screen Recording, and
   Login Items. macOS owns approval; the manager reports real login-item status.
 
 Tools must be installed from a current Mac Tools build to expose centralized
-settings. Their existing menus and preferences continue to work. Both menu bar
-apps also include **Manage in Mac Tools…**.
+settings. Their existing menus and preferences continue to work. Diagnostic
+options live in their utility pages, including watch controls and startup filters.
 
 ## Build and install from source
 
@@ -73,7 +88,7 @@ each tool's bundle identity and signing requirements.
 
 Output is `dist/Mac Tools.app` and `dist/Mac-Tools-<version>.zip`. The installer stages
 and verifies the manager, backs up an existing copy, installs to `/Applications`,
-and opens it. Use the manager to install or update the two tools.
+and opens it. Use the manager to install or update the four apps.
 
 ScreenWren uses its saved persistent signing identity and timestamp preferences
 in ignored `ScreenWren/.screenwren-signing-identity` and
@@ -107,9 +122,9 @@ instructions remain in its own README.
 ./verify.sh
 ```
 
-This tests all three packages, builds the suite, checks app identities, deployment
+This tests all five packages, builds the suite, checks app identities, deployment
 targets, Universal 2 architectures, nested signatures, archive extraction, and
-ScreenWren's headless self-check. Use `./verify.sh --no-build` to verify a package
+ScreenWren, ScrollSplit, and LinkRoutes headless self-checks. Use `./verify.sh --no-build` to verify a package
 that was just built. Live screen captures are opt-in in ScreenWren's QA workflow.
 GitHub Actions uses only Andrew's self-hosted macOS runners, with no hosted fallback
 and no installation step.
@@ -123,6 +138,9 @@ process checks are only a preflight; the final evidence comes from your next log
 - `MacTools/`: native SwiftUI manager, installation/settings core, and tests.
 - `DockPeek/`: independently runnable Dock preview utility and regression tests.
 - `ScreenWren/`: complete screenshot app, login helper, resources, and tests.
+- `ScrollSplit/`: menu-bar scrolling app, settings bridge, icon, and event tests.
+- `LinkRoutes/`: browser routing app, settings bridge, icon, and rule tests.
+- `MacTools/Sources/MacTools/Tools/`: six diagnostic workspaces and shared styling.
 - Root scripts and `.github/`: suite packaging, installation, and shared CI.
 
 ScreenWren's previous Git history is retained as merge ancestry. Its current

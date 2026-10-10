@@ -58,34 +58,44 @@ public final class AppManager {
                 throw AppManagerError.message("The installed \(app.name) is newer than the bundled version. Downgrades are disabled.")
             }
         }.value
+        let preserveLogin = try await Task.detached(priority: .userInitiated) {
+            try store.loginRegistrationToPreserve(app)
+        }.value
         let wasRunning = !runningApplications(app).isEmpty
         try await terminateApplications(app)
         try await Self.replaceAndRestoreRunningState(app, wasRunning: wasRunning, replace: {
             try await Task.detached(priority: .userInitiated) { try store.install(app, scope: scope) }.value
+        }, restoreRegistration: {
+            if preserveLogin {
+                try await Task.detached(priority: .userInitiated) { try store.restoreLoginRegistration(app) }.value
+            }
         }, reopen: { try await self.openInstalled(app) })
     }
 
     /// A failed replacement may already have restored the original bundle; restore its running state too.
     static func replaceAndRestoreRunningState(_ app: ManagedApp, wasRunning: Bool,
                                              replace: () async throws -> Void,
+                                             restoreRegistration: () async throws -> Void = {},
                                              reopen: () async throws -> Void) async throws {
+        var installationError: Error?
         do {
             try await replace()
         } catch {
-            let installationError = error
-            if wasRunning {
-                do { try await reopen() }
-                catch {
-                    throw AppManagerError.message("\(installationError.localizedDescription) The previous \(app.name) could not be reopened: \(error.localizedDescription)")
-                }
-            }
-            throw installationError
+            installationError = error
         }
+        // Run after both successful replacement and rollback, once old staging copies
+        // are gone. Still reopen a previously running app if registration needs approval.
+        var recoveryErrors: [String] = []
+        do { try await restoreRegistration() }
+        catch { recoveryErrors.append("Launch at login could not be restored: \(error.localizedDescription)") }
         if wasRunning {
             do { try await reopen() }
-            catch {
-                throw AppManagerError.message("\(app.name) was installed successfully, but it could not be reopened: \(error.localizedDescription)")
-            }
+            catch { recoveryErrors.append("\(app.name) could not be reopened: \(error.localizedDescription)") }
+        }
+        if let installationError, recoveryErrors.isEmpty { throw installationError }
+        if installationError != nil || !recoveryErrors.isEmpty {
+            let outcome = installationError?.localizedDescription ?? "\(app.name) was installed successfully."
+            throw AppManagerError.message(([outcome] + recoveryErrors).joined(separator: " "))
         }
     }
 
@@ -93,6 +103,12 @@ public final class AppManager {
         try beginOperation()
         defer { operationInProgress = false }
         let store = store
+        if app == .linkRoutes {
+            let snapshot = try await Task.detached(priority: .userInitiated) { try store.settings(app) }.value
+            if let values = try JSONSerialization.jsonObject(with: snapshot) as? [String: Any], values["isDefaultBrowser"] as? Bool == true {
+                throw AppManagerError.message("LinkRoutes is your default link handler. Open its settings and choose another default browser before removing it.")
+            }
+        }
         try await Task.detached(priority: .userInitiated) {
             guard try store.existing(app) != nil else { throw AppManagerError.message("\(app.name) is not installed.") }
         }.value

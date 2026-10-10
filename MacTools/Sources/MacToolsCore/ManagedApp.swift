@@ -1,18 +1,47 @@
 import Foundation
 
 public enum ManagedApp: String, CaseIterable, Identifiable, Sendable {
-    case dockPeek, screenWren
+    case dockPeek, screenWren, scrollSplit, linkRoutes
 
     public var id: String { rawValue }
-    public var name: String { self == .dockPeek ? "DockPeek" : "ScreenWren" }
+    public var name: String {
+        switch self {
+        case .dockPeek: "DockPeek"
+        case .screenWren: "ScreenWren"
+        case .scrollSplit: "ScrollSplit"
+        case .linkRoutes: "LinkRoutes"
+        }
+    }
     public var bundleIdentifier: String {
-        self == .dockPeek ? "com.andrew.dockpeek" : "io.github.diamondplated.ScreenWren"
+        switch self {
+        case .dockPeek: "com.andrew.dockpeek"
+        case .screenWren: "io.github.diamondplated.ScreenWren"
+        case .scrollSplit: "com.andrew.scrollsplit"
+        case .linkRoutes: "com.andrew.linkroutes"
+        }
     }
     public var summary: String {
-        self == .dockPeek ? "Preview and switch windows from your Dock." : "Capture precisely, annotate, and share your screen."
+        switch self {
+        case .dockPeek: "Preview and switch windows from your Dock."
+        case .screenWren: "Capture precisely, annotate, and share your screen."
+        case .scrollSplit: "Make mouse scrolling feel right while keeping your trackpad familiar."
+        case .linkRoutes: "Open links in the right browser with rules for your favorite sites."
+        }
     }
-    public var symbolName: String { self == .dockPeek ? "dock.rectangle" : "viewfinder" }
-    public var minimumOSMajor: Int { self == .dockPeek ? 14 : 26 }
+    public var symbolName: String {
+        switch self {
+        case .dockPeek: "dock.rectangle"
+        case .screenWren: "viewfinder"
+        case .scrollSplit: "computermouse"
+        case .linkRoutes: "arrow.triangle.branch"
+        }
+    }
+    public var minimumOSMajor: Int {
+        switch self {
+        case .screenWren: 26
+        case .dockPeek, .scrollSplit, .linkRoutes: 14
+        }
+    }
     public var payloadFilename: String { name + ".app" }
 }
 

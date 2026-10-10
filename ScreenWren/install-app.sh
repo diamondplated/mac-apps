@@ -22,11 +22,40 @@ if codesign -dv "$SOURCE_APP" 2>&1 | grep -q '^Signature=adhoc$'; then
 fi
 "$SOURCE_APP/Contents/MacOS/ScreenWren" --self-check
 
+# A bundle swap can invalidate ServiceManagement registration even when all
+# preferences survive. Read the installed app's own state before moving it.
+PRESERVE_LOGIN_ITEM=0
+if [ -e "$INSTALLED_APP" ] || [ -L "$INSTALLED_APP" ]; then
+    [ ! -L "$INSTALLED_APP" ] || { echo "Refusing to replace a symbolic link: $INSTALLED_APP" >&2; exit 1; }
+    test "$(plutil -extract CFBundleIdentifier raw "$INSTALLED_APP/Contents/Info.plist")" = io.github.diamondplated.ScreenWren
+    test "$(plutil -extract CFBundleExecutable raw "$INSTALLED_APP/Contents/Info.plist")" = ScreenWren
+    codesign --verify --deep --strict "$INSTALLED_APP"
+    if [ "$(plutil -extract MacToolsSettingsProtocolVersion raw "$INSTALLED_APP/Contents/Info.plist" 2>/dev/null || true)" = 1 ]; then
+        LOGIN_SNAPSHOT=$("$INSTALLED_APP/Contents/MacOS/ScreenWren" --mac-tools-settings read)
+        test "$(printf '%s' "$LOGIN_SNAPSHOT" | plutil -extract app raw -o - -)" = screenWren
+        test "$(printf '%s' "$LOGIN_SNAPSHOT" | plutil -extract schemaVersion raw -o - -)" = 1
+        case "$(printf '%s' "$LOGIN_SNAPSHOT" | plutil -extract launchAtLogin raw -expect bool -o - -)" in
+            true) PRESERVE_LOGIN_ITEM=1 ;;
+            false) ;;
+            *) echo "ScreenWren did not report a valid launch at login state; installation stopped." >&2; exit 1 ;;
+        esac
+    fi
+fi
+
+restore_login_item() {
+    LOGIN_SNAPSHOT=$(printf '%s' '{"launchAtLogin":true}' | "$INSTALLED_APP/Contents/MacOS/ScreenWren" --mac-tools-settings write) || return 1
+    if [ "$(printf '%s' "$LOGIN_SNAPSHOT" | plutil -extract launchAtLogin raw -expect bool -o - -)" != true ]; then
+        echo "Launch at login needs attention. Enable it in ScreenWren settings and approve it in System Settings if requested." >&2
+        return 1
+    fi
+}
+
 STAGING_DIR=$(mktemp -d /Applications/.screenwren-install.XXXXXX)
 INSTALL_COMMITTED=0
 APP_PLACED=0
 cleanup() {
     status=$?
+    restored_previous=0
     trap - EXIT
     if [ "$INSTALL_COMMITTED" = 0 ]; then
         if [ "$APP_PLACED" = 1 ] && [ -d "$INSTALLED_APP" ]; then
@@ -40,9 +69,13 @@ cleanup() {
                 echo "Could not restore the previous app; recovery files remain at $STAGING_DIR." >&2
                 exit 1
             fi
+            restored_previous=1
         fi
     fi
     rm -rf "$STAGING_DIR"
+    if [ "$restored_previous" = 1 ] && [ "$PRESERVE_LOGIN_ITEM" = 1 ]; then
+        restore_login_item || { echo "The previous app was restored, but launch at login could not be restored." >&2; status=1; }
+    fi
     exit "$status"
 }
 trap cleanup EXIT
@@ -89,8 +122,13 @@ done
 # The verified installation is committed. Keep it if optional OS registration
 # needs user approval, so the repair can be retried from the canonical copy.
 INSTALL_COMMITTED=1
+# Remove the displaced registered bundle before restoring the canonical copy's
+# registration, so later backup cleanup cannot invalidate the restored item.
+if [ -d "$STAGING_DIR/previous.app" ]; then rm -rf "$STAGING_DIR/previous.app"; fi
 if [ "$REPAIR_LOGIN_ITEM" = 1 ]; then
     "$INSTALLED_APP/Contents/MacOS/ScreenWren" --repair-login-item
+elif [ "$PRESERVE_LOGIN_ITEM" = 1 ]; then
+    restore_login_item
 fi
 open "$INSTALLED_APP"
 echo "Installed and reopened $INSTALLED_APP"

@@ -1,8 +1,8 @@
 # Releasing Mac Tools
 
-Mac Tools bundles DockPeek, ScreenWren, and Sparkle 2.10.0. Source stays private in `diamondplated/mac-tools`. Public binaries and signed update feeds live in [diamondplated/mac-tools-releases](https://github.com/diamondplated/mac-tools-releases/releases), a downloads-only repository. Ordinary `./build-app.sh` produces a universal local package; `./scripts/release.sh` prepares an isolated, verified distribution in `dist/release/`. Neither command installs apps. All CI runs on Andrew's `air` self-hosted Mac.
+Mac Tools bundles DockPeek, ScreenWren, ScrollSplit, LinkRoutes, six diagnostic workspaces, and Sparkle 2.10.0. Source stays private in `diamondplated/mac-tools`. Public binaries and signed update feeds live in [diamondplated/mac-tools-releases](https://github.com/diamondplated/mac-tools-releases/releases), a downloads-only repository. Ordinary `./build-app.sh` produces a universal local package; `./scripts/release.sh` prepares an isolated, verified distribution in `dist/release/`. Neither command installs apps. All CI runs on Andrew's `air` self-hosted Mac.
 
-Version **1.1.0**, build **2**, uses the persistent local signing certificate and is **not notarized**. The `mac-tools` Sparkle key is already in the native Keychain, and its public key is committed in the manager plist. No private key was exported. Developer ID notarization remains unavailable until the Apple credentials below are provisioned.
+Version **1.2.0**, build **3**, uses the persistent local signing certificate and is **not notarized**. The `mac-tools` Sparkle key is already in the native Keychain, and its public key is committed in the manager plist. No private key was exported. Developer ID notarization remains unavailable until the Apple credentials below are provisioned.
 
 ## Native keychain setup
 
@@ -29,18 +29,18 @@ The current official tool installation is `/Users/andrew/GIT/mac-tools/.build/sp
 
 Configure the runner user's native `gh auth login` session with read access to the private source repository and release-write access to `diamondplated/mac-tools-releases`. The workflow intentionally uses that native session for publication: the source repository's automatic workflow token cannot publish to a separate repository. Do not add private keys or Apple passwords to GitHub Secrets.
 
-Dispatch **Release Mac Tools** with the next version and mode **signedlocal** for the current distribution. Version `1.1.0` is already published and must not be reused. The workflow defaults to **notarized**, which intentionally fails until Developer ID and the notary profile exist. The publish checkbox defaults off. All work uses `[self-hosted, macOS, ARM64, air]`; no hosted runner fallback exists.
+Dispatch **Release Mac Tools** with the next version and mode **signedlocal** for the current distribution. Version `1.2.0` is already published and must not be reused. The workflow defaults to **notarized**, which intentionally fails until Developer ID and the notary profile exist. The publish checkbox defaults off. All work uses `[self-hosted, macOS, ARM64, air]`; no hosted runner fallback exists.
 
 ## Version and prepare
 
-Update `CFBundleShortVersionString` (for example `1.1.0`) and increment the integer `CFBundleVersion` in `MacTools/Info.plist`. The build number must exceed every published release. Commit the release source before publishing; publishing requires a clean working tree. `release.json` records the exact source commit. When downloads use a separate repository, its release tag belongs to that repository; no private source is copied there.
+Update `CFBundleShortVersionString` (for example `1.2.0`) and increment the integer `CFBundleVersion` in `MacTools/Info.plist`. The build number must exceed every published release. Commit the release source before publishing; publishing requires a clean working tree. `release.json` records the exact source commit. When downloads use a separate repository, its release tag belongs to that repository; no private source is copied there.
 
 ```sh
-./scripts/release.sh --notarized --version 1.1.0 --preflight
-./scripts/release.sh --notarized --version 1.1.0
+./scripts/release.sh --notarized --version 1.2.0 --preflight
+./scripts/release.sh --notarized --version 1.2.0
 ```
 
-Notarized mode checks the Developer ID identity, authenticated notary profile, and matching Sparkle key **before building or publishing**. DockPeek's release copy receives Developer ID signing without changing its usual local designated requirement. ScreenWren builds from a separate source copy with the release identity. Each tool is notarized, stapled, and assessed before being embedded. Then the manager and complete Sparkle framework are signed inside out, the manager is notarized and stapled, and the final archive is regenerated. `codesign`, `stapler`, Gatekeeper, archive extraction, and Sparkle signature checks must all pass.
+Notarized mode checks the Developer ID identity, authenticated notary profile, and matching Sparkle key **before building or publishing**. DockPeek's release copy receives Developer ID signing without changing its usual local designated requirement. ScreenWren builds from a separate source copy with the release identity. Each of the four apps is built in an isolated source copy, notarized, stapled, and assessed before being embedded. Then the manager and complete Sparkle framework are signed inside out, the manager is notarized and stapled, and the final archive is regenerated. `codesign`, `stapler`, Gatekeeper, archive extraction, and Sparkle signature checks must all pass.
 
 This order keeps payload tickets in place before the enclosing app is sealed. Apple issues tickets for nested code, but ZIP files themselves cannot be stapled. See Apple's [custom notarization workflow](https://developer.apple.com/documentation/security/customizing-the-notarization-workflow) and Sparkle's [custom signing instructions](https://sparkle-project.org/documentation/sandboxing/#code-signing).
 
@@ -49,31 +49,31 @@ This order keeps payload tickets in place before the enclosing app is sealed. Ap
 A local release remains available when Apple notarization credentials are missing:
 
 ```sh
-./scripts/release.sh --local --version 1.1.0 --preflight
-./scripts/release.sh --local --version 1.1.0
+./scripts/release.sh --local --version 1.2.0 --preflight
+./scripts/release.sh --local --version 1.2.0
 ```
 
 Set `SCREENWREN_SIGNING_IDENTITY` to the persistent local certificate, or use the existing ignored `ScreenWren/.screenwren-signing-identity` file. Ad-hoc local releases are refused. Release notes explicitly say **“Locally signed; not notarized.”** The build still signs its update archive and appcast with the Sparkle key, but does not claim Gatekeeper acceptance. Other Macs may require manual approval. Local self-signed/ad-hoc development packages disable library validation so the bundled Sparkle framework can load; Developer ID distribution retains library validation.
 
-Local and notarized outputs use different directories (`v1.1.0-local` and `v1.1.0-notarized`). Existing release output is never silently replaced: move it aside explicitly before rebuilding.
+Local and notarized outputs use different directories (`v1.2.0-local` and `v1.2.0-notarized`). Existing release output is never silently replaced: move it aside explicitly before rebuilding.
 
 ## Review and publish
 
-Review the prepared app, release notes, signed `appcast.xml`, archive signature, SHA256 checksums, and notarization receipts when applicable. The appcast is served from:
+Review the prepared app, release notes, signed `appcast.xml`, archive signature, SHA256 checksums, and notarization receipts when applicable. Version-specific notes in `docs/releases/X.Y.Z.md` are included before the feed and notes are signed. The appcast is served from:
 
 `https://github.com/diamondplated/mac-tools-releases/releases/latest/download/appcast.xml`
 
 `SUFeedURL` is set to that feed; `MacToolsReleasesURL` is `https://github.com/diamondplated/mac-tools-releases/releases`. `MACTOOLS_RELEASE_REPOSITORY` defaults to that feed's repository and, when supplied, must match it. Preflight rejects empty URLs, a private download repository, or inconsistent locations. `MACTOOLS_SOURCE_REPOSITORY` defaults to `diamondplated/mac-tools` and is used only for source provenance and older release checks. No app source or signing credentials are published to the download repository.
 
-For 1.1.0, the archive URL is `https://github.com/diamondplated/mac-tools-releases/releases/download/v1.1.0/Mac-Tools-1.1.0.zip`. Each update uses its own immutable versioned URL. Both the archive signature and embedded feed signature are checked before publishing. Modifying the feed or release notes invalidates their signature; regenerate them with Sparkle's official tools. [Sparkle documents signed feeds and archive signatures here](https://sparkle-project.org/documentation/).
+For 1.2.0, the archive URL is `https://github.com/diamondplated/mac-tools-releases/releases/download/v1.2.0/Mac-Tools-1.2.0.zip`. Each update uses its own immutable versioned URL. Both the archive signature and embedded feed signature are checked before publishing. Modifying the feed or release notes invalidates their signature; regenerate them with Sparkle's official tools. [Sparkle documents signed feeds and archive signatures here](https://sparkle-project.org/documentation/).
 
 The script publishes only when explicitly passed `--publish` during a fresh release run:
 
 ```sh
-./scripts/release.sh --local --version 1.1.0 --publish
+./scripts/release.sh --local --version 1.2.0 --publish
 ```
 
-Use `--notarized` instead once the Developer ID credentials are available. Once 1.1.0 is published, increment the version and build for the next release; do not overwrite its assets.
+Use `--notarized` instead once the Developer ID credentials are available. Once 1.2.0 is published, increment the version and build for the next release; do not overwrite its assets.
 
 It refuses an existing version release and checks the build number against previous release metadata/appcasts (falling back to source tags for older releases). The script uploads the ZIP, appcast, signed release notes, archive signature, checksums, and source provenance into a draft release. It finds that draft in the authenticated release list, fetches its exact ID, and checks all six assets' names, upload states, sizes, and SHA256 digests before publishing that ID and marking it latest. Failed uploads leave an unpublished draft for inspection, so the live feed cannot point at a partially uploaded release. A failed preflight or verification publishes nothing. The workflow supports the same explicit choice and stores verified artifacts even without publishing.
 
@@ -88,3 +88,11 @@ On October 10, 2026, the [1.1.0 release](https://github.com/diamondplated/mac-to
 On Andrew's Mac, a persistently signed fixture of the current updater stamped as version 1.0.0/build 1 received the public 1.1.0 offer, downloaded it, installed it, and relaunched through Sparkle. The installed version 1.1.0/build 2 matched the published app's complete bundle, including file modes and literal symlink targets. This exercises the update mechanism; the fixture is not the historical 1.0.0 app, which did not have an updater.
 
 ScreenWren's included payload was then installed through Mac Tools. Both installed tools matched the release payloads and passed signature checks. Their complete settings snapshots were unchanged. Both login items were enabled and running from their expected `/Applications` bundles; the one-time next-login check remains armed. This evidence covers this Mac and does not establish notarization or a completed new-login test.
+
+## Verified 1.2.0 workbench
+
+On October 10, 2026, `./verify.sh` passed all five packages' tests, universal builds, preserved payload signatures, self-checks, and archive round-trip comparisons. A final spacing adjustment was packaged with `./build-app.sh --reuse-payloads`, which repeated the assembled bundle and archive checks.
+
+Native UI checks covered all six utility pages, real startup/sleep/process evidence, a successful DNS and HTTP 200 check against Apple's website, a two-file local storage scan, a subsequent 1 MB growth comparison, and the file-review sheet followed by Cancel. ScrollSplit opened disabled; LinkRoutes correctly previewed the Chrome fallback without changing the default browser. A centralized LinkRoutes draft survived sidebar navigation and was discarded without being saved. Hardware scrolling after permission consent and default-browser routing remain explicit user setup steps.
+
+The corrected manager installer and ScreenWren's persistent-signing installer preserved DockPeek and ScreenWren's complete existing settings snapshots, including enabled login registrations. The new apps were updated through the manager. Ten login-preservation regression tests and eight isolated installer fixtures cover enabled, disabled, rollback, cleanup, and registration-denial cases. The existing one-time next-login check remains pending and needs no baseline update; it reads the installed apps' current state at the next login.

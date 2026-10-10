@@ -8,7 +8,7 @@ case "${1:-}" in
     --no-build) [ "$#" -eq 1 ] || exit 64; BUILD=0 ;;
     *) echo "Usage: $0 [--no-build]" >&2; exit 64 ;;
 esac
-for script in build-app.sh install-app.sh verify.sh DockPeek/build_app.sh scripts/release.sh; do
+for script in build-app.sh install-app.sh verify.sh DockPeek/build_app.sh ScrollSplit/build-app.sh LinkRoutes/build-app.sh scripts/release.sh; do
     bash -n "$PROJECT_DIR/$script"
 done
 for script in build-app.sh install-app.sh qa.sh; do
@@ -18,7 +18,7 @@ sh -n "$PROJECT_DIR/scripts/verify-login.sh" "$PROJECT_DIR/scripts/install-login
 "$PROJECT_DIR/scripts/verify-login.sh" --self-test
 python3 "$PROJECT_DIR/scripts/compare-bundles.py" --self-test
 python3 "$PROJECT_DIR/scripts/verify-release-draft.py" --self-test
-for package in "$PROJECT_DIR/DockPeek" "$PROJECT_DIR/ScreenWren" "$PROJECT_DIR/MacTools"; do
+for package in "$PROJECT_DIR/DockPeek" "$PROJECT_DIR/ScreenWren" "$PROJECT_DIR/ScrollSplit" "$PROJECT_DIR/LinkRoutes" "$PROJECT_DIR/MacTools"; do
     swift test --package-path "$package" --parallel
 done
 if [ "$BUILD" = 1 ]; then "$PROJECT_DIR/build-app.sh"; fi
@@ -39,11 +39,13 @@ test "$(plutil -extract CFBundleIdentifier raw "$PLIST")" = com.andrew.mactools
 test "$(plutil -extract CFBundleExecutable raw "$PLIST")" = MacTools
 test "$(plutil -extract LSMinimumSystemVersion raw "$PLIST")" = 14.0
 codesign --verify --deep --strict "$APP"
-for name in MacTools DockPeek ScreenWren ScreenWrenLoginItem; do
+for name in MacTools DockPeek ScreenWren ScreenWrenLoginItem ScrollSplit LinkRoutes; do
     case "$name" in
         MacTools) bundle="$APP"; identifier=com.andrew.mactools; minimum=14.0 ;;
         DockPeek) bundle="$APP/Contents/Resources/Applications/DockPeek.app"; identifier=com.andrew.dockpeek; minimum=14.0 ;;
         ScreenWren) bundle="$APP/Contents/Resources/Applications/ScreenWren.app"; identifier=io.github.diamondplated.ScreenWren; minimum=26.0 ;;
+        ScrollSplit) bundle="$APP/Contents/Resources/Applications/ScrollSplit.app"; identifier=com.andrew.scrollsplit; minimum=14.0 ;;
+        LinkRoutes) bundle="$APP/Contents/Resources/Applications/LinkRoutes.app"; identifier=com.andrew.linkroutes; minimum=14.0 ;;
         ScreenWrenLoginItem) bundle="$APP/Contents/Resources/Applications/ScreenWren.app/Contents/Library/LoginItems/ScreenWrenLoginItem.app"; identifier=io.github.diamondplated.ScreenWren.LoginItem; minimum=26.0 ;;
     esac
     test -x "$bundle/Contents/MacOS/$name"
@@ -56,8 +58,9 @@ for name in MacTools DockPeek ScreenWren ScreenWrenLoginItem; do
         test "$binary_minimum" = "$minimum"
     done
 done
-SCREENWREN="$APP/Contents/Resources/Applications/ScreenWren.app"
-"$SCREENWREN/Contents/MacOS/ScreenWren" --self-check
+for name in ScreenWren ScrollSplit LinkRoutes; do
+    "$APP/Contents/Resources/Applications/$name.app/Contents/MacOS/$name" --self-check
+done
 VERSION=$(plutil -extract CFBundleShortVersionString raw "$PLIST")
 ARCHIVE="$PROJECT_DIR/dist/Mac-Tools-$VERSION.zip"
 test -s "$ARCHIVE"

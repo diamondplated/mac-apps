@@ -131,6 +131,21 @@ final class InstallationStoreTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: store.userDirectory.path), ["DockPeek.app"])
     }
 
+    func testCleanupFailureKeepsVerifiedUpdateAndReportsRecoveryFolder() throws {
+        let installed = try fixture(in: store.userDirectory)
+        try fixture(in: store.payloadDirectory!, release: "1.1", content: "new")
+        store.removeTransaction = { _ in throw AppManagerError.message("Injected cleanup failure") }
+        XCTAssertThrowsError(try store.install(.dockPeek, scope: .user)) { error in
+            XCTAssertTrue(error.localizedDescription.contains("installed successfully"))
+            XCTAssertTrue(error.localizedDescription.contains("launch at login"))
+            XCTAssertTrue(error.localizedDescription.contains("Injected cleanup failure"))
+        }
+        XCTAssertEqual(try store.metadata(installed, app: .dockPeek).version.release, "1.1")
+        let folders = try FileManager.default.contentsOfDirectory(at: store.userDirectory, includingPropertiesForKeys: nil)
+        let recovery = try XCTUnwrap(folders.first { $0.lastPathComponent.hasPrefix(".MacTools-") })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: recovery.appendingPathComponent("Previous.app").path))
+    }
+
     func testNewInstallVerificationFailureLeavesNoInstall() throws {
         try fixture(in: store.payloadDirectory!)
         let target = store.userDirectory.appendingPathComponent("DockPeek.app")
@@ -268,6 +283,85 @@ final class InstallationStoreTests: XCTestCase {
             XCTAssertEqual(error.localizedDescription, "Injected installation failure")
         }
         XCTAssertEqual(actions, ["rollback", "reopen"])
+    }
+
+    func testLoginPreservationReadsExplicitEnabledState() throws {
+        try settingsFixture(script: "printf '%s' '{\"schemaVersion\":1,\"app\":\"dockPeek\",\"launchAtLogin\":true}'")
+        XCTAssertTrue(try store.loginRegistrationToPreserve(.dockPeek))
+    }
+
+    func testDisabledLoginIsNotEnabledByAnUpdate() throws {
+        try settingsFixture(script: "printf '%s' '{\"schemaVersion\":1,\"app\":\"dockPeek\",\"launchAtLogin\":false}'")
+        XCTAssertFalse(try store.loginRegistrationToPreserve(.dockPeek))
+    }
+
+    func testLoginPreservationDoesNotLaunchLegacyOrUninstalledApps() throws {
+        XCTAssertFalse(try store.loginRegistrationToPreserve(.dockPeek))
+        let marker = root.appendingPathComponent("unexpected-launch")
+        try settingsFixture(script: "touch '\(marker.path)'", capability: nil)
+        XCTAssertFalse(try store.loginRegistrationToPreserve(.dockPeek))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
+    }
+
+    func testLoginPreservationRejectsAmbiguousSnapshot() throws {
+        for json in [#"{"launchAtLogin":1}"#, #"{"launchAtLogin":"true"}"#, #"{}"#] {
+            XCTAssertThrowsError(try InstallationStore.loginEnabled(in: Data(json.utf8)))
+        }
+    }
+
+    func testLoginRestorationWritesOnlyEnabledPreferenceAndVerifiesResult() throws {
+        try settingsFixture(script: """
+        test "$2" = write || exit 8
+        test "$(/bin/cat)" = '{"launchAtLogin":true}' || exit 9
+        printf '%s' '{"schemaVersion":1,"app":"dockPeek","launchAtLogin":true}'
+        """)
+        XCTAssertNoThrow(try store.restoreLoginRegistration(.dockPeek))
+    }
+
+    func testLoginRestorationRequiresConfirmedEnabledRegistration() throws {
+        try settingsFixture(script: "printf '%s' '{\"schemaVersion\":1,\"app\":\"dockPeek\",\"launchAtLogin\":false,\"loginStatus\":\"requiresApproval\"}'")
+        XCTAssertThrowsError(try store.restoreLoginRegistration(.dockPeek)) { error in
+            XCTAssertTrue(error.localizedDescription.contains("needs attention"))
+        }
+    }
+
+    @MainActor
+    func testUpdateRestoresLoginBeforeReopening() async throws {
+        var actions: [String] = []
+        try await AppManager.replaceAndRestoreRunningState(.dockPeek, wasRunning: true,
+            replace: { actions.append("replace") },
+            restoreRegistration: { actions.append("register") },
+            reopen: { actions.append("reopen") })
+        XCTAssertEqual(actions, ["replace", "register", "reopen"])
+    }
+
+    @MainActor
+    func testRollbackRestoresLoginEvenWhenAppWasStopped() async throws {
+        var actions: [String] = []
+        do {
+            try await AppManager.replaceAndRestoreRunningState(.dockPeek, wasRunning: false,
+                replace: { actions.append("rollback"); throw AppManagerError.message("Failed update") },
+                restoreRegistration: { actions.append("register") },
+                reopen: { actions.append("unexpected reopen") })
+            XCTFail("Expected update failure")
+        } catch { XCTAssertEqual(error.localizedDescription, "Failed update") }
+        XCTAssertEqual(actions, ["rollback", "register"])
+    }
+
+    @MainActor
+    func testLoginRestorationFailureStillReopensAndSurfacesError() async throws {
+        var reopened = false
+        do {
+            try await AppManager.replaceAndRestoreRunningState(.dockPeek, wasRunning: true,
+                replace: {},
+                restoreRegistration: { throw AppManagerError.message("Needs approval") },
+                reopen: { reopened = true })
+            XCTFail("Expected registration error")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("installed successfully"))
+            XCTAssertTrue(error.localizedDescription.contains("Needs approval"))
+        }
+        XCTAssertTrue(reopened)
     }
 
     @MainActor

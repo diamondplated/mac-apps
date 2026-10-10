@@ -4,10 +4,17 @@ import SwiftUI
 
 struct ToolSettingsView: View {
     @ObservedObject var library: LibraryModel
-    @StateObject private var settings = ToolSettingsModel()
+    @ObservedObject var settings: ToolSettingsModel
+
+    init(library: LibraryModel) {
+        self.library = library
+        self.settings = library.toolSettings
+    }
     @State private var width = ""
     @State private var height = ""
     @State private var presetName = ""
+    @State private var scrollSpeed = 1.0
+    private var hasUnsavedRoutes: Bool { settings.hasUnsavedRoutes }
 
     private var app: ManagedApp { library.settingsApp }
 
@@ -19,7 +26,7 @@ struct ToolSettingsView: View {
             }
             Picker("Tool", selection: $library.settingsApp) {
                 ForEach(ManagedApp.allCases) { app in Text(app.name).tag(app) }
-            }.pickerStyle(.segmented).disabled(settings.loading || settings.saving || library.isBusy)
+            }.pickerStyle(.segmented).disabled(settings.loading || settings.saving || library.isBusy || (app == .linkRoutes && hasUnsavedRoutes))
             if settings.loading {
                 ProgressView("Loading settings…").frame(maxWidth: .infinity, minHeight: 180)
             } else if let snapshot = settings.snapshot, snapshot.app == app.rawValue {
@@ -32,8 +39,15 @@ struct ToolSettingsView: View {
                                 Button("Open Login Items") { library.openSettings("com.apple.LoginItems-Settings.extension") }
                             }
                         }
-                        if app == .dockPeek { dockSettings(snapshot) }
-                        else { captureSettings(snapshot); selectionSettings(snapshot); shortcutSettings(snapshot) }
+                        switch app {
+                        case .dockPeek: dockSettings(snapshot)
+                        case .screenWren:
+                            captureSettings(snapshot)
+                            selectionSettings(snapshot)
+                            shortcutSettings(snapshot)
+                        case .scrollSplit: scrollSettings(snapshot)
+                        case .linkRoutes: linkSettings(snapshot)
+                        }
                         permissions
                     }.padding(.trailing, 3)
                 }.frame(minHeight: 400)
@@ -55,7 +69,7 @@ struct ToolSettingsView: View {
         }
         .task(id: app) { await load() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            guard !settings.saving, !library.isBusy else { return }
+            guard !settings.saving, !library.isBusy, !hasUnsavedRoutes else { return }
             Task { await load() }
         }
     }
@@ -63,6 +77,10 @@ struct ToolSettingsView: View {
     private func load() async {
         await settings.load(app, library: library)
         synchronizeDimensions()
+        if app == .linkRoutes, let rules = settings.snapshot?.rules {
+            settings.synchronizeRouteDraft(rules)
+        }
+        scrollSpeed = settings.snapshot?.speedMultiplier ?? 1
     }
 
     private func save(_ values: [String: Any]) {
@@ -219,17 +237,176 @@ struct ToolSettingsView: View {
         }
     }
 
+    private func scrollSettings(_ value: ToolSettingsSnapshot) -> some View {
+        section("Mouse scrolling", symbol: "computermouse") {
+            Toggle("Customize mouse scrolling", isOn: boolBinding(value.enabled ?? false, key: "enabled"))
+            Text("These controls apply to mouse wheel events. Trackpad scrolling keeps its macOS behavior.")
+                .font(.caption).foregroundStyle(.secondary)
+            Toggle("Reverse vertical scrolling", isOn: boolBinding(value.reverseVertical ?? false, key: "reverseVertical"))
+            Toggle("Reverse horizontal scrolling", isOn: boolBinding(value.reverseHorizontal ?? false, key: "reverseHorizontal"))
+            HStack {
+                Text("Scroll speed")
+                Slider(value: $scrollSpeed, in: 0.25...4, step: 0.05, onEditingChanged: { editing in
+                    if !editing { save(["speedMultiplier": scrollSpeed]) }
+                }).accessibilityLabel("Mouse scroll speed")
+                Text("\(scrollSpeed, specifier: "%.2f")×").monospacedDigit().frame(width: 55)
+            }
+            Button("Reset Mouse Scrolling") {
+                scrollSpeed = 1
+                save(["reverseVertical": false, "reverseHorizontal": false, "speedMultiplier": 1])
+            }.font(.caption)
+            if let active = value.liveEventTapActive {
+                Label(active ? "Scroll customization is active" : "Open ScrollSplit to activate scrolling and check permissions",
+                      systemImage: active ? "checkmark.circle.fill" : "info.circle")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Button("Open ScrollSplit") { Task { await library.launch(.scrollSplit) } }
+        }
+    }
+
+    private func linkSettings(_ value: ToolSettingsSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 20) {
+            section("Browser routing", symbol: "arrow.triangle.branch") {
+                Label(value.isDefaultBrowser == true ? "LinkRoutes handles links from other apps" : "Set up LinkRoutes to handle links from other apps",
+                      systemImage: value.isDefaultBrowser == true ? "checkmark.circle.fill" : "info.circle")
+                    .foregroundStyle(.secondary)
+                Button("Open LinkRoutes Setup") { Task { await library.launch(.linkRoutes) } }
+                browserPicker("Fallback browser", selection: Binding(
+                    get: { value.defaultBrowserIdentifier ?? "" },
+                    set: { save(["defaultBrowserIdentifier": $0]) }
+                ), browsers: value.availableBrowsers ?? [])
+                Text("Links that do not match a rule open in the fallback browser. Browser selection for macOS is completed in LinkRoutes.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            section("Website rules", symbol: "list.bullet.indent") {
+                Text("The first matching rule wins. Move specific websites above broader rules, then save the list.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if settings.routeRules.isEmpty {
+                    Label("Add a website to start routing your links.", systemImage: "link.badge.plus")
+                        .foregroundStyle(.secondary).padding(.vertical, 8)
+                }
+                ForEach($settings.routeRules) { $rule in
+                    routeRow($rule, browsers: value.availableBrowsers ?? [])
+                    Divider()
+                }
+                HStack {
+                    Button("Add Website", systemImage: "plus") {
+                        settings.routeRules.append(BrowserRouteRule(domain: "", browserIdentifier: value.defaultBrowserIdentifier ?? value.availableBrowsers?.first?.identifier ?? ""))
+                    }
+                    Spacer()
+                    Button("Discard Changes") { settings.discardRouteChanges() }.disabled(!hasUnsavedRoutes)
+                    Button("Save Rules") { saveRoutes() }.buttonStyle(.borderedProminent).disabled(!hasUnsavedRoutes)
+                }
+                if hasUnsavedRoutes {
+                    Text("You have unsaved rules. Save or discard them before switching tools.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private func browserPicker(_ title: String, selection: Binding<String>, browsers: [AvailableBrowser]) -> some View {
+        Picker(title, selection: selection) {
+            if selection.wrappedValue.isEmpty { Text("Choose a browser").tag("") }
+            ForEach(browsers) { browser in Text(browser.name).tag(browser.identifier) }
+            if !selection.wrappedValue.isEmpty, !browsers.contains(where: { $0.identifier == selection.wrappedValue }) {
+                Text("Unavailable · \(selection.wrappedValue)").tag(selection.wrappedValue)
+            }
+        }
+    }
+
+    private func routeRow(_ rule: Binding<BrowserRouteRule>, browsers: [AvailableBrowser]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                TextField("example.com", text: rule.domain).textFieldStyle(.roundedBorder)
+                    .accessibilityLabel("Website domain")
+                Button("Move Rule Up", systemImage: "chevron.up") { moveRule(rule.wrappedValue.id, by: -1) }
+                    .labelStyle(.iconOnly).disabled(settings.routeRules.first?.id == rule.wrappedValue.id)
+                Button("Move Rule Down", systemImage: "chevron.down") { moveRule(rule.wrappedValue.id, by: 1) }
+                    .labelStyle(.iconOnly).disabled(settings.routeRules.last?.id == rule.wrappedValue.id)
+                Button("Remove Website", systemImage: "trash", role: .destructive) {
+                    settings.routeRules.removeAll { $0.id == rule.wrappedValue.id }
+                }.labelStyle(.iconOnly)
+            }
+            Toggle("Include subdomains", isOn: rule.includeSubdomains).font(.caption)
+            browserPicker("Open in", selection: Binding(
+                get: { rule.wrappedValue.browserIdentifier },
+                set: { rule.wrappedValue.browserIdentifier = $0; rule.wrappedValue.profileDirectory = nil }
+            ), browsers: browsers)
+            let profiles = browsers.first(where: { $0.identifier == rule.wrappedValue.browserIdentifier })?.profiles ?? []
+            if !profiles.isEmpty || rule.wrappedValue.profileDirectory != nil {
+                Picker("Profile", selection: Binding(
+                    get: { rule.wrappedValue.profileDirectory ?? "" },
+                    set: { rule.wrappedValue.profileDirectory = $0.isEmpty ? nil : $0 }
+                )) {
+                    Text("Browser default").tag("")
+                    ForEach(profiles) { profile in Text(profile.name).tag(profile.directory) }
+                    if let current = rule.wrappedValue.profileDirectory, !profiles.contains(where: { $0.directory == current }) {
+                        Text("Unavailable · \(current)").tag(current)
+                    }
+                }
+            }
+        }.padding(.vertical, 4)
+    }
+
+    private func moveRule(_ id: String, by offset: Int) {
+        guard let index = settings.routeRules.firstIndex(where: { $0.id == id }), settings.routeRules.indices.contains(index + offset) else { return }
+        settings.routeRules.swapAt(index, index + offset)
+    }
+
+    private func saveRoutes() {
+        let selectedApp = app
+        let draft = settings.routeRules
+        Task {
+            do {
+                let data = try JSONEncoder().encode(draft)
+                let rules = try JSONSerialization.jsonObject(with: data)
+                await settings.save(["rules": rules], app: selectedApp, library: library)
+                if settings.error == nil, app == selectedApp {
+                    settings.acceptSavedRoutes(settings.snapshot?.rules ?? draft)
+                }
+            } catch { settings.error = error.localizedDescription }
+        }
+    }
+
+    private var permissionDescription: String {
+        switch app {
+        case .dockPeek: "DockPeek needs Accessibility and Screen Recording to preview and switch windows."
+        case .screenWren: "ScreenWren needs Screen Recording to capture the screen."
+        case .scrollSplit: "ScrollSplit uses Accessibility and Input Monitoring to adjust mouse scrolling. Grant access to ScrollSplit, then reopen it."
+        case .linkRoutes: "LinkRoutes uses your chosen browser and routing rules. Manage its startup behavior in Login Items."
+        }
+    }
+
     private var permissions: some View {
         section("macOS permissions", symbol: "lock.shield") {
-            Text(app == .dockPeek ? "DockPeek needs Accessibility and Screen Recording to preview and switch windows." : "ScreenWren needs Screen Recording to capture the screen.")
-                .font(.callout).foregroundStyle(.secondary)
+            Text(permissionDescription).font(.callout).foregroundStyle(.secondary)
+            if app == .scrollSplit, let snapshot = settings.snapshot {
+                Text(snapshot.scrollPermissionContext).font(.caption).foregroundStyle(.secondary)
+                if snapshot.hasLiveScrollPermissions, let status = snapshot.permissions {
+                    HStack(spacing: 16) {
+                        permissionStatus("Accessibility", granted: status["accessibility"])
+                        permissionStatus("Input Monitoring", granted: status["inputMonitoring"])
+                    }
+                }
+            }
             HStack {
-                if app == .dockPeek {
+                if app == .dockPeek || app == .scrollSplit {
                     Button("Accessibility") { library.openSettings("com.apple.preference.security?Privacy_Accessibility") }
                 }
-                Button("Screen Recording") { library.openSettings("com.apple.preference.security?Privacy_ScreenCapture") }
+                if app == .dockPeek || app == .screenWren {
+                    Button("Screen Recording") { library.openSettings("com.apple.preference.security?Privacy_ScreenCapture") }
+                }
+                if app == .scrollSplit {
+                    Button("Input Monitoring") { library.openSettings("com.apple.preference.security?Privacy_ListenEvent") }
+                }
                 Button("Login Items") { library.openSettings("com.apple.LoginItems-Settings.extension") }
             }
         }
+    }
+
+    private func permissionStatus(_ title: String, granted: Bool?) -> some View {
+        Label(granted == nil ? "\(title) · Unknown" : title, systemImage: granted == true ? "checkmark.circle.fill" : "circle")
+            .font(.caption).foregroundStyle(granted == true ? Color.green : Color.secondary)
     }
 }

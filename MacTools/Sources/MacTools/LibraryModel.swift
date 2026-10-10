@@ -10,6 +10,7 @@ final class LibraryModel: ObservableObject {
     @Published var notice: String?
     @Published var scope: InstallScope = .system
     @Published var settingsApp: ManagedApp = .dockPeek
+    let toolSettings = ToolSettingsModel()
     let manager: AppManager
     private var observers: [AnyCancellable] = []
     private var refreshing = false
