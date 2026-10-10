@@ -2,7 +2,9 @@
 set -euo pipefail
 
 PROJECT_DIR=$(cd -- "$(dirname -- "$0")" && pwd)
-DIST_DIR="$PROJECT_DIR/dist"
+DIST_DIR=${MACTOOLS_DIST_DIR:-"$PROJECT_DIR/dist"}
+DOCKPEEK_APP=${MACTOOLS_DOCKPEEK_APP:-"$PROJECT_DIR/DockPeek/DockPeek.app"}
+SCREENWREN_APP=${MACTOOLS_SCREENWREN_APP:-"$PROJECT_DIR/ScreenWren/dist/ScreenWren.app"}
 APP_PATH="$DIST_DIR/Mac Tools.app"
 REUSE_PAYLOADS=0
 case "${1:-}" in
@@ -40,11 +42,11 @@ fi
 # Validate reused payloads before doing any compilation or signing.
 for name in DockPeek ScreenWren; do
     if [ "$name" = DockPeek ]; then
-        source_app="$PROJECT_DIR/DockPeek/DockPeek.app"
+        source_app="$DOCKPEEK_APP"
         identifier=com.andrew.dockpeek
         minimum=14.0
     else
-        source_app="$PROJECT_DIR/ScreenWren/dist/ScreenWren.app"
+        source_app="$SCREENWREN_APP"
         identifier=io.github.diamondplated.ScreenWren
         minimum=26.0
     fi
@@ -56,7 +58,7 @@ for name in DockPeek ScreenWren; do
         lipo "$source_app/Contents/MacOS/$name" -verify_arch "$architecture"
     done
 done
-HELPER="$PROJECT_DIR/ScreenWren/dist/ScreenWren.app/Contents/Library/LoginItems/ScreenWrenLoginItem.app"
+HELPER="$SCREENWREN_APP/Contents/Library/LoginItems/ScreenWrenLoginItem.app"
 test "$(plutil -extract CFBundleIdentifier raw "$HELPER/Contents/Info.plist")" = io.github.diamondplated.ScreenWren.LoginItem
 for architecture in arm64 x86_64; do
     lipo "$HELPER/Contents/MacOS/ScreenWrenLoginItem" -verify_arch "$architecture"
@@ -79,6 +81,16 @@ for architecture in arm64 x86_64; do
 done
 lipo -create "${BINARIES[@]}" -output "$STAGING_APP/Contents/MacOS/MacTools"
 chmod 755 "$STAGING_APP/Contents/MacOS/MacTools"
+# SwiftPM also adds build-directory paths; installed copies must load their own framework.
+python3 - "$STAGING_APP/Contents/MacOS/MacTools" <<'PYTHON'
+import re, subprocess, sys
+binary=sys.argv[1]
+load_commands=subprocess.check_output(['otool','-l',binary], text=True)
+paths=re.findall(r'cmd LC_RPATH\s+cmdsize \d+\s+path (.*?) \(offset', load_commands)
+for path in sorted(set(paths)):
+    if path.startswith('/') and ('.build/' in path or 'PackageFrameworks' in path):
+        subprocess.run(['install_name_tool','-delete_rpath',path,binary], check=True)
+PYTHON
 cp "$PROJECT_DIR/MacTools/Info.plist" "$STAGING_APP/Contents/Info.plist"
 cp "$PROJECT_DIR/MacTools/Resources/MacTools.icns" "$STAGING_APP/Contents/Resources/MacTools.icns"
 plutil -lint "$STAGING_APP/Contents/Info.plist" >/dev/null
@@ -97,11 +109,11 @@ done
 
 for name in DockPeek ScreenWren; do
     if [ "$name" = DockPeek ]; then
-        source_app="$PROJECT_DIR/DockPeek/DockPeek.app"
+        source_app="$DOCKPEEK_APP"
         identifier=com.andrew.dockpeek
         minimum=14.0
     else
-        source_app="$PROJECT_DIR/ScreenWren/dist/ScreenWren.app"
+        source_app="$SCREENWREN_APP"
         identifier=io.github.diamondplated.ScreenWren
         minimum=26.0
     fi
@@ -112,12 +124,47 @@ for name in DockPeek ScreenWren; do
     ditto "$source_app" "$STAGING_APP/Contents/Resources/Applications/$name.app"
 done
 
+# Preserve the complete upstream framework, including symlinks and nested updater code.
+SPARKLE_SOURCE=${SPARKLE_FRAMEWORK_PATH:-"$PROJECT_DIR/.build/package-arm64/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"}
+test -d "$SPARKLE_SOURCE" || { echo "Sparkle.framework not found: $SPARKLE_SOURCE" >&2; exit 1; }
+mkdir -p "$STAGING_APP/Contents/Frameworks"
+SPARKLE="$STAGING_APP/Contents/Frameworks/Sparkle.framework"
+ditto "$SPARKLE_SOURCE" "$SPARKLE"
+for architecture in arm64 x86_64; do lipo "$SPARKLE/Sparkle" -verify_arch "$architecture"; done
+otool -L "$STAGING_APP/Contents/MacOS/MacTools" | grep -F '@rpath/Sparkle.framework/' >/dev/null
+otool -l "$STAGING_APP/Contents/MacOS/MacTools" | grep -F '@executable_path/../Frameworks' >/dev/null
+sign_component() {
+    if [ "$SIGNING_IDENTITY" = - ]; then
+        codesign --force --options runtime --sign - --timestamp=none "$@"
+    else
+        codesign --force --options runtime --sign "$SIGNING_IDENTITY" "$TIMESTAMP_OPTION" "$@"
+    fi
+}
+# Sparkle's documented custom-signing order; never recursively re-sign the tool payloads.
+sign_component "$SPARKLE/Versions/B/XPCServices/Installer.xpc"
+sign_component --preserve-metadata=entitlements "$SPARKLE/Versions/B/XPCServices/Downloader.xpc"
+sign_component "$SPARKLE/Versions/B/Autoupdate"
+sign_component "$SPARKLE/Versions/B/Updater.app"
+sign_component "$SPARKLE"
+codesign --verify --deep --strict "$SPARKLE"
+# Self-signed and ad-hoc identities have no Apple Team ID. Allow this bundled
+# framework in local builds; Developer ID distributions retain library validation.
+MANAGER_ENTITLEMENTS=()
+TEAM_ID=$(codesign -dv --verbose=4 "$SPARKLE" 2>&1 | sed -n 's/^TeamIdentifier=//p')
+if [ -z "$TEAM_ID" ] || [ "$TEAM_ID" = not\ set ]; then
+    cat > "$STAGING_DIR/local.entitlements" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>com.apple.security.cs.disable-library-validation</key><true/></dict></plist>
+PLIST
+    MANAGER_ENTITLEMENTS=(--entitlements "$STAGING_DIR/local.entitlements")
+fi
 # Sign only the manager. --deep here would replace the embedded apps' identities.
 if [ "$SIGNING_IDENTITY" = - ]; then
     echo "Building an ad-hoc package for verification; installation requires a persistent signing identity." >&2
-    codesign --force --options runtime --sign - --timestamp=none "$STAGING_APP"
+    codesign --force --options runtime --sign - --timestamp=none ${MANAGER_ENTITLEMENTS[@]+"${MANAGER_ENTITLEMENTS[@]}"} "$STAGING_APP"
 else
-    codesign --force --options runtime --sign "$SIGNING_IDENTITY" "$TIMESTAMP_OPTION" "$STAGING_APP"
+    codesign --force --options runtime --sign "$SIGNING_IDENTITY" "$TIMESTAMP_OPTION" ${MANAGER_ENTITLEMENTS[@]+"${MANAGER_ENTITLEMENTS[@]}"} "$STAGING_APP"
 fi
 codesign --verify --deep --strict "$STAGING_APP"
 for name in DockPeek ScreenWren; do
@@ -125,8 +172,8 @@ for name in DockPeek ScreenWren; do
     codesign --verify --deep --strict "$embedded"
 done
 # Confirm packaging and enclosing-signature creation did not alter any payload bytes.
-diff -qr "$PROJECT_DIR/DockPeek/DockPeek.app" "$STAGING_APP/Contents/Resources/Applications/DockPeek.app"
-diff -qr "$PROJECT_DIR/ScreenWren/dist/ScreenWren.app" "$STAGING_APP/Contents/Resources/Applications/ScreenWren.app"
+python3 "$PROJECT_DIR/scripts/compare-bundles.py" "$DOCKPEEK_APP" "$STAGING_APP/Contents/Resources/Applications/DockPeek.app"
+python3 "$PROJECT_DIR/scripts/compare-bundles.py" "$SCREENWREN_APP" "$STAGING_APP/Contents/Resources/Applications/ScreenWren.app"
 
 ARCHIVE_NAME="Mac-Tools-$VERSION.zip"
 ditto -c -k --sequesterRsrc --keepParent "$STAGING_APP" "$STAGING_DIR/$ARCHIVE_NAME"

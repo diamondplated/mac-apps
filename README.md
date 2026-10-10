@@ -1,7 +1,10 @@
 # Mac Tools
 
 One native macOS app to install, update, open, and configure **DockPeek** and
-**ScreenWren**. Their source, tests, packaging, and manager live in this repository.
+**ScreenWren**. Their source, tests, packaging, and manager live in this private repository.
+Public downloads and automatic updates use
+[diamondplated/mac-tools-releases](https://github.com/diamondplated/mac-tools-releases/releases),
+a separate repository containing release artifacts, not app source.
 
 | App | What it does | Requires |
 | --- | --- | --- |
@@ -10,6 +13,12 @@ One native macOS app to install, update, open, and configure **DockPeek** and
 | [ScreenWren](ScreenWren/README.md) | Precise screenshots, markup, redaction, and text recognition | macOS 26+ |
 
 ## Use the manager
+
+Get **Mac Tools.app** from the [public downloads](https://github.com/diamondplated/mac-tools-releases/releases).
+The 1.1.0 distribution (build 2) uses the persistent local signing certificate and
+is **not notarized**. Its update feed and archives are also signed with the
+project's separate Sparkle key. Initial installation on another Mac may require
+manual approval in macOS Privacy & Security.
 
 Open **Mac Tools.app** and choose **All Apps**. Each app has Install/Update and
 Open actions. Its detail page adds Quit, Show in Finder, Settings, and Uninstall.
@@ -27,6 +36,12 @@ offline and requires no development tools. Update Mac Tools itself to receive
 new included app versions. The manager compares versions/builds and app contents
 to recognize local rebuilds, and prevents downgrades. It reports unsupported
 macOS versions before installation.
+
+Choose **Mac Tools Updates** for automatic daily checks and optional automatic
+download and installation of manager updates. **Mac Tools → Check for Updates…**
+also checks on demand. Sparkle verifies both the update feed and downloaded
+archive against the release signing key. After a manager update, use **Update**
+in All Apps to install its newer tool versions.
 
 ## All tool settings
 
@@ -56,7 +71,7 @@ each tool's bundle identity and signing requirements.
 ./install-app.sh --no-build
 ```
 
-Output is `dist/Mac Tools.app` and `dist/Mac-Tools-1.0.0.zip`. The installer stages
+Output is `dist/Mac Tools.app` and `dist/Mac-Tools-<version>.zip`. The installer stages
 and verifies the manager, backs up an existing copy, installs to `/Applications`,
 and opens it. Use the manager to install or update the two tools.
 
@@ -68,6 +83,12 @@ The enclosing manager uses that identity too, without re-signing its payloads.
 Without a persistent identity, builds use ad-hoc signatures for verification;
 interactive manager/ScreenWren installation requires a persistent certificate.
 Local signed builds are not automatically notarized.
+The manager's pinned Sparkle dependency is downloaded during the first build.
+The update signing key is stored in the native Keychain, separate from the app's
+code-signing certificate. See [release packaging](docs/RELEASING.md) for Developer
+ID signing, notarization, signed feeds, and publication to the public downloads
+repository. Developer ID credentials are not currently provisioned; the notarized
+release command fails until they are available.
 
 To reuse already verified Universal 2 tool builds when changing only the manager:
 
@@ -92,6 +113,10 @@ ScreenWren's headless self-check. Use `./verify.sh --no-build` to verify a packa
 that was just built. Live screen captures are opt-in in ScreenWren's QA workflow.
 GitHub Actions uses only Andrew's self-hosted macOS runners, with no hosted fallback
 and no installation step.
+
+For actual launch-at-login verification, see
+[the one-time native login check](docs/LOGIN_VERIFICATION.md). Current-session
+process checks are only a preflight; the final evidence comes from your next login.
 
 ## Repository layout
 
