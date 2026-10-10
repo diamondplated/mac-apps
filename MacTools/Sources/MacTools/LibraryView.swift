@@ -3,11 +3,12 @@ import MacToolsCore
 import SwiftUI
 
 private enum LibrarySelection: Hashable {
-    case all, installed, settings, app(ManagedApp)
+    case all, installed, settings, updates, app(ManagedApp)
 }
 
 struct LibraryView: View {
     @ObservedObject var library: LibraryModel
+    @ObservedObject var updater: UpdateController
     @State private var selection: LibrarySelection? = .all
     @State private var removal: ManagedApp?
 
@@ -27,6 +28,7 @@ struct LibraryView: View {
                 }
                 Section {
                     Label("Tool Settings", systemImage: "slider.horizontal.3").tag(LibrarySelection.settings)
+                    Label("Mac Tools Updates", systemImage: "arrow.triangle.2.circlepath").tag(LibrarySelection.updates)
                 }
             }
             .listStyle(.sidebar)
@@ -46,6 +48,8 @@ struct LibraryView: View {
                 VStack(alignment: .leading, spacing: 26) {
                     if selection == .settings {
                         ToolSettingsView(library: library)
+                    } else if selection == .updates {
+                        ManagerUpdatesView(updater: updater)
                     } else if case let .app(app) = selection { detail(app) }
                     else { collection }
                     activity
@@ -84,6 +88,7 @@ struct LibraryView: View {
         case .app(let app): app.name
         case .installed: "Installed"
         case .settings: "Tool Settings"
+        case .updates: "Mac Tools Updates"
         default: "All Apps"
         }
     }

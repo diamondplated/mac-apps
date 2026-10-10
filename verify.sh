@@ -8,18 +8,30 @@ case "${1:-}" in
     --no-build) [ "$#" -eq 1 ] || exit 64; BUILD=0 ;;
     *) echo "Usage: $0 [--no-build]" >&2; exit 64 ;;
 esac
-for script in build-app.sh install-app.sh verify.sh DockPeek/build_app.sh; do
+for script in build-app.sh install-app.sh verify.sh DockPeek/build_app.sh scripts/release.sh; do
     bash -n "$PROJECT_DIR/$script"
 done
 for script in build-app.sh install-app.sh qa.sh; do
     sh -n "$PROJECT_DIR/ScreenWren/$script"
 done
+sh -n "$PROJECT_DIR/scripts/verify-login.sh" "$PROJECT_DIR/scripts/install-login-check.sh"
+"$PROJECT_DIR/scripts/verify-login.sh" --self-test
+python3 "$PROJECT_DIR/scripts/compare-bundles.py" --self-test
 for package in "$PROJECT_DIR/DockPeek" "$PROJECT_DIR/ScreenWren" "$PROJECT_DIR/MacTools"; do
     swift test --package-path "$package" --parallel
 done
 if [ "$BUILD" = 1 ]; then "$PROJECT_DIR/build-app.sh"; fi
 
 APP="$PROJECT_DIR/dist/Mac Tools.app"
+SPARKLE="$APP/Contents/Frameworks/Sparkle.framework"
+for component in "$SPARKLE" "$SPARKLE/Versions/B/Updater.app" "$SPARKLE/Versions/B/XPCServices/Installer.xpc" "$SPARKLE/Versions/B/XPCServices/Downloader.xpc" "$SPARKLE/Versions/B/Autoupdate"; do
+    codesign --verify --deep --strict "$component"
+done
+for binary in "$SPARKLE/Sparkle" "$SPARKLE/Versions/B/Autoupdate" "$SPARKLE/Versions/B/Updater.app/Contents/MacOS/Updater" "$SPARKLE/Versions/B/XPCServices/Installer.xpc/Contents/MacOS/Installer" "$SPARKLE/Versions/B/XPCServices/Downloader.xpc/Contents/MacOS/Downloader"; do
+    for architecture in arm64 x86_64; do lipo "$binary" -verify_arch "$architecture"; done
+done
+otool -L "$APP/Contents/MacOS/MacTools" | grep -F '@rpath/Sparkle.framework/' >/dev/null
+otool -l "$APP/Contents/MacOS/MacTools" | grep -F '@executable_path/../Frameworks' >/dev/null
 PLIST="$APP/Contents/Info.plist"
 plutil -lint "$PLIST" >/dev/null
 test "$(plutil -extract CFBundleIdentifier raw "$PLIST")" = com.andrew.mactools
@@ -56,5 +68,5 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 ditto -x -k "$ARCHIVE" "$QA_DIR"
 codesign --verify --deep --strict "$QA_DIR/Mac Tools.app"
-diff -qr "$APP" "$QA_DIR/Mac Tools.app"
+python3 "$PROJECT_DIR/scripts/compare-bundles.py" "$APP" "$QA_DIR/Mac Tools.app"
 echo "Mac Tools verification passed."

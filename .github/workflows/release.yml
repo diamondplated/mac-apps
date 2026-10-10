@@ -1,0 +1,76 @@
+name: Release Mac Tools
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version already committed in MacTools/Info.plist (X.Y.Z)
+        required: true
+        type: string
+      mode:
+        description: Distribution signing mode
+        required: true
+        type: choice
+        default: notarized
+        options: [notarized, signedlocal]
+      publish:
+        description: Publish the verified release and signed update feed to GitHub
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mac-tools-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: [self-hosted, macOS, ARM64, air]
+    timeout-minutes: 90
+    env:
+      # These are certificate/profile names, never private keys or Apple passwords.
+      DEVELOPER_ID_APPLICATION_IDENTITY: ${{ vars.DEVELOPER_ID_APPLICATION_IDENTITY }}
+      NOTARYTOOL_PROFILE: ${{ vars.NOTARYTOOL_PROFILE }}
+      SCREENWREN_SIGNING_IDENTITY: ${{ vars.LOCAL_SIGNING_IDENTITY }}
+      SCREENWREN_SIGNING_TIMESTAMP: none
+      SPARKLE_TOOLS_DIR: ${{ vars.SPARKLE_TOOLS_DIR }}
+      SPARKLE_KEYCHAIN_ACCOUNT: mac-tools
+      MACTOOLS_RELEASE_REPOSITORY: ${{ vars.MACTOOLS_RELEASE_REPOSITORY }}
+      RELEASE_VERSION: ${{ inputs.version }}
+      RELEASE_MODE: ${{ inputs.mode }}
+      RELEASE_PUBLISH: ${{ inputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preflight native signing credentials
+        shell: bash
+        run: |
+          args=(--notarized)
+          if [ "$RELEASE_MODE" = signedlocal ]; then args=(--local); fi
+          ./scripts/release.sh "${args[@]}" --version "$RELEASE_VERSION" --preflight
+      - name: Test all apps
+        shell: bash
+        run: |
+          for package in DockPeek ScreenWren MacTools; do
+            swift test --package-path "$package" --parallel
+          done
+      - name: Build, verify, and optionally publish
+        shell: bash
+        run: |
+          args=(--notarized)
+          if [ "$RELEASE_MODE" = signedlocal ]; then args=(--local); fi
+          if [ "$RELEASE_PUBLISH" = true ]; then args+=(--publish); fi
+          ./scripts/release.sh "${args[@]}" --version "$RELEASE_VERSION"
+      - name: Preserve verified release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mac-Tools-${{ inputs.version }}-${{ inputs.mode }}
+          path: |
+            dist/release/v*/*.zip
+            dist/release/v*/*.xml
+            dist/release/v*/*.md
+            dist/release/v*/*.ed25519
+            dist/release/v*/SHA256SUMS
+            dist/release/v*/*.json
+          if-no-files-found: error
