@@ -119,10 +119,12 @@ mkdir -p "$WORK/payloads" "$WORK/output"
 ditto "$PROJECT_DIR/DockPeek/DockPeek.app" "$WORK/payloads/DockPeek.app"
 SCREEN_SOURCE="$WORK/ScreenWren"
 mkdir -p "$SCREEN_SOURCE"
-for path in Package.swift Sources Resources Info.plist LoginItem-Info.plist build-app.sh; do
+for path in Package.swift Sources Tests Resources Info.plist LoginItem-Info.plist build-app.sh; do
     ditto "$PROJECT_DIR/ScreenWren/$path" "$SCREEN_SOURCE/$path"
 done
 if [ -f "$PROJECT_DIR/ScreenWren/Package.resolved" ]; then cp "$PROJECT_DIR/ScreenWren/Package.resolved" "$SCREEN_SOURCE/Package.resolved"; fi
+# All declared targets must resolve in the isolated package, including test targets.
+swift package --package-path "$SCREEN_SOURCE" describe >/dev/null
 SCREENWREN_SIGNING_IDENTITY="$SIGNING_IDENTITY" SCREENWREN_SIGNING_TIMESTAMP="$SIGNING_TIMESTAMP" "$SCREEN_SOURCE/build-app.sh"
 ditto "$SCREEN_SOURCE/dist/ScreenWren.app" "$WORK/payloads/ScreenWren.app"
 
