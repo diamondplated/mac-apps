@@ -17,6 +17,7 @@ public struct WindowInfo: Identifiable, @unchecked Sendable {
     public let axElement: AXUIElement?
     public let isMinimized: Bool
     public let isOnScreen: Bool
+    public let tabs: [TabInfo]
 
     public init(
         id: CGWindowID,
@@ -27,7 +28,8 @@ public struct WindowInfo: Identifiable, @unchecked Sendable {
         appIcon: NSImage?,
         axElement: AXUIElement?,
         isMinimized: Bool = false,
-        isOnScreen: Bool = true
+        isOnScreen: Bool = true,
+        tabs: [TabInfo] = []
     ) {
         self.id = id
         self.pid = pid
@@ -38,6 +40,7 @@ public struct WindowInfo: Identifiable, @unchecked Sendable {
         self.axElement = axElement
         self.isMinimized = isMinimized
         self.isOnScreen = isOnScreen
+        self.tabs = tabs
     }
 }
 
@@ -50,6 +53,18 @@ private actor ThumbnailCache {
     
     func set(_ id: CGWindowID, image: NSImage) {
         cache[id] = image
+    }
+}
+
+enum WindowFilter {
+    static func includes(title: String, subrole: String, bounds: CGRect, isMinimized: Bool) -> Bool {
+        if title.isEmpty && subrole != kAXStandardWindowSubrole && subrole != kAXDialogSubrole { return false }
+        // Chrome exposes tiny auxiliary controls as titled AXDialog windows.
+        // Preserve minimized windows and apps that cannot report their bounds.
+        if !isMinimized && bounds.width > 0 && bounds.height > 0 {
+            return bounds.width >= 100 && bounds.height >= 80
+        }
+        return true
     }
 }
 
@@ -71,9 +86,9 @@ public class WindowService {
     private init() {}
     
     /// Asynchronously fetches active and minimized windows with live thumbnails for the given process ID
-    public func fetchWindows(for pid: pid_t, appIcon: NSImage?, completion: @escaping ([WindowInfo]) -> Void) {
+    public func fetchWindows(for pid: pid_t, appIcon: NSImage?, showsTabs: Bool = true, completion: @escaping ([WindowInfo]) -> Void) {
         Task {
-            let windows = await self.getWindows(for: pid, appIcon: appIcon)
+            let windows = await self.getWindows(for: pid, appIcon: appIcon, showsTabs: showsTabs)
             DispatchQueue.main.async {
                 completion(windows)
             }
@@ -81,11 +96,12 @@ public class WindowService {
     }
     
     /// Returns real application windows (including minimized windows) with live thumbnails
-    public func getWindows(for pid: pid_t, appIcon: NSImage?) async -> [WindowInfo] {
+    public func getWindows(for pid: pid_t, appIcon: NSImage?, showsTabs: Bool = true) async -> [WindowInfo] {
         // 1. Query Accessibility for true user-facing application windows.
         // This is the ground truth on macOS that filters out invisible render surfaces,
         // auxiliary background frames, and web worker layers.
         let appElement = AXUIElementCreateApplication(pid)
+        let bundleIdentifier = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
         var axWindowsList: [(element: AXUIElement, id: CGWindowID, title: String, isMinimized: Bool, bounds: CGRect)] = []
         
         var axWindowsValue: AnyObject?
@@ -104,11 +120,6 @@ public class WindowService {
                 if AXUIElementCopyAttributeValue(axWin, kAXSubroleAttribute as CFString, &subroleVal) == .success,
                    let s = subroleVal as? String {
                     subrole = s
-                }
-                
-                // Filter out non-window elements (e.g. empty auxiliary tooltips)
-                if title.isEmpty && subrole != "AXStandardWindow" && subrole != "AXDialog" {
-                    continue
                 }
                 
                 // Check if truly minimized into the Dock (AXMinimized is authoritative!)
@@ -136,6 +147,7 @@ public class WindowService {
                     }
                 }
                 
+                guard WindowFilter.includes(title: title, subrole: subrole, bounds: bounds, isMinimized: isMin) else { continue }
                 axWindowsList.append((element: axWin, id: winID, title: title, isMinimized: isMin, bounds: bounds))
             }
         }
@@ -159,18 +171,18 @@ public class WindowService {
                 if item.id != 0 {
                     scWin = scWindowMap[item.id]
                 }
-                if scWin == nil && !item.title.isEmpty {
+                if item.id == 0 && scWin == nil && !item.title.isEmpty {
                     scWin = scWindowsByPID.first(where: {
                         guard let scTitle = $0.title?.trimmingCharacters(in: .whitespacesAndNewlines), !scTitle.isEmpty else { return false }
                         return scTitle == item.title || item.title.contains(scTitle) || scTitle.contains(item.title)
                     })
                 }
-                if scWin == nil && item.bounds.width > 0 {
+                if item.id == 0 && scWin == nil && item.bounds.width > 0 {
                     scWin = scWindowsByPID.first(where: {
                         abs($0.frame.width - item.bounds.width) < 10 && abs($0.frame.height - item.bounds.height) < 10
                     })
                 }
-                if scWin == nil && axWindowsList.count == 1 {
+                if item.id == 0 && scWin == nil && axWindowsList.count == 1 {
                     scWin = scWindowsByPID.first(where: { $0.isOnScreen }) ?? scWindowsByPID.first
                 }
                 
@@ -195,7 +207,8 @@ public class WindowService {
                     appIcon: appIcon,
                     axElement: item.element,
                     isMinimized: item.isMinimized, // Strictly only true if AXMinimized was true!
-                    isOnScreen: isOnScreen
+                    isOnScreen: isOnScreen,
+                    tabs: showsTabs ? TabService.tabs(in: item.element, bundleIdentifier: bundleIdentifier) : []
                 ))
             }
         } else {
@@ -346,6 +359,15 @@ public class WindowService {
         }
     }
     
+    /// Select a tab in its owning window, restoring a minimized window first.
+    @discardableResult
+    public func selectTab(_ tab: TabInfo, in window: WindowInfo) -> Bool {
+        // Keep the actual AX element, rather than a title or index that could now
+        // identify a different tab after closing, reordering, or duplicate titles.
+        raiseWindow(window)
+        return TabService.select(tab)
+    }
+
     /// Close a window via Accessibility action
     public func closeWindow(_ window: WindowInfo) {
         guard let axWindow = window.axElement else { return }

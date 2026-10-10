@@ -10,13 +10,18 @@ public class AppDelegate: NSObject, NSApplicationDelegate, DockObserverDelegate,
     private let windowService = WindowService.shared
     private let permissions = PermissionsManager.shared
     private var permissionsPollTimer: Timer?
+    private var previewRequestID = UUID()
+    private let preferences = ToolPreferences.shared
     
     public func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
         setupPreviewPanel()
         
         dockObserver.delegate = self
-        dockObserver.start()
+        DistributedNotificationCenter.default().addObserver(
+            self, selector: #selector(settingsDidChange),
+            name: ToolPreferences.changedNotification, object: ToolPreferences.bundleIdentifier
+        )
         
         // Initial permission check and prompt
         permissions.checkPermissions()
@@ -27,6 +32,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate, DockObserverDelegate,
             permissions.requestScreenCapture()
         }
         
+        applyPreferences()
+
         // Poll permissions in background every 1.5s so that when the user grants access in
         // System Settings, DockPeek activates immediately without needing a manual refresh.
         permissionsPollTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
@@ -36,10 +43,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate, DockObserverDelegate,
             self.permissions.checkPermissions()
             
             if prevAx != self.permissions.accessibilityStatus || prevScreen != self.permissions.screenCaptureStatus {
-                self.updateMenu()
-                if self.permissions.accessibilityStatus == .granted {
-                    self.dockObserver.start()
-                }
+                self.applyPreferences()
             }
         }
     }
@@ -66,12 +70,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate, DockObserverDelegate,
         permissions.checkPermissions()
         statusMenu.removeAllItems()
         
-        let titleItem = NSMenuItem(title: "DockPeek v1.0", action: nil, keyEquivalent: "")
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development"
+        let titleItem = NSMenuItem(title: "DockPeek \(version)", action: nil, keyEquivalent: "")
         titleItem.isEnabled = false
         statusMenu.addItem(titleItem)
         
         let isFullyAuthorized = (permissions.accessibilityStatus == .granted && permissions.screenCaptureStatus == .granted)
-        let statusText = isFullyAuthorized ? "● Ready & Active" : "⚠️ Permissions Required"
+        let statusText = !preferences.previewsEnabled ? "Paused" : (isFullyAuthorized ? "● Ready & Active" : "⚠️ Permissions Required")
         let statusDescItem = NSMenuItem(title: "Status: \(statusText)", action: nil, keyEquivalent: "")
         statusDescItem.isEnabled = false
         statusMenu.addItem(statusDescItem)
@@ -109,6 +114,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate, DockObserverDelegate,
         restartItem.target = self
         statusMenu.addItem(restartItem)
         
+        let managerItem = NSMenuItem(title: "Manage in Mac Tools…", action: #selector(openMacTools), keyEquivalent: "")
+        managerItem.target = self
+        statusMenu.addItem(managerItem)
+
         // Open System Settings
         let settingsItem = NSMenuItem(title: "Open Privacy & Security...", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
@@ -135,57 +144,90 @@ public class AppDelegate: NSObject, NSApplicationDelegate, DockObserverDelegate,
     // MARK: - DockObserverDelegate
     
     public func dockObserver(_ observer: DockObserver, didHoverItem item: HoveredDockItem) {
-        windowService.fetchWindows(for: item.pid, appIcon: item.icon) { [weak self] windows in
-            guard let self = self else { return }
-            guard self.dockObserver.currentHoveredPID == item.pid else { return }
-            
+        refreshPreview(for: item)
+    }
+
+    private func refreshPreview(for item: HoveredDockItem) {
+        guard preferences.previewsEnabled else { return }
+        let requestID = UUID()
+        previewRequestID = requestID
+        windowService.fetchWindows(for: item.pid, appIcon: item.icon, showsTabs: preferences.showsTabs) { [weak self] windows in
+            guard let self = self,
+                  self.preferences.previewsEnabled,
+                  self.previewRequestID == requestID,
+                  self.dockObserver.currentHoveredPID == item.pid else { return }
             guard !windows.isEmpty else {
                 self.previewPanel.hide()
                 return
             }
-            
             self.previewPanel.show(
                 dockItem: item,
                 windows: windows,
-                onSelect: { [weak self] selectedWin in
-                    self?.windowService.raiseWindow(selectedWin)
+                onSelect: { [weak self] window in
+                    self?.windowService.raiseWindow(window)
                     self?.dockObserver.resetHoverState()
                 },
-                onClose: { [weak self] closedWin in
-                    self?.windowService.closeWindow(closedWin)
-                    // Refresh remaining windows after closing
+                onClose: { [weak self] window in
+                    self?.windowService.closeWindow(window)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-                        guard let self = self else { return }
-                        self.windowService.fetchWindows(for: item.pid, appIcon: item.icon) { [weak self] remaining in
-                            guard let self = self else { return }
-                            guard self.dockObserver.currentHoveredPID == item.pid else { return }
-                            if remaining.isEmpty {
-                                self.previewPanel.hide()
-                                self.dockObserver.resetHoverState()
-                            } else {
-                                self.previewPanel.show(
-                                    dockItem: item,
-                                    windows: remaining,
-                                    onSelect: { [weak self] win in
-                                        self?.windowService.raiseWindow(win)
-                                        self?.dockObserver.resetHoverState()
-                                    },
-                                    onClose: { [weak self] win in
-                                        self?.windowService.closeWindow(win)
-                                    }
-                                )
-                            }
-                        }
+                        guard let self = self,
+                              self.previewRequestID == requestID,
+                              self.dockObserver.currentHoveredPID == item.pid else { return }
+                        self.refreshPreview(for: item)
                     }
+                },
+                onSelectTab: { [weak self] tab, window in
+                    guard let self = self else { return false }
+                    if self.windowService.selectTab(tab, in: window) {
+                        self.dockObserver.resetHoverState()
+                        return true
+                    }
+                    // A tab may have closed since this preview was fetched.
+                    self.refreshPreview(for: item)
+                    return false
                 }
             )
         }
     }
-    
+
     public func dockObserverDidUnhover(_ observer: DockObserver) {
+        previewRequestID = UUID()
         previewPanel.hide()
     }
-    
+
+    @objc private func settingsDidChange(_ notification: Notification) {
+        DispatchQueue.main.async { [weak self] in self?.applyPreferences() }
+    }
+
+    private func applyPreferences() {
+        preferences.synchronize()
+        previewRequestID = UUID()
+        previewPanel.hide()
+        dockObserver.dismissalDelay = preferences.dismissalDelay
+        permissions.checkPermissions()
+        if preferences.previewsEnabled,
+           permissions.accessibilityStatus == .granted,
+           permissions.screenCaptureStatus == .granted {
+            dockObserver.start()
+        } else {
+            dockObserver.stop()
+        }
+        updateMenu()
+    }
+
+    @objc private func openMacTools() {
+        let candidates = [URL(fileURLWithPath: "/Applications/Mac Tools.app"),
+                          FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Mac Tools.app")]
+        if let manager = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) {
+            NSWorkspace.shared.openApplication(at: manager, configuration: .init())
+        } else {
+            let alert = NSAlert()
+            alert.messageText = "Install Mac Tools to manage DockPeek"
+            alert.informativeText = "Place Mac Tools in Applications, then open it to change DockPeek settings."
+            alert.runModal()
+        }
+    }
+
     // MARK: - Actions
     
     @objc private func handleAccessibilityAction() {

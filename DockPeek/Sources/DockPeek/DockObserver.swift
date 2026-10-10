@@ -29,6 +29,9 @@ public class DockObserver {
     private var localMouseMonitor: Any?
     private var hoverCheckTimer: Timer?
     private var dismissalState = HoverDismissalState()
+    public var dismissalDelay: TimeInterval = 0.6 {
+        didSet { dismissalState = HoverDismissalState(gracePeriod: dismissalDelay) }
+    }
     public private(set) var currentHoveredPID: pid_t?
     public private(set) var currentDockItemFrame: CGRect?
     

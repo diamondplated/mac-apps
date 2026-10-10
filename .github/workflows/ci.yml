@@ -1,0 +1,38 @@
+name: Mac Tools
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mac-tools-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    # Andrew's own macOS runner must have macOS 26+ and Swift 6.2+ / matching Xcode.
+    runs-on: [self-hosted, macOS, ARM64, air]
+    timeout-minutes: 45
+    env:
+      SCREENWREN_SIGNING_IDENTITY: '-'
+      SCREENWREN_SIGNING_TIMESTAMP: none
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check toolchain
+        run: |
+          test "$(sw_vers -productVersion | cut -d. -f1)" -ge 26
+          xcrun swift --version
+          xcrun --show-sdk-path
+      - name: Test and package every app
+        run: ./verify.sh
+      - name: Upload verified suite
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mac-Tools
+          path: dist/Mac-Tools-*.zip
+          if-no-files-found: error

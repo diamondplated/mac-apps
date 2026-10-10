@@ -1,27 +1,107 @@
 # Mac Tools
 
-Native macOS utilities, starting with **DockPeek**, a menu bar app that shows
-window previews when hovering over application icons in the Dock.
+One native macOS app to install, update, open, and configure **DockPeek** and
+**ScreenWren**. Their source, tests, packaging, and manager live in this repository.
 
-## DockPeek
+| App | What it does | Requires |
+| --- | --- | --- |
+| Mac Tools | Install apps and manage all tool settings | macOS 14+ |
+| [DockPeek](DockPeek/README.md) | Live Dock window previews, switching, and browser tabs | macOS 14+ |
+| [ScreenWren](ScreenWren/README.md) | Precise screenshots, markup, redaction, and text recognition | macOS 26+ |
 
-Source, package configuration, and build instructions are in [DockPeek](DockPeek/README.md).
-DockPeek requires macOS 14 or newer and the Swift toolchain (Xcode or Command Line Tools).
+## Use the manager
 
-From the repository root, compile the app without installing it:
+Open **Mac Tools.app** and choose **All Apps**. Each app has Install/Update and
+Open actions. Its detail page adds Quit, Show in Finder, Settings, and Uninstall.
+Uninstall moves the app to the Trash and keeps preferences and saved captures.
+Updates quit a running app, replace its bundle, and reopen it. A failed update
+restores the previous bundle and reopens that copy.
+
+Choose **Just Me** to install new apps in `~/Applications`, or **All Users** for
+`/Applications`. Updates keep each app's current location, including renamed
+bundles. A conflicting bundle or multiple installed copies must be resolved
+before installation; the manager never silently overwrites another app.
+
+The two app installers are included inside Mac Tools, so installing them works
+offline and requires no development tools. Update Mac Tools itself to receive
+new included app versions. The manager compares versions/builds and app contents
+to recognize local rebuilds, and prevents downgrades. It reports unsupported
+macOS versions before installation.
+
+## All tool settings
+
+Choose **Tool Settings** in the sidebar, or use **Mac Tools → Settings…** (`⌘,`).
+Settings use each tool's existing preferences and apply to running tools.
+
+- **DockPeek:** launch at login, enable previews, include tabs, and preview
+  dismissal delay.
+- **ScreenWren:** launch at login, capture destination, quick-action thumbnail,
+  selection adjustment, exact dimensions, aspect ratio, saved size presets,
+  and all seven keyboard shortcuts, including clearing and restoring defaults.
+- **macOS permissions:** direct links to Accessibility, Screen Recording, and
+  Login Items. macOS owns approval; the manager reports real login-item status.
+
+Tools must be installed from a current Mac Tools build to expose centralized
+settings. Their existing menus and preferences continue to work. Both menu bar
+apps also include **Manage in Mac Tools…**.
+
+## Build and install from source
+
+Building the full suite requires macOS 26+, Swift 6.2+, and the matching macOS SDK.
+The build creates Universal 2 binaries for Apple silicon and Intel and preserves
+each tool's bundle identity and signing requirements.
 
 ```sh
-swift build --package-path DockPeek -c release
+./build-app.sh
+./install-app.sh --no-build
 ```
 
-To build, package, sign, and install it into `/Applications/DockPeek.app`:
+Output is `dist/Mac Tools.app` and `dist/Mac-Tools-1.0.0.zip`. The installer stages
+and verifies the manager, backs up an existing copy, installs to `/Applications`,
+and opens it. Use the manager to install or update the two tools.
+
+ScreenWren uses its saved persistent signing identity and timestamp preferences
+in ignored `ScreenWren/.screenwren-signing-identity` and
+`ScreenWren/.screenwren-signing-timestamp` files. Alternatively set
+`SCREENWREN_SIGNING_IDENTITY` and `SCREENWREN_SIGNING_TIMESTAMP` (`secure` or `none`).
+The enclosing manager uses that identity too, without re-signing its payloads.
+Without a persistent identity, builds use ad-hoc signatures for verification;
+interactive manager/ScreenWren installation requires a persistent certificate.
+Local signed builds are not automatically notarized.
+
+To reuse already verified Universal 2 tool builds when changing only the manager:
 
 ```sh
-./DockPeek/build_app.sh
-open /Applications/DockPeek.app
+./build-app.sh --reuse-payloads
 ```
 
-Enable Accessibility and Screen Recording permissions for window detection and previews.
+Individual tools still build independently. DockPeek supports
+`./DockPeek/build_app.sh --no-install --arch universal`; its original no-argument
+build-and-install behavior is retained. ScreenWren's build and installation
+instructions remain in its own README.
 
-Each utility lives in its own directory. Generated build output and app bundles
-are excluded from version control.
+## Verify
+
+```sh
+./verify.sh
+```
+
+This tests all three packages, builds the suite, checks app identities, deployment
+targets, Universal 2 architectures, nested signatures, archive extraction, and
+ScreenWren's headless self-check. Use `./verify.sh --no-build` to verify a package
+that was just built. Live screen captures are opt-in in ScreenWren's QA workflow.
+GitHub Actions uses only Andrew's self-hosted macOS runners, with no hosted fallback
+and no installation step.
+
+## Repository layout
+
+- `MacTools/`: native SwiftUI manager, installation/settings core, and tests.
+- `DockPeek/`: independently runnable Dock preview utility and regression tests.
+- `ScreenWren/`: complete screenshot app, login helper, resources, and tests.
+- Root scripts and `.github/`: suite packaging, installation, and shared CI.
+
+ScreenWren's previous Git history is retained as merge ancestry. Its current
+working-tree changes were imported too; see
+[migration details](ScreenWren/docs/MIGRATION.md). The previous checkout remains
+available as a migration backup. Continue development in this repository.
+Build products, local signing choices, and credentials are excluded from Git.
