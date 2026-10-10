@@ -3,7 +3,11 @@ import Foundation
 /// Keeps the Dock-to-preview crossing forgiving without treating empty space as hover.
 struct HoverDismissalState {
     private var departedAt: TimeInterval?
-    private let gracePeriod: TimeInterval = 0.6
+    private let gracePeriod: TimeInterval
+
+    init(gracePeriod: TimeInterval = 0.6) {
+        self.gracePeriod = gracePeriod
+    }
 
     mutating func shouldDismiss(
         pointer: CGPoint,

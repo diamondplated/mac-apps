@@ -78,7 +78,8 @@ public class PreviewPanel: NSPanel {
         dockItem: HoveredDockItem,
         windows: [WindowInfo],
         onSelect: @escaping (WindowInfo) -> Void,
-        onClose: @escaping (WindowInfo) -> Void
+        onClose: @escaping (WindowInfo) -> Void,
+        onSelectTab: @escaping (TabInfo, WindowInfo) -> Bool = { _, _ in false }
     ) {
         guard !windows.isEmpty else {
             hide()
@@ -89,30 +90,34 @@ public class PreviewPanel: NSPanel {
         presentationID = UUID()
         
         let screen = DockObserver.screen(for: dockItem.frame.origin)
+        let layout = PreviewLayout(windows: windows, availableSize: CGSize(
+            width: screen.visibleFrame.width - 60,
+            height: screen.visibleFrame.height - 32
+        ))
         
         let view = PreviewView(
             appName: dockItem.title,
             appIcon: dockItem.icon,
             windows: windows,
+            tabListHeight: layout.tabListHeight,
             onSelectWindow: { [weak self] win in
                 onSelect(win)
                 self?.hide()
             },
             onCloseWindow: { win in
                 onClose(win)
+            },
+            onSelectTab: { [weak self] tab, win in
+                if onSelectTab(tab, win) {
+                    self?.hide()
+                } else {
+                    NSSound.beep()
+                }
             }
         )
         
         // Calculate appropriate size
-        let cardWidth: CGFloat = 222
-        let spacing: CGFloat = 12
-        let horizontalPadding: CGFloat = 24
-        let totalWidth = min(
-            CGFloat(windows.count) * cardWidth + CGFloat(max(0, windows.count - 1)) * spacing + horizontalPadding,
-            screen.visibleFrame.width - 60
-        )
-        let totalHeight: CGFloat = 205
-        let panelSize = NSSize(width: max(totalWidth, 240), height: totalHeight)
+        let panelSize = layout.size
         
         let container = TrackingContainerView(frame: NSRect(origin: .zero, size: panelSize))
         container.onMouseEntered = { [weak self] in

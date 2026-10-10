@@ -5,3 +5,9 @@ DerivedData/
 *.app/
 *.dSYM/
 xcuserdata/
+dist/
+.screenwren-signing-identity
+.screenwren-signing-timestamp
+*.p12
+*.pfx
+*.key
