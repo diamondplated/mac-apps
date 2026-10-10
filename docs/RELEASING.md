@@ -29,7 +29,7 @@ The current official tool installation is `/Users/andrew/GIT/mac-tools/.build/sp
 
 Configure the runner user's native `gh auth login` session with read access to the private source repository and release-write access to `diamondplated/mac-tools-releases`. The workflow intentionally uses that native session for publication: the source repository's automatic workflow token cannot publish to a separate repository. Do not add private keys or Apple passwords to GitHub Secrets.
 
-Dispatch **Release Mac Tools** with version `1.1.0` and mode **signedlocal** for the current distribution. The workflow defaults to **notarized**, which intentionally fails until Developer ID and the notary profile exist. The publish checkbox defaults off. All work uses `[self-hosted, macOS, ARM64, air]`; no hosted runner fallback exists.
+Dispatch **Release Mac Tools** with the next version and mode **signedlocal** for the current distribution. Version `1.1.0` is already published and must not be reused. The workflow defaults to **notarized**, which intentionally fails until Developer ID and the notary profile exist. The publish checkbox defaults off. All work uses `[self-hosted, macOS, ARM64, air]`; no hosted runner fallback exists.
 
 ## Version and prepare
 
@@ -75,6 +75,16 @@ The script publishes only when explicitly passed `--publish` during a fresh rele
 
 Use `--notarized` instead once the Developer ID credentials are available. Once 1.1.0 is published, increment the version and build for the next release; do not overwrite its assets.
 
-It refuses an existing version release and checks the build number against previous release metadata/appcasts (falling back to source tags for older releases). The script uploads the ZIP, appcast, signed release notes, archive signature, checksums, and source provenance into a draft release. It checks every uploaded asset's presence, upload state, and size before publishing the draft and marking it latest. Failed uploads leave an unpublished draft for inspection, so the live feed cannot point at a partially uploaded release. A failed preflight or verification publishes nothing. The workflow supports the same explicit choice and stores verified artifacts even without publishing.
+It refuses an existing version release and checks the build number against previous release metadata/appcasts (falling back to source tags for older releases). The script uploads the ZIP, appcast, signed release notes, archive signature, checksums, and source provenance into a draft release. It finds that draft in the authenticated release list, fetches its exact ID, and checks all six assets' names, upload states, sizes, and SHA256 digests before publishing that ID and marking it latest. Failed uploads leave an unpublished draft for inspection, so the live feed cannot point at a partially uploaded release. A failed preflight or verification publishes nothing. The workflow supports the same explicit choice and stores verified artifacts even without publishing.
+
+To inspect a retained draft against the original verified local output, run `python3 scripts/verify-release-draft.py diamondplated/mac-tools-releases X.Y.Z dist/release/vX.Y.Z-local`. This is read-only and prints the validated release ID. Add `--publish` only when publication is authorized; it validates again before publishing by ID. Keep the original signed files and source provenance rather than rebuilding or overwriting assets.
 
 After publishing, test a real older installed manager against the new feed: check for updates, confirm the offered version, install the update, relaunch, and verify the managed tool versions. Unit tests and packaging validation alone do not establish a successful end-to-end update on another Mac.
+
+## Verified 1.1.0 release
+
+On October 10, 2026, the [1.1.0 release](https://github.com/diamondplated/mac-tools-releases/releases/tag/v1.1.0) passed anonymous feed/archive download checks, byte comparisons with the local release, and official Sparkle signature verification. A modified feed failed signature verification.
+
+On Andrew's Mac, a persistently signed fixture of the current updater stamped as version 1.0.0/build 1 received the public 1.1.0 offer, downloaded it, installed it, and relaunched through Sparkle. The installed version 1.1.0/build 2 matched the published app's complete bundle, including file modes and literal symlink targets. This exercises the update mechanism; the fixture is not the historical 1.0.0 app, which did not have an updater.
+
+ScreenWren's included payload was then installed through Mac Tools. Both installed tools matched the release payloads and passed signature checks. Their complete settings snapshots were unchanged. Both login items were enabled and running from their expected `/Applications` bundles; the one-time next-login check remains armed. This evidence covers this Mac and does not establish notarization or a completed new-login test.

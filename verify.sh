@@ -17,6 +17,7 @@ done
 sh -n "$PROJECT_DIR/scripts/verify-login.sh" "$PROJECT_DIR/scripts/install-login-check.sh"
 "$PROJECT_DIR/scripts/verify-login.sh" --self-test
 python3 "$PROJECT_DIR/scripts/compare-bundles.py" --self-test
+python3 "$PROJECT_DIR/scripts/verify-release-draft.py" --self-test
 for package in "$PROJECT_DIR/DockPeek" "$PROJECT_DIR/ScreenWren" "$PROJECT_DIR/MacTools"; do
     swift test --package-path "$package" --parallel
 done
