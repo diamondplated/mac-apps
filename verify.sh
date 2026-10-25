@@ -61,6 +61,11 @@ done
 for name in ScreenWren ScrollSplit LinkRoutes; do
     "$APP/Contents/Resources/Applications/$name.app/Contents/MacOS/$name" --self-check
 done
+# Shipped ScreenWren must not contain the live QA capture path (its messages are long literals).
+if grep -aqF -e '--qa-capture needs' -e 'ScreenWren QA:' "$APP/Contents/Resources/Applications/ScreenWren.app/Contents/MacOS/ScreenWren"; then
+    echo "ScreenWren was built with SCREENWREN_LIVE_QA; --qa-capture must not ship." >&2
+    exit 1
+fi
 VERSION=$(plutil -extract CFBundleShortVersionString raw "$PLIST")
 ARCHIVE="$PROJECT_DIR/dist/Mac-Tools-$VERSION.zip"
 test -s "$ARCHIVE"

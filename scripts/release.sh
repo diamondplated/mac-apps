@@ -16,6 +16,7 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 fail() { echo "Release preflight failed: $*" >&2; exit 1; }
+[ "${SCREENWREN_LIVE_QA:-0}" = 0 ] || fail "Unset SCREENWREN_LIVE_QA; live QA builds must never be released."
 PLIST="$PROJECT_DIR/MacTools/Info.plist"
 VERSION=$(plutil -extract CFBundleShortVersionString raw "$PLIST")
 BUILD=$(plutil -extract CFBundleVersion raw "$PLIST")

@@ -55,6 +55,10 @@ opt-in:
 SCREENWREN_LIVE_QA=1 ./qa.sh
 ```
 
+That build is the only one that accepts `--qa-capture`; ordinary and release
+builds compile it out so no other process can trigger a capture. Rebuild without
+`SCREENWREN_LIVE_QA` before installing or packaging.
+
 ## Project shape
 
 - `Sources/ScreenWren/` — AppKit application, capture, editing, and export code.
