@@ -11,7 +11,6 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/diamondplated/mac-tools/actions/workflows/ci.yml"><img src="https://github.com/diamondplated/mac-tools/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/platform-macOS%2026%2B-lightgrey.svg" alt="macOS 26+">
   <img src="https://img.shields.io/badge/dependencies-0-brightgreen.svg" alt="Zero dependencies">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
@@ -31,12 +30,13 @@
 
 ## Install
 
-ScreenWren is maintained alongside DockPeek in [Mac Tools](../README.md).
-Use the Mac Tools manager to install and manage the bundled app, or
+ScreenWren ships inside [Mac Tools](../README.md), alongside DockPeek,
+ScrollSplit and LinkRoutes. Download Mac Tools from
+[mac-tools-releases](https://github.com/diamondplated/mac-tools-releases/releases/latest)
+and install ScreenWren from there, or
 [build ScreenWren from source](#build-from-source).
 
-Suite downloads and releases live in the
-[mac-tools repository](https://github.com/diamondplated/mac-tools/releases).
+The old standalone ScreenWren releases and Homebrew cask are no longer updated.
 See [migration notes](docs/MIGRATION.md) for the source import details.
 
 ---
