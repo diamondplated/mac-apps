@@ -17,12 +17,10 @@ A native, lightweight macOS utility built in Swift that brings live window hover
 
 ## Getting Started
 
-### 1. Launch the App
-To launch the newly built app bundle:
-```bash
-open DockPeek/DockPeek.app
-```
-*(Optionally, drag `DockPeek.app` to your `/Applications` folder).*
+### 1. Install DockPeek
+DockPeek ships inside Mac Tools. Download Mac Tools from
+[mac-tools-releases](https://github.com/diamondplated/mac-tools-releases/releases/latest),
+open it, and install DockPeek from there. Mac Tools keeps it updated.
 
 ### 2. Grant macOS Permissions
 Because macOS protects other applications' windows and screen contents, two standard permissions are required:
