@@ -28,8 +28,11 @@ final class EditorLayoutTests: XCTestCase {
         let statusBar = try XCTUnwrap(root.subviews.compactMap { $0 as? NSStackView }.first)
         let label = try XCTUnwrap(statusBar.views.compactMap { $0 as? NSTextField }.first)
 
+        // The system markup toolbar sets the floor (it widened in macOS 27), so the narrowest
+        // editor is whichever is larger: the window minimum or the toolbar plus its insets.
+        let narrowest = max(720, (toolbar.fittingSize.width + 16).rounded(.up))
         // Returning to each size exercises both directions across the breakpoint.
-        for width: CGFloat in [720, 1040, 1440, 720, 1440] {
+        for width: CGFloat in [narrowest, 1040, 1440, narrowest, 1440] {
             window.setContentSize(CGSize(width: width, height: 720))
             root.needsLayout = true
             root.layoutSubtreeIfNeeded()
@@ -41,7 +44,7 @@ final class EditorLayoutTests: XCTestCase {
             XCTAssertFalse(toolbar.frame.intersects(actions.frame), "Tools overlap actions at \(width) points")
             XCTAssertFalse(toolbar.frame.intersects(quickTools.frame))
             XCTAssertFalse(actions.frame.intersects(quickTools.frame))
-            if width == 720 { XCTAssertEqual(header.frame.height, 132, accuracy: 1) }
+            if width == narrowest { XCTAssertEqual(header.frame.height, 132, accuracy: 1) }
             if width == 1440 { XCTAssertEqual(header.frame.height, 92, accuracy: 1) }
             for button in (actions.views + quickTools.views).compactMap({ $0 as? NSButton }) {
                 XCTAssertFalse(button.isHidden)

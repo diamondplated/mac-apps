@@ -89,13 +89,16 @@ final class NativeToolbarInteractionTests: XCTestCase {
             toolbar.selectedIndirectPointerTouchMode = .drawing
         }
         adapter.markupToolbarViewControllerSelectedDrawingToolChanged(toolbar)
+        // macOS 27's toolbar keeps its own color when a tool is set in code, so the style the
+        // user sees is whatever the toolbar reports; the overlay must draw with exactly that.
+        let selected = try XCTUnwrap(toolbar.selectedDrawingTool as? PKInkingTool)
         let overlay = try XCTUnwrap(editor.view.subviews.compactMap { $0 as? AnnotationDrawingView }.first)
         XCTAssertTrue(overlay.tool.isFreehand)
         XCTAssertEqual(overlay.tool, .highlighter)
         let actual = try XCTUnwrap(overlay.inkingTool)
         XCTAssertEqual(actual.inkType, chosen.inkType)
         XCTAssertEqual(actual.width, chosen.width)
-        XCTAssertEqual(actual.color.usingColorSpace(.sRGB), chosen.color.usingColorSpace(.sRGB))
+        XCTAssertEqual(actual.color.usingColorSpace(.sRGB), selected.color.usingColorSpace(.sRGB))
 
         adapter.withSuppressedCallbacks { toolbar.selectedIndirectPointerTouchMode = .selection }
         adapter.markupToolbarViewControllerSelectedIndirectPointerTouchModeChanged(toolbar)
@@ -103,7 +106,7 @@ final class NativeToolbarInteractionTests: XCTestCase {
         adapter.withSuppressedCallbacks { toolbar.selectedIndirectPointerTouchMode = .drawing }
         adapter.markupToolbarViewControllerSelectedIndirectPointerTouchModeChanged(toolbar)
         let resumed = try XCTUnwrap(editor.view.subviews.compactMap { $0 as? AnnotationDrawingView }.first)
-        XCTAssertEqual(resumed.inkingTool, chosen, "Returning to native drawing preserves the selected style")
+        XCTAssertEqual(resumed.inkingTool, selected, "Returning to native drawing preserves the selected style")
     }
 
     @MainActor func testNestedSuppressionAndReentrantCommandsDoNotDispatchTwice() throws {
