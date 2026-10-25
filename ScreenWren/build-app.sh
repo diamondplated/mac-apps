@@ -46,12 +46,19 @@ trap 'rm -rf "$STAGING_DIR"' EXIT INT TERM
 build_architecture() {
     triple=$1
     scratch_path=$2
+    # Live QA builds alone accept --qa-capture; never ship or install one.
+    if [ "${SCREENWREN_LIVE_QA:-0}" = 1 ]; then
+        set -- -Xswiftc -DSCREENWREN_LIVE_QA
+    else
+        set --
+    fi
 
     swift build \
         --package-path "$PROJECT_DIR" \
         --scratch-path "$scratch_path" \
         --configuration release \
-        --triple "$triple"
+        --triple "$triple" \
+        "$@"
 }
 
 show_bin_path() {

@@ -403,6 +403,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         rebuildMenu()
 
         let arguments = CommandLine.arguments
+        // Only opt-in live QA builds accept --qa-capture. In a shipped app it would let any
+        // local process capture the screen with ScreenWren's permission and no user command.
+        #if SCREENWREN_LIVE_QA
         if let flag = arguments.firstIndex(of: "--qa-capture") {
             guard arguments.indices.contains(flag + 1) else {
                 fputs("ScreenWren: --qa-capture needs an output PNG path.\n", stderr)
@@ -410,7 +413,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 return
             }
             runQACapture(to: URL(fileURLWithPath: arguments[flag + 1]))
-        } else if let flag = arguments.firstIndex(of: "--open-image") {
+            return
+        }
+        #endif
+        if let flag = arguments.firstIndex(of: "--open-image") {
             guard arguments.indices.contains(flag + 1),
                   let image = NSImage(contentsOfFile: arguments[flag + 1]),
                   let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
@@ -428,6 +434,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Ordinary launches, including login launches, stay quiet until a command.
     }
 
+    #if SCREENWREN_LIVE_QA
     private func runQACapture(to outputURL: URL) {
         guard CGPreflightScreenCaptureAccess(), let screen = NSScreen.main else {
             fputs("ScreenWren QA: screen capture permission is unavailable.\n", stderr)
@@ -458,6 +465,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         }
     }
+    #endif
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         return false
