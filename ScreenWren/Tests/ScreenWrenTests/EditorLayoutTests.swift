@@ -28,9 +28,14 @@ final class EditorLayoutTests: XCTestCase {
         let statusBar = try XCTUnwrap(root.subviews.compactMap { $0 as? NSStackView }.first)
         let label = try XCTUnwrap(statusBar.views.compactMap { $0 as? NSTextField }.first)
 
-        // The system markup toolbar sets the floor (it widened in macOS 27), so the narrowest
-        // editor is whichever is larger: the window minimum or the toolbar plus its insets.
-        let narrowest = max(720, (toolbar.fittingSize.width + 16).rounded(.up))
+        // The system markup toolbar sets the floor (it widened in macOS 27), so ask the window
+        // for the narrowest editor it allows instead of assuming the 720-point minimum.
+        window.setContentSize(CGSize(width: 720, height: 720))
+        root.needsLayout = true
+        root.layoutSubtreeIfNeeded()
+        let narrowest = root.bounds.width
+        XCTAssertGreaterThanOrEqual(narrowest, 719)
+        XCTAssertLessThan(narrowest, 1040, "The editor must still reach its wrapped layout")
         // Returning to each size exercises both directions across the breakpoint.
         for width: CGFloat in [narrowest, 1040, 1440, narrowest, 1440] {
             window.setContentSize(CGSize(width: width, height: 720))
