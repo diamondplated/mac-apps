@@ -1804,6 +1804,7 @@ final class SelectionWindowController: NSWindowController {
     private let outputScale: CGFloat
     private var loupeDisplay: NSScreen?
     var onLoupeNeeded: ((NSScreen) -> Void)?
+    private let windowClearance = CaptureWindowClearance()
 
     init(screen: NSScreen, prompt: String, allowsWindows: Bool, backgroundImage: CGImage? = nil,
          spansDisplays: Bool = false, options: SelectionOptions? = nil, onSelection: @escaping (SelectionTarget?) -> Void) {
@@ -1845,6 +1846,8 @@ final class SelectionWindowController: NSWindowController {
     private func finish(_ choice: SelectionChoice?) {
         guard !finished else { return }; finished = true
         overlays.forEach { $0.window.orderOut(nil) }
+        // Before the callback, so a new editor it opens stays above the restored ones.
+        windowClearance.restore()
         switch choice {
         case let .region(local):
             let global = local.offsetBy(dx: desktopFrame.minX, dy: desktopFrame.minY)
@@ -1877,6 +1880,7 @@ final class SelectionWindowController: NSWindowController {
         overlay.view.updateLoupeImage(image)
     }
     func show() {
+        windowClearance.clear(excluding: overlays.map(\.window))
         NSApp.activate()
         for overlay in overlays { overlay.window.orderFrontRegardless(); overlay.window.invalidateCursorRects(for: overlay.view) }
         window?.makeKeyAndOrderFront(nil); NSCursor.crosshair.set()
@@ -2668,8 +2672,10 @@ final class EditorViewController: NSViewController, @preconcurrency PaperMarkupV
         headerHeight = height
         let sharedRowSeparation = toolbarController.view.trailingAnchor.constraint(
             lessThanOrEqualTo: actions.leadingAnchor, constant: -12)
-        // Allow the window to resize past the breakpoint before the next layout pass.
-        sharedRowSeparation.priority = .defaultHigh
+        // Allow the window to resize past the breakpoint before the next layout pass. Keep it
+        // below the window's own size priorities: macOS 27's wider markup toolbar otherwise pins
+        // a one-row header's minimum above the window minimum, so the editor never wraps.
+        sharedRowSeparation.priority = .defaultLow
         singleRowConstraints = [
             sharedRowSeparation,
             actions.centerYAnchor.constraint(equalTo: topBar.topAnchor, constant: 64),

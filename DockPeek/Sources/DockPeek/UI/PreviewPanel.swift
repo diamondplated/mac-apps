@@ -182,7 +182,13 @@ public class PreviewPanel: NSPanel {
         let dismissalID = UUID()
         presentationID = dismissalID
         guard isVisible else { return }
-        
+        // Fading from zero changes nothing, and macOS 27 may never call the completion for it;
+        // an invisible panel left on screen would still swallow clicks over the Dock.
+        guard alphaValue > 0 else {
+            orderOut(nil)
+            return
+        }
+
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.12
             self.animator().alphaValue = 0.0
