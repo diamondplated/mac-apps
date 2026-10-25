@@ -33,6 +33,9 @@ is currently pre-1.0, so minor versions may include incompatible behavior change
 
 ### Fixed
 
+- Starting a capture no longer drags an open editor (or any other ScreenWren
+  window) in front of the thing you are capturing. They step aside while the
+  selector is up and return behind the app you were using.
 - Persistent local signing can retain its certificate identity across rebuilds.
   The installer updates one verified `/Applications/ScreenWren.app`, preserves a
   rollback archive, and rejects ad-hoc replacements. Stale login registrations
