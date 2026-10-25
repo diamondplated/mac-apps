@@ -217,31 +217,11 @@ public class DockObserver {
     private func findRunningApplication(matching title: String, dockItemElement: AXUIElement) -> NSRunningApplication? {
         let runningApps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
         
-        // Match by bundle URL if available from AXURLAttribute
+        // Match by bundle URL if available from AXURLAttribute, then by exact name
         var urlValue: AnyObject?
-        if AXUIElementCopyAttributeValue(dockItemElement, "AXURL" as CFString, &urlValue) == .success,
-           let url = urlValue as? URL {
-            if let match = runningApps.first(where: { $0.bundleURL == url }) {
-                return match
-            }
-        }
-        
-        guard !title.isEmpty else { return nil }
-        
-        // Exact match by title
-        if let match = runningApps.first(where: { $0.localizedName?.caseInsensitiveCompare(title) == .orderedSame }) {
-            return match
-        }
-        
-        // Partial name matching
-        if let match = runningApps.first(where: {
-            guard let name = $0.localizedName else { return false }
-            return name.localizedCaseInsensitiveContains(title) || title.localizedCaseInsensitiveContains(name)
-        }) {
-            return match
-        }
-        
-        return nil
+        let url = AXUIElementCopyAttributeValue(dockItemElement, "AXURL" as CFString, &urlValue) == .success ? urlValue as? URL : nil
+        let candidates = runningApps.map { DockItemMatcher.Candidate(name: $0.localizedName, bundleURL: $0.bundleURL) }
+        return DockItemMatcher.index(title: title, url: url, in: candidates).map { runningApps[$0] }
     }
     
     /// Recheck actual geometry, including after tracking views are replaced or miss an exit.
