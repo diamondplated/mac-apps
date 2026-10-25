@@ -28,21 +28,8 @@ final class EditorLayoutTests: XCTestCase {
         let statusBar = try XCTUnwrap(root.subviews.compactMap { $0 as? NSStackView }.first)
         let label = try XCTUnwrap(statusBar.views.compactMap { $0 as? NSTextField }.first)
 
-        // The system markup toolbar sets the floor (it widened in macOS 27), so ask the window
-        // for the narrowest editor it allows instead of assuming the 720-point minimum.
-        var narrowest: CGFloat = 0
-        // The header can switch rows on one resize and widen the window on the next; let it settle.
-        for _ in 0..<4 {
-            window.setContentSize(CGSize(width: 720, height: 720))
-            root.needsLayout = true
-            root.layoutSubtreeIfNeeded()
-            if root.bounds.width == narrowest { break }
-            narrowest = root.bounds.width
-        }
-        XCTAssertGreaterThanOrEqual(narrowest, 719)
-        XCTAssertLessThan(narrowest, 1040, "The editor must still shrink below its default width")
         // Returning to each size exercises both directions across the breakpoint.
-        for width: CGFloat in [narrowest, 1040, 1440, narrowest, 1440] {
+        for width: CGFloat in [720, 1040, 1440, 720, 1440] {
             window.setContentSize(CGSize(width: width, height: 720))
             root.needsLayout = true
             root.layoutSubtreeIfNeeded()
@@ -54,9 +41,7 @@ final class EditorLayoutTests: XCTestCase {
             XCTAssertFalse(toolbar.frame.intersects(actions.frame), "Tools overlap actions at \(width) points")
             XCTAssertFalse(toolbar.frame.intersects(quickTools.frame))
             XCTAssertFalse(actions.frame.intersects(quickTools.frame))
-            // macOS 27's floor already fits one row; older toolbars wrap there. Either way the
-            // overlap checks above prove the chosen layout keeps every control clear.
-            if width == narrowest { XCTAssertTrue([92, 132].contains(header.frame.height.rounded())) }
+            if width == 720 { XCTAssertEqual(header.frame.height, 132, accuracy: 1) }
             if width == 1440 { XCTAssertEqual(header.frame.height, 92, accuracy: 1) }
             for button in (actions.views + quickTools.views).compactMap({ $0 as? NSButton }) {
                 XCTAssertFalse(button.isHidden)

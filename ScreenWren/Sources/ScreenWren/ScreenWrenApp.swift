@@ -2672,8 +2672,10 @@ final class EditorViewController: NSViewController, @preconcurrency PaperMarkupV
         headerHeight = height
         let sharedRowSeparation = toolbarController.view.trailingAnchor.constraint(
             lessThanOrEqualTo: actions.leadingAnchor, constant: -12)
-        // Allow the window to resize past the breakpoint before the next layout pass.
-        sharedRowSeparation.priority = .defaultHigh
+        // Allow the window to resize past the breakpoint before the next layout pass. Keep it
+        // below the window's own size priorities: macOS 27's wider markup toolbar otherwise pins
+        // a one-row header's minimum above the window minimum, so the editor never wraps.
+        sharedRowSeparation.priority = .defaultLow
         singleRowConstraints = [
             sharedRowSeparation,
             actions.centerYAnchor.constraint(equalTo: topBar.topAnchor, constant: 64),
