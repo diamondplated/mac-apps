@@ -8,6 +8,8 @@ is currently pre-1.0, so minor versions may include incompatible behavior change
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-25
+
 ### Added
 
 - Visible editor tools for Select, Pen, Arrow, Box, Text, Highlight, Step, Crop,
@@ -36,6 +38,8 @@ is currently pre-1.0, so minor versions may include incompatible behavior change
 - Starting a capture no longer drags an open editor (or any other ScreenWren
   window) in front of the thing you are capturing. They step aside while the
   selector is up and return behind the app you were using.
+- On macOS 27 the editor can shrink to its 720-point minimum again and wraps its
+  toolbar instead of sticking at about 815 points.
 - Persistent local signing can retain its certificate identity across rebuilds.
   The installer updates one verified `/Applications/ScreenWren.app`, preserves a
   rollback archive, and rejects ad-hoc replacements. Stale login registrations
