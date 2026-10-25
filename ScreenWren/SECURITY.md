@@ -12,9 +12,11 @@ not be assumed to receive long-term support.
 
 ## Report a vulnerability
 
-Use the [mac-tools security page](https://github.com/diamondplated/mac-tools/security)
-and its **Report a vulnerability** form (GitHub private vulnerability reporting). Do not open a public issue for an unpatched security
-problem.
+Use the **Report a vulnerability** form on the
+[public Mac Tools downloads repository](https://github.com/diamondplated/mac-tools-releases/security/advisories/new)
+(GitHub private vulnerability reporting). ScreenWren's source repository is
+private, so reporters cannot reach its security page. Do not open a public issue
+for an unpatched security problem.
 
 If private vulnerability reporting is unavailable, contact the maintainer through
 a private channel listed on the repository owner's GitHub profile. Include:
