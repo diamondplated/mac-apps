@@ -44,15 +44,35 @@ public struct WindowInfo: Identifiable, @unchecked Sendable {
     }
 }
 
-private actor ThumbnailCache {
+/// Keeps the most recently used thumbnails; DockPeek runs all day and window IDs are never reused.
+actor ThumbnailCache {
+    private let limit: Int
     private var cache: [CGWindowID: NSImage] = [:]
+    private var recency: [CGWindowID] = []
+    
+    init(limit: Int = 64) {
+        self.limit = limit
+    }
+    
+    var count: Int { cache.count }
     
     func get(_ id: CGWindowID) -> NSImage? {
-        cache[id]
+        guard let image = cache[id] else { return nil }
+        touch(id)
+        return image
     }
     
     func set(_ id: CGWindowID, image: NSImage) {
         cache[id] = image
+        touch(id)
+        while recency.count > limit {
+            cache[recency.removeFirst()] = nil
+        }
+    }
+    
+    private func touch(_ id: CGWindowID) {
+        recency.removeAll { $0 == id }
+        recency.append(id)
     }
 }
 
