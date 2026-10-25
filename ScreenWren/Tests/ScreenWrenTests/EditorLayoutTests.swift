@@ -30,10 +30,15 @@ final class EditorLayoutTests: XCTestCase {
 
         // The system markup toolbar sets the floor (it widened in macOS 27), so ask the window
         // for the narrowest editor it allows instead of assuming the 720-point minimum.
-        window.setContentSize(CGSize(width: 720, height: 720))
-        root.needsLayout = true
-        root.layoutSubtreeIfNeeded()
-        let narrowest = root.bounds.width
+        var narrowest: CGFloat = 0
+        // The header can switch rows on one resize and widen the window on the next; let it settle.
+        for _ in 0..<4 {
+            window.setContentSize(CGSize(width: 720, height: 720))
+            root.needsLayout = true
+            root.layoutSubtreeIfNeeded()
+            if root.bounds.width == narrowest { break }
+            narrowest = root.bounds.width
+        }
         XCTAssertGreaterThanOrEqual(narrowest, 719)
         XCTAssertLessThan(narrowest, 1040, "The editor must still shrink below its default width")
         // Returning to each size exercises both directions across the breakpoint.
