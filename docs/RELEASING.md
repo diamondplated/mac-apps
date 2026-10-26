@@ -59,7 +59,7 @@ Local and notarized outputs use different directories (`v1.2.0-local` and `v1.2.
 
 ## Review and publish
 
-Review the prepared app, release notes, signed `appcast.xml`, archive signature, SHA256 checksums, and notarization receipts when applicable. Version-specific notes in `docs/releases/X.Y.Z.md` are included before the feed and notes are signed. The appcast is served from:
+Review the prepared app, release notes, signed `appcast.xml`, archive signature, SHA256 checksums, and notarization receipts when applicable. Version-specific notes in `docs/releases/X.Y.Z.md` are required (preflight fails without them) and are included before the feed and notes are signed. Every release runs all five packages' tests before signing, and `--publish` also requires `HEAD` to be on `origin/main`. The appcast is served from:
 
 `https://github.com/diamondplated/mac-tools-releases/releases/latest/download/appcast.xml`
 

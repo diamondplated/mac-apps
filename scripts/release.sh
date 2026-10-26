@@ -23,6 +23,8 @@ BUILD=$(plutil -extract CFBundleVersion raw "$PLIST")
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "Version must be X.Y.Z."
 [[ "$BUILD" =~ ^[1-9][0-9]*$ ]] || fail "CFBundleVersion must be a positive, increasing integer."
 [ -z "$REQUESTED_VERSION" ] || [ "$REQUESTED_VERSION" = "$VERSION" ] || fail "Requested version does not match Info.plist ($VERSION)."
+NOTES="$PROJECT_DIR/docs/releases/$VERSION.md"
+[ -s "$NOTES" ] || fail "Write docs/releases/$VERSION.md first; update prompts show it to every user."
 
 # Resolve credentials before building, submitting, tagging, or publishing anything.
 if [ "$MODE" = notarized ]; then
@@ -75,6 +77,8 @@ PUBLIC_KEY=$("$SPARKLE_TOOLS_DIR/generate_keys" --account "$SPARKLE_ACCOUNT" -p)
 # for releases predating appcasts, and fail closed if provenance cannot be read.
 if [ "$PUBLISH" = 1 ]; then
     [ -z "$(git -C "$PROJECT_DIR" status --porcelain)" ] || fail "Commit the release source before publishing; the working tree must be clean."
+    git -C "$PROJECT_DIR" fetch --quiet origin main || fail "Could not fetch origin/main to confirm the release commit is pushed."
+    git -C "$PROJECT_DIR" merge-base --is-ancestor HEAD FETCH_HEAD || fail "HEAD is not on origin/main; publish only merged, pushed commits."
     python3 - "$BUILD" "$VERSION" "$RELEASE_REPOSITORY" "$SOURCE_REPOSITORY" <<'PY'
 import base64, json, plistlib, subprocess, sys, xml.etree.ElementTree as ET
 build, version, repository, source_repository = int(sys.argv[1]), *sys.argv[2:]
@@ -105,6 +109,11 @@ while True:
 PY
 fi
 if [ "$PREFLIGHT_ONLY" = 1 ]; then echo "Release preflight passed ($MODE, $VERSION, build $BUILD)."; exit 0; fi
+
+# Every published build reaches installed copies through Sparkle; test before signing anything.
+for package in DockPeek ScreenWren ScrollSplit LinkRoutes MacTools; do
+    swift test --package-path "$PROJECT_DIR/$package" --parallel
+done
 
 RELEASE_ROOT="$PROJECT_DIR/dist/release"
 mkdir -p "$RELEASE_ROOT" "$PROJECT_DIR/.build"
@@ -188,10 +197,8 @@ if [ "$MODE" = notarized ]; then
 else
     printf 'Locally signed; not notarized.\n\nThis build uses the project’s persistent local signing certificate. Gatekeeper trust on other Macs requires manual approval.\n' > "$WORK/output/RELEASE-NOTES.md"
 fi
-if [ -f "$PROJECT_DIR/docs/releases/$VERSION.md" ]; then
-    printf '\n' >> "$WORK/output/RELEASE-NOTES.md"
-    cat "$PROJECT_DIR/docs/releases/$VERSION.md" >> "$WORK/output/RELEASE-NOTES.md"
-fi
+printf '\n' >> "$WORK/output/RELEASE-NOTES.md"
+cat "$NOTES" >> "$WORK/output/RELEASE-NOTES.md"
 codesign --verify --deep --strict "$APP"
 for name in DockPeek ScreenWren ScrollSplit LinkRoutes; do codesign --verify --deep --strict "$APP/Contents/Resources/Applications/$name.app"; done
 for name in ScreenWren ScrollSplit LinkRoutes; do
