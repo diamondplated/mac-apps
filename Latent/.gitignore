@@ -1,0 +1,42 @@
+.DS_Store
+.build/
+build/
+.swiftpm/
+*.xcodeproj/
+*.xcworkspace/
+DerivedData/
+Package.resolved
+xcuserdata/
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Locally converted model + tokenizer assets. Downloaded and converted by
+# scripts/convert_*.py at the user's initiative; never redistributed here.
+# See THIRD_PARTY_MODELS.md for what these are and how they are licensed.
+Resources/Models/*
+!Resources/Models/.gitkeep
+Resources/Tokenizer/*
+!Resources/Tokenizer/.gitkeep
+
+# Conversion-script artifacts
+scripts/weights/
+scripts/.venv-convert/
+scripts/fbcnn/
+scripts/nafnet/
+scripts/__pycache__/
+scripts/archs/__pycache__/
+.venv-convert/
+
+# Test fixtures
+Tests/Fixtures/*.heic
+Tests/Fixtures/*.jpg
+!Tests/Fixtures/.gitkeep
+
+# Release zips live on GitHub Releases, not in git.
+dist/

@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and self-verify
+    # The runner is a personal laptop and this repo is public, so a fork's
+    # pull request must never reach it. Fork PRs skip the job; same-repo
+    # branches, pushes to main and manual runs still build.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, macOS, air]
+
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Show toolchain
+        run: |
+          sw_vers
+          swift --version
+
+      - name: Build
+        run: swift build
+
+      # The pv-pipeline runner asserts the same scenarios as the XCTest target but
+      # runs anywhere, including on a CommandLineTools-only machine. It covers cache
+      # behaviour, sidecars, image I/O, tiling, search primitives, vim state, GPS,
+      # Quick Look and archive extraction. No model weights required — the stages
+      # degrade to identity or a classical fallback when a model is absent.
+      - name: Run the self-verifier
+        run: swift run pv-pipeline
+
+      - name: XCTest target
+        run: swift test
+
+      - name: Build app bundle
+        run: ./scripts/build_app.sh
+
+      - name: Validate packaged app
+        run: |
+          test -x build/Latent.app/Contents/MacOS/Latent
+          plutil -lint build/Latent.app/Contents/Info.plist
+          plutil -extract CFBundleDocumentTypes xml1 -o /dev/null build/Latent.app/Contents/Info.plist
+          test -n "$(plutil -extract NSLocalNetworkUsageDescription raw -o - build/Latent.app/Contents/Info.plist)"
+          codesign --verify --strict --verbose=2 build/Latent.app
