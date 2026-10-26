@@ -1,0 +1,11 @@
+# Runtime state: staged data and the built app bundle.
+stage.duckdb
+stage.duckdb.wal
+Sift.app/
+*.icns
+# macOS
+.DS_Store
+# Native rewrite
+.build/
+Vendor/
+Sources/CDuckDB/duckdb.h

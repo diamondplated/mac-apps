@@ -1,0 +1,69 @@
+name: Sift
+
+on:
+  pull_request:
+    paths: ['Sift/**', '.github/workflows/sift.yml']
+  push:
+    branches: [main]
+    paths: ['Sift/**', '.github/workflows/sift.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sift-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: Sift
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: [self-hosted, macOS, ARM64, air]
+    # The runner is someone's desktop and this repo is public: a fork's PR would run its own
+    # Package.swift, tests and scripts on that machine. Only branches of this repo get a run;
+    # a fork PR is re-pushed to a branch here by a maintainer once its diff has been read.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      # The Air carries the macOS 26 SDK. Since hosted macos-15 went away, nothing here
+      # catches a break that only an older SDK would reject.
+      - name: Show toolchain
+        run: |
+          sw_vers
+          swift --version
+          xcrun --show-sdk-version
+
+      - name: Fetch libduckdb
+        run: ./scripts/fetch-duckdb.sh
+
+      - name: Build
+        run: swift build
+
+      - name: Test
+        run: swift test
+
+      # The end-to-end surface that replaced browser mode: real files on disk, through the real
+      # Session, with its own throwaway ~/.sift per check. Exits non-zero on any failure and
+      # names every one. A check that cannot run here (no delta/excel extension on the runner)
+      # reports `skip` and does not fail the build.
+      - name: Verify end to end
+        run: swift run sift --verify
+
+      # Everything the `Test` step above runs is offline. This is the one place a cold
+      # `INSTALL httpfs` / `INSTALL azure` from extensions.duckdb.org is exercised, and the
+      # one place the loopback test oracle has to bind a socket inside the runner.
+      # `SIFT_REMOTE_FACTS` is scoped to this step, so the main suite above stays offline.
+      - name: Remote facts canary (httpfs + azure)
+        env:
+          SIFT_REMOTE_FACTS: "1"
+        run: swift test --filter remoteFact

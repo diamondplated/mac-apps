@@ -1,0 +1,336 @@
+import Foundation
+import Testing
+@testable import DuckDBKit
+
+private func one(_ sql: String) throws -> Cell {
+    let con = try Database.inMemory().connect()
+    return try con.query(sql).allRows()[0][0]
+}
+
+@Test func decodesSignedIntegers() throws {
+    #expect(try one("SELECT 127::TINYINT") == .int(127))
+    #expect(try one("SELECT 32767::SMALLINT") == .int(32767))
+    #expect(try one("SELECT 2147483647::INTEGER") == .int(2147483647))
+    #expect(try one("SELECT 9223372036854775807::BIGINT") == .int(9223372036854775807))
+}
+
+@Test func decodesUnsignedIntegers() throws {
+    #expect(try one("SELECT 255::UTINYINT") == .int(255))
+    #expect(try one("SELECT 65535::USMALLINT") == .int(65535))
+    #expect(try one("SELECT 4294967295::UINTEGER") == .int(4294967295))
+}
+
+@Test func decodesFloatsAndBooleans() throws {
+    #expect(try one("SELECT true") == .bool(true))
+    #expect(try one("SELECT 1.5::DOUBLE") == .double(1.5))
+    #expect(try one("SELECT 1.5::FLOAT") == .double(1.5))
+}
+
+@Test func decodesShortAndLongStrings() throws {
+    // Under 12 bytes DuckDB inlines the string in the struct; past that it is a
+    // pointer. Both paths must work, so test either side of the boundary.
+    #expect(try one("SELECT 'short'") == .text("short"))
+    let long = String(repeating: "a", count: 200)
+    #expect(try one("SELECT '\(long)'") == .text(long))
+    #expect(try one("SELECT ''") == .text(""))
+}
+
+@Test func decodesNullsInEveryPosition() throws {
+    let con = try Database.inMemory().connect()
+    let rows = try con.query(
+        "SELECT * FROM (VALUES (1, 'a'), (NULL, NULL), (3, 'c')) AS t(n, s)"
+    ).allRows()
+    #expect(rows[0] == [.int(1), .text("a")])
+    #expect(rows[1] == [.null, .null])
+    #expect(rows[2] == [.int(3), .text("c")])
+}
+
+@Test func decodesHugeIntAsText() throws {
+    // 2^70, far past Int64. This is the corruption class Sift exists to expose,
+    // so it must survive exactly.
+    #expect(try one("SELECT 1180591620717411303424::HUGEINT") == .text("1180591620717411303424"))
+    #expect(try one("SELECT (-1180591620717411303424)::HUGEINT") == .text("-1180591620717411303424"))
+    #expect(try one("SELECT 0::HUGEINT") == .text("0"))
+    #expect(try one("SELECT 42::HUGEINT") == .text("42"))
+    #expect(try one("SELECT (-1)::HUGEINT") == .text("-1"))
+}
+
+@Test func decodesThe128BitBoundaries() throws {
+    // The actual ends of the range, where the two's-complement negate across both halves
+    // and the carry-when-lower-is-zero either work or produce a plausible wrong number.
+    // Int128.max:
+    #expect(try one("SELECT 170141183460469231731687303715884105727::HUGEINT")
+            == .text("170141183460469231731687303715884105727"))
+    // Int128.min. Written as max-minus-one because the bare literal is parsed as UINT128
+    // before the negation and DuckDB refuses the cast — MEASURED: "Type UINT128 with value
+    // 170141183460469231731687303715884105728 can't be cast ... out of range for INT128".
+    #expect(try one("SELECT (-170141183460469231731687303715884105727)::HUGEINT - 1")
+            == .text("-170141183460469231731687303715884105728"))
+    // UInt128.max — the case where `upper` fills every bit and a signed read would print
+    // a negative number.
+    #expect(try one("SELECT 340282366920938463463374607431768211455::UHUGEINT")
+            == .text("340282366920938463463374607431768211455"))
+    #expect(try one("SELECT 0::UHUGEINT") == .text("0"))
+}
+
+@Test func nullAndEmptyStringAndASentinelStayThreeDistinctThings() throws {
+    // Design spec §9, non-negotiable. `display` renders the first two identically as "" —
+    // it is a rendering affordance, not a decision input — so the distinction has to live
+    // in the enum, and this is the test that says it still does.
+    let rows = try Database.inMemory().connect().query(
+        "SELECT * FROM (VALUES (NULL), (''), ('N/A')) AS t(v)"
+    ).allRows()
+    #expect(rows.map(\.[0]) == [.null, .text(""), .text("N/A")])
+    #expect(rows[0][0] != rows[1][0])
+    #expect(rows[0][0].isNull && !rows[1][0].isNull && !rows[2][0].isNull)
+    // The collapse `display` performs, pinned so nobody mistakes it for a decision input.
+    #expect(rows[0][0].display == rows[1][0].display)
+}
+
+@Test func aNullInsideANestedColumnStaysNull() throws {
+    // The highest-value test in this file. STRUCT/ARRAY/UNION keep their values in child
+    // vectors, so the top-level data pointer is nil and there is no decoder — but the
+    // validity mask still knows which rows are NULL, and NULL vs present is the one
+    // distinction this product sells. Reporting a present-but-unreadable marker for a NULL
+    // invents data, and would corrupt the profile panel's null counts and the grid's NULL
+    // styling. MEASURED before the fix: BOTH rows came back .text("⟨unreadable type 25⟩")
+    // with isNull == false.
+    let con = try Database.inMemory().connect()
+
+    let structRows = try con.query("SELECT * FROM (VALUES ({'a': 1}), (NULL)) AS t(v)").allRows()
+    #expect(structRows[0][0] == .text("⟨unreadable type 25⟩"))
+    #expect(!structRows[0][0].isNull)
+    #expect(structRows[1][0] == .null)
+    #expect(structRows[1][0].isNull)
+
+    let arrayRows = try con.query(
+        "SELECT * FROM (VALUES ([1,2,3]::INTEGER[3]), (NULL)) AS t(v)"
+    ).allRows()
+    #expect(arrayRows[0][0] == .text("⟨unreadable type 33⟩"))
+    #expect(arrayRows[1][0] == .null)
+}
+
+@Test func aChunkOutlivesTheResultSetItCameFrom() throws {
+    // Chunk is a class with a deinit rather than a struct with destroy(), so the grid's
+    // page cache can hold chunks across method boundaries without aliasing a C handle.
+    // This pins the property that makes that safe: the chunk owns its own memory.
+    let con = try Database.inMemory().connect()
+    var chunk: Chunk?
+    do {
+        chunk = try con.query("SELECT 42 AS n, 'hi' AS s").nextChunk()
+    }
+    #expect(chunk?.rows() == [[.int(42), .text("hi")]])
+}
+
+@Test func anEmptyResultDrainsToNoRowsWithoutThrowing() throws {
+    // allRows() checks duckdb_result_error after the loop, so the failure mode this
+    // guards against is the opposite one: a legitimately empty result must not look
+    // like a truncated one.
+    let con = try Database.inMemory().connect()
+    #expect(try con.query("SELECT 1 WHERE false").allRows().isEmpty)
+}
+
+@Test func decodesDecimalAtEveryStorageWidth() throws {
+    // Width picks the backing integer: <=4 SMALLINT, <=9 INTEGER, <=18 BIGINT, else
+    // HUGEINT. Reading the wrong width returns a plausible wrong number rather than
+    // throwing, so all four have to be covered.
+    #expect(try one("SELECT 1.23::DECIMAL(4,2)") == .decimal(Decimal(string: "1.23")!, scale: 2))
+    #expect(try one("SELECT 12345.678::DECIMAL(9,3)") == .decimal(Decimal(string: "12345.678")!, scale: 3))
+    #expect(try one("SELECT 123456789.012::DECIMAL(18,3)")
+            == .decimal(Decimal(string: "123456789.012")!, scale: 3))
+    #expect(try one("SELECT 1234567890123456789.01::DECIMAL(38,2)")
+            == .decimal(Decimal(string: "1234567890123456789.01")!, scale: 2))
+    #expect(try one("SELECT (-0.001)::DECIMAL(9,3)") == .decimal(Decimal(string: "-0.001")!, scale: 3))
+}
+
+@Test func decodesBlobAsAByteCount() throws {
+    #expect(try one("SELECT 'abc'::BLOB") == .blob(3))
+}
+
+@Test func readsEveryRowAcrossMultipleChunks() throws {
+    // A DuckDB chunk holds 2048 rows, so 5000 forces the multi-chunk path.
+    let con = try Database.inMemory().connect()
+    let rows = try con.query("SELECT i FROM range(5000) AS t(i)").allRows()
+    #expect(rows.count == 5000)
+    #expect(rows[0][0] == .int(0))
+    #expect(rows[4999][0] == .int(4999))
+}
+
+@Test func decodesTimestampsWithSubSecondPrecision() throws {
+    #expect(try one("SELECT TIMESTAMP '2026-08-09 12:34:56.123456'")
+            == .text("2026-08-09T12:34:56.123456"))
+    // Rounds to the WRONG SECOND if the formatter path ever comes back.
+    #expect(try one("SELECT TIMESTAMP '2026-08-09 12:34:56.999999'")
+            == .text("2026-08-09T12:34:56.999999"))
+    #expect(try one("SELECT TIMESTAMP '2026-08-09 12:34:56'")
+            == .text("2026-08-09T12:34:56"))
+}
+
+@Test func decodesDatesBeforeTheGregorianCutover() throws {
+    // ISO8601DateFormatter shifts these 9-10 days; DuckDB DATE is proleptic Gregorian.
+    #expect(try one("SELECT DATE '1500-01-01'") == .text("1500-01-01"))
+    #expect(try one("SELECT DATE '1582-10-04'") == .text("1582-10-04"))
+    #expect(try one("SELECT DATE '0001-01-01'") == .text("0001-01-01"))
+    #expect(try one("SELECT DATE '1969-07-20'") == .text("1969-07-20"))
+    #expect(try one("SELECT DATE '9999-12-31'") == .text("9999-12-31"))
+}
+
+@Test func decodesEveryTimestampScale() throws {
+    #expect(try one("SELECT TIMESTAMP_S '2026-08-09 12:34:56'") == .text("2026-08-09T12:34:56"))
+    #expect(try one("SELECT TIMESTAMP_MS '2026-08-09 12:34:56.123'") == .text("2026-08-09T12:34:56.123"))
+    // What pandas datetime64[ns] becomes in Parquet — previously decoded to "".
+    #expect(try one("SELECT TIMESTAMP_NS '2026-08-09 12:34:56.123456789'")
+            == .text("2026-08-09T12:34:56.123456789"))
+}
+
+@Test func decodesUuidAndInterval() throws {
+    #expect(try one("SELECT UUID '10203040-5060-7080-90a0-b0c0d0e0f000'")
+            == .text("10203040-5060-7080-90a0-b0c0d0e0f000"))
+    // Shape: DuckDB's own CAST(iv AS VARCHAR) rendering (postgres-style) — each
+    // component keeps its own sign, zero components are omitted. MEASURED against
+    // libduckdb via CLI: months=1, days=-3, micros=7200000000 renders exactly this.
+    #expect(try one("SELECT INTERVAL '1 month -3 days 02:00:00'")
+            == .text("1 month -3 days 02:00:00"))
+    #expect(try one("SELECT INTERVAL '0 days'") == .text("00:00:00"))
+    #expect(try one("SELECT INTERVAL '13 months'") == .text("1 year 1 month"))
+    // intervalString deliberately DOES trim trailing zeros, unlike the timestamp
+    // paths — this matches DuckDB's own CAST(... AS VARCHAR). Verified against it.
+    #expect(try one("SELECT INTERVAL '0.12 seconds'") == .text("00:00:00.12"))
+}
+
+@Test func decimalKeepsItsDeclaredScale() throws {
+    // The Python engine returns str(Decimal), which preserves trailing zeros. A money
+    // column must not change shape on screen.
+    let c = try one("SELECT 10.50::DECIMAL(10,2)")
+    #expect(c.display == "10.50")
+}
+
+@Test func timeKeepsSubSecondPrecision() throws {
+    #expect(try one("SELECT TIME '12:34:56.123456'") == .text("12:34:56.123456"))
+    #expect(try one("SELECT TIME '12:34:56'") == .text("12:34:56"))
+}
+
+@Test func distinguishesZonedTimestampsFromNaiveOnes() throws {
+    // The bug this pins: a naive TIMESTAMP used to get a spurious Z, making it
+    // indistinguishable from a genuinely zoned value. Python renders naive bare and
+    // aware with an offset; so do we.
+    #expect(try one("SELECT TIMESTAMP '2026-08-09 12:34:56'") == .text("2026-08-09T12:34:56"))
+    #expect(try one("SELECT TIMESTAMPTZ '2026-08-09 12:34:56+00'")
+            == .text("2026-08-09T12:34:56+00:00"))
+}
+
+@Test func decodesTimeWithTimezone() throws {
+    #expect(try one("SELECT TIMETZ '12:34:56+02:00'") == .text("12:34:56+02:00"))
+    #expect(try one("SELECT TIMETZ '12:34:56-05:30'") == .text("12:34:56-05:30"))
+}
+
+// MARK: - LIST (spec §13a, Gap 1)
+//
+// Before this fix every one of these decoded as .text("⟨unsupported type 24⟩") — 24 is
+// DUCKDB_TYPE_LIST. The case that matters most isn't a hand-written literal; it's
+// SQLGenPanels.badRowsSQL's own generated `list_filter(...) AS bad_columns`, covered
+// separately in SQLGenPanelsTests.badRowsSQLDecodesBadColumnsAsTheFailingColumnNames
+// because it needs SiftCore to build that SQL — this file stays DuckDBKit-only.
+
+@Test func decodesAPlainListOfText() throws {
+    #expect(try one("SELECT ['a', 'b', 'c']")
+            == .list([.text("a"), .text("b"), .text("c")]))
+}
+
+@Test func decodesAListContainingANullElement() throws {
+    // The child vector's OWN validity mask, distinct from the parent's — this is the case
+    // that mask exists for. A present list with an absent element must not silently invent
+    // a value for that element.
+    #expect(try one("SELECT ['a', NULL, 'c']")
+            == .list([.text("a"), .null, .text("c")]))
+}
+
+@Test func decodesAnEmptyList() throws {
+    #expect(try one("SELECT []::VARCHAR[]") == .list([]))
+}
+
+// Review Minor 2: display must not collapse CARDINALITY the way it deliberately collapses
+// NULL-vs-''. .list([]) and .list([.null]) are a different fact about the data (zero
+// elements vs one absent element) and must not both print "[]".
+@Test func emptyListAndAListOfOneNullDisplayDifferently() throws {
+    #expect(Cell.list([]).display == "[]")
+    #expect(Cell.list([.null]).display == "[NULL]")
+    #expect(Cell.list([]).display != Cell.list([.null]).display)
+}
+
+@Test func decodesAListOfIntegers() throws {
+    // A different element type than the VARCHAR case above, to prove the child decode
+    // dispatches on the CHILD's type, not a copy of the parent's.
+    #expect(try one("SELECT [1, 2, 3]") == .list([.int(1), .int(2), .int(3)]))
+}
+
+@Test func aNullListItselfStaysNullNotAnEmptyList() throws {
+    // The parent's own validity mask must still win: a NULL list is NULL, not .list([]) —
+    // those are two different facts about the data and must not collapse into one.
+    let rows = try Database.inMemory().connect().query(
+        "SELECT * FROM (VALUES (['a']), (NULL)) AS t(v)"
+    ).allRows()
+    #expect(rows[0][0] == .list([.text("a")]))
+    #expect(rows[1][0] == .null)
+    #expect(rows[1][0].isNull)
+}
+
+// Review I2/Minor 3: nested lists recurse through the same decodeOne with no separate
+// code path, but the recursion is exactly where an off-by-one in offset/length hides —
+// nothing above exercised depth > 1 before this.
+@Test func decodesAListOfLists() throws {
+    #expect(try one("SELECT [[1, 2], [3]]")
+            == .list([.list([.int(1), .int(2)]), .list([.int(3)])]))
+}
+
+@Test func decodesAListOfListsWithANullInnerList() throws {
+    // The NULL here is a whole inner LIST value, not an int inside one — a different
+    // validity check (the middle vector's own mask) than aNullListItselfStaysNullNotAnEmptyList.
+    #expect(try one("SELECT [[1, 2], NULL]")
+            == .list([.list([.int(1), .int(2)]), .null]))
+}
+
+@Test func decodesListsThreeLevelsDeep() throws {
+    // LIST(LIST(LIST(INTEGER))) — resolveListChild's recursive chain has to be right at
+    // every level, not just the first.
+    #expect(try one("SELECT [[[1, 2]], [[3]]]")
+            == .list([.list([.list([.int(1), .int(2)])]), .list([.list([.int(3)])])]))
+}
+
+// Review Minor 4: LIST elements this decoder can't read individually must stay loud, the
+// same policy decodeOne already enforces at the top level. Two different loud markers are
+// pinned here because they come from two different code paths inside decodeOne: STRUCT/
+// ARRAY have a nil data pointer (the "unreadable" fallback outside the switch); MAP/ENUM
+// have a real data pointer but no case (the "unsupported" fallback inside the switch,
+// i.e. this file's `default:`). A future edit could turn either into "" without this.
+@Test func listOfStructOrArrayElementsStaysLoudNotEmpty() throws {
+    #expect(try one("SELECT [{'a': 1}, {'a': 2}]")
+            == .list([.text("⟨unreadable type 25⟩"), .text("⟨unreadable type 25⟩")]))
+    #expect(try one("SELECT [[1, 2, 3]::INTEGER[3]]")
+            == .list([.text("⟨unreadable type 33⟩")]))
+}
+
+@Test func listOfMapOrEnumElementsStaysLoudNotEmpty() throws {
+    #expect(try one("SELECT [MAP(['a'], [1])]") == .list([.text("⟨unsupported type 26⟩")]))
+
+    let con = try Database.inMemory().connect()
+    try con.execute("CREATE TYPE mood AS ENUM ('ok', 'sad')")
+    let rows = try con.query("SELECT ['ok'::mood]").allRows()
+    #expect(rows[0][0] == .list([.text("⟨unsupported type 23⟩")]))
+}
+
+// MARK: - JSON alias (spec §13a, Gap 2)
+
+@Test func jsonColumnReportsTypeNameJSON() throws {
+    let con = try Database.inMemory().connect()
+    let cols = try con.query("SELECT '{\"a\": 1}'::JSON AS v").columns
+    #expect(cols[0].typeName == "JSON")
+}
+
+@Test func plainVarcharColumnStillReportsTypeNameVARCHAR() throws {
+    // Pins the alias read to be conditional, not unconditional — a version that always
+    // returned "JSON" regardless of the alias would pass the test above and still be wrong.
+    let con = try Database.inMemory().connect()
+    let cols = try con.query("SELECT 'hello'::VARCHAR AS v").columns
+    #expect(cols[0].typeName == "VARCHAR")
+}

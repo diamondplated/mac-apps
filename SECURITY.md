@@ -3,13 +3,14 @@
 This policy covers Mac Tools and the apps it installs: DockPeek, ScreenWren,
 ScrollSplit, and LinkRoutes. ScreenWren's
 [security policy](ScreenWren/SECURITY.md) adds its capture-specific boundaries.
+Latent and Sift have their own policies: [Latent](Latent/SECURITY.md),
+[Sift](Sift/SECURITY.md).
 
 ## Report a vulnerability
 
-Use the **Report a vulnerability** form on the
-[public Mac Tools downloads repository](https://github.com/diamondplated/mac-tools-releases/security/advisories/new)
-(GitHub private vulnerability reporting). The source repository is private, so
-reporters cannot reach its security page. Do not open a public issue for an
+Use the **Report a vulnerability** form on this repository's
+[Security page](https://github.com/diamondplated/mac-apps/security/advisories/new)
+(GitHub private vulnerability reporting). Do not open a public issue for an
 unpatched security problem.
 
 If private vulnerability reporting is unavailable, contact the maintainer through

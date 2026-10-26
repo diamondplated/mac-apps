@@ -6,8 +6,8 @@ third-party package dependencies.
 
 ## Before starting
 
-- Search existing [mac-tools issues](https://github.com/diamondplated/mac-tools/issues)
-  and [pull requests](https://github.com/diamondplated/mac-tools/pulls).
+- Search existing [mac-apps issues](https://github.com/diamondplated/mac-apps/issues)
+  and [pull requests](https://github.com/diamondplated/mac-apps/pulls).
 - Open a focused feature request before a large product or architecture change.
 - Report vulnerabilities privately through [SECURITY.md](SECURITY.md).
 - Use synthetic screenshots and OCR text in public issues and test fixtures.
@@ -18,7 +18,7 @@ third-party package dependencies.
 - Xcode 26 with the macOS 26 SDK.
 - Swift 6.2 or the version shipped with the supported Xcode release.
 
-Clone [mac-tools](https://github.com/diamondplated/mac-tools), change into its
+Clone [mac-apps](https://github.com/diamondplated/mac-apps), change into its
 `ScreenWren/` directory, then verify the package:
 
 ```sh
