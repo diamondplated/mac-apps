@@ -63,7 +63,7 @@ Review the prepared app, release notes, signed `appcast.xml`, archive signature,
 
 `https://github.com/diamondplated/mac-tools-releases/releases/latest/download/appcast.xml`
 
-`SUFeedURL` is set to that feed; `MacToolsReleasesURL` is `https://github.com/diamondplated/mac-tools-releases/releases`. `MACTOOLS_RELEASE_REPOSITORY` defaults to that feed's repository and, when supplied, must match it. Preflight rejects empty URLs, a private download repository, or inconsistent locations. `MACTOOLS_SOURCE_REPOSITORY` defaults to `diamondplated/mac-tools` and is used only for source provenance and older release checks. No app source or signing credentials are published to the download repository.
+`SUFeedURL` is set to that feed; `MacToolsReleasesURL` is `https://github.com/diamondplated/mac-tools-releases/releases`. `MACTOOLS_RELEASE_REPOSITORY` defaults to that feed's repository and, when supplied, must match it. Preflight rejects empty URLs, a private download repository, or inconsistent locations. `MACTOOLS_SOURCE_REPOSITORY` defaults to `diamondplated/mac-apps` (formerly `mac-tools`; GitHub redirects the old name) and is used only for source provenance and older release checks. No app source or signing credentials are published to the download repository.
 
 For 1.2.0, the archive URL is `https://github.com/diamondplated/mac-tools-releases/releases/download/v1.2.0/Mac-Tools-1.2.0.zip`. Each update uses its own immutable versioned URL. Both the archive signature and embedded feed signature are checked before publishing. Modifying the feed or release notes invalidates their signature; regenerate them with Sparkle's official tools. [Sparkle documents signed feeds and archive signatures here](https://sparkle-project.org/documentation/).
 

@@ -48,7 +48,7 @@ FEED_URL=$(plutil -extract SUFeedURL raw "$PLIST")
 FEED_REPOSITORY=$(printf '%s' "$FEED_URL" | sed -nE 's@^https://github.com/([^/]+/[^/]+)/releases/latest/download/appcast.xml$@\1@p')
 [ -n "$FEED_REPOSITORY" ] || fail "SUFeedURL must use a public GitHub releases/latest/download/appcast.xml endpoint."
 RELEASE_REPOSITORY=${MACTOOLS_RELEASE_REPOSITORY:-$FEED_REPOSITORY}
-SOURCE_REPOSITORY=${MACTOOLS_SOURCE_REPOSITORY:-diamondplated/mac-tools}
+SOURCE_REPOSITORY=${MACTOOLS_SOURCE_REPOSITORY:-diamondplated/mac-apps}
 [ "$RELEASE_REPOSITORY" = "$FEED_REPOSITORY" ] || fail "MACTOOLS_RELEASE_REPOSITORY does not match SUFeedURL."
 [ "$(plutil -extract MacToolsReleasesURL raw "$PLIST")" = "https://github.com/$RELEASE_REPOSITORY/releases" ] || fail "MacToolsReleasesURL does not match the download repository."
 [ "$(gh api "repos/$RELEASE_REPOSITORY" --jq '.private')" = false ] || fail "The download repository must be public so Sparkle can fetch releases without credentials."
