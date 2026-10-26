@@ -3,7 +3,9 @@ name: Mac Tools
 on:
   push:
     branches: [main, master]
+    paths-ignore: ['Latent/**', 'Sift/**', '.github/workflows/latent.yml', '.github/workflows/sift.yml']
   pull_request:
+    paths-ignore: ['Latent/**', 'Sift/**', '.github/workflows/latent.yml', '.github/workflows/sift.yml']
   workflow_dispatch:
 
 permissions:
@@ -15,6 +17,10 @@ concurrency:
 
 jobs:
   verify:
+    # The runner is Andrew's laptop and this repository is public, so a fork's
+    # pull request must never reach it. Fork PRs skip the job; same-repo
+    # branches, pushes to main and manual runs still build.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     # Andrew's own macOS runner must have macOS 26+ and Swift 6.2+ / matching Xcode.
     runs-on: [self-hosted, macOS, ARM64, air]
     timeout-minutes: 45

@@ -210,7 +210,7 @@ struct DesktopSearchBar: View {
             HStack(spacing: 10) {
                 Link(
                     "Setup guide…",
-                    destination: URL(string: "https://github.com/diamondplated/latent#quick-start")!
+                    destination: URL(string: "https://github.com/diamondplated/mac-apps/tree/main/Latent#quick-start")!
                 )
                 // Re-checking reads local files and clears Core ML's negative
                 // cache. The link above is the only network-capable action and

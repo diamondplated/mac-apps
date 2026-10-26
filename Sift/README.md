@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/diamondplated/sift/actions/workflows/ci-native.yml"><img src="https://github.com/diamondplated/sift/actions/workflows/ci-native.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/diamondplated/mac-apps/actions/workflows/sift.yml"><img src="https://github.com/diamondplated/mac-apps/actions/workflows/sift.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/platform-macOS%2014%2B-lightgrey.svg" alt="macOS 14+">
   <img src="https://img.shields.io/badge/DuckDB-1.5.5-yellow.svg" alt="DuckDB 1.5.5">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>

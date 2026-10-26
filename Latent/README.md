@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/diamondplated/latent/actions/workflows/ci.yml"><img src="https://github.com/diamondplated/latent/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/diamondplated/mac-apps/actions/workflows/latent.yml"><img src="https://github.com/diamondplated/mac-apps/actions/workflows/latent.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/platform-macOS%2014%2B-lightgrey.svg" alt="macOS 14+">
   <img src="https://img.shields.io/badge/Swift-6.0-orange.svg" alt="Swift 6.0">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>

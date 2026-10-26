@@ -1,6 +1,6 @@
 # Releasing Mac Tools
 
-Mac Tools bundles DockPeek, ScreenWren, ScrollSplit, LinkRoutes, six diagnostic workspaces, and Sparkle 2.10.0. Source stays private in `diamondplated/mac-tools`. Public binaries and signed update feeds live in [diamondplated/mac-tools-releases](https://github.com/diamondplated/mac-tools-releases/releases), a downloads-only repository. Ordinary `./build-app.sh` produces a universal local package; `./scripts/release.sh` prepares an isolated, verified distribution in `dist/release/`. Neither command installs apps. All CI runs on Andrew's `air` self-hosted Mac.
+Mac Tools bundles DockPeek, ScreenWren, ScrollSplit, LinkRoutes, six diagnostic workspaces, and Sparkle 2.10.0. Source lives in `diamondplated/mac-apps` (formerly `mac-tools`). Public binaries and signed update feeds live in [diamondplated/mac-tools-releases](https://github.com/diamondplated/mac-tools-releases/releases), a downloads-only repository. Ordinary `./build-app.sh` produces a universal local package; `./scripts/release.sh` prepares an isolated, verified distribution in `dist/release/`. Neither command installs apps. All CI runs on Andrew's `air` self-hosted Mac.
 
 Version **1.2.0**, build **3**, uses the persistent local signing certificate and is **not notarized**. The `mac-tools` Sparkle key is already in the native Keychain, and its public key is committed in the manager plist. No private key was exported. Developer ID notarization remains unavailable until the Apple credentials below are provisioned.
 
@@ -25,7 +25,7 @@ Configure these nonsecret **repository variables on the private source repositor
 | `DEVELOPER_ID_APPLICATION_IDENTITY` | Valid Developer ID Application identity name/fingerprint, once provisioned. |
 | `NOTARYTOOL_PROFILE` | Existing native notarytool keychain profile name, once provisioned. |
 
-The current official tool installation is `/Users/andrew/GIT/mac-tools/.build/sparkle-tools/bin`; a stable configured path avoids separate Keychain access prompts for freshly resolved copies. Certificate/private keys, Sparkle signing key, and Apple credentials stay on the runner.
+The current official tool installation is `.build/sparkle-tools/bin` inside the runner's own checkout; a stable configured path avoids separate Keychain access prompts for freshly resolved copies. Certificate/private keys, Sparkle signing key, and Apple credentials stay on the runner.
 
 Configure the runner user's native `gh auth login` session with read access to the private source repository and release-write access to `diamondplated/mac-tools-releases`. The workflow intentionally uses that native session for publication: the source repository's automatic workflow token cannot publish to a separate repository. Do not add private keys or Apple passwords to GitHub Secrets.
 

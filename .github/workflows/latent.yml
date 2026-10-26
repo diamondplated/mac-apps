@@ -1,17 +1,23 @@
-name: CI
+name: Latent
 
 on:
   pull_request:
+    paths: ['Latent/**', '.github/workflows/latent.yml']
   push:
     branches: [main]
+    paths: ['Latent/**', '.github/workflows/latent.yml']
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: latent-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: Latent
 
 jobs:
   build:
@@ -20,12 +26,12 @@ jobs:
     # pull request must never reach it. Fork PRs skip the job; same-repo
     # branches, pushes to main and manual runs still build.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, macOS, air]
+    runs-on: [self-hosted, macOS, ARM64, air]
 
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
 

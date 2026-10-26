@@ -5,7 +5,7 @@ ScreenWren was imported on October 10, 2026 from
 HEAD was `bd0f671d279f8e640d1191504693b08ac57fdf97`.
 
 The import preserves the current working-tree changes and relevant untracked
-source, tests, documentation, and scripts in `/Users/andrew/GIT/screenwren`.
+source, tests, documentation, and scripts in the old standalone `screenwren` checkout.
 The original checkout remains untouched. The consolidation commit also retains
 the previous repository's complete Git history as a second merge parent, without
 rewriting those commits. Continue development in `mac-tools/ScreenWren`.

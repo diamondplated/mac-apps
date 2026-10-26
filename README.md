@@ -1,11 +1,21 @@
-# Mac Tools
+# Mac Apps
 
-One native macOS app to install, update, open, and configure **DockPeek**,
-**ScreenWren**, **ScrollSplit**, and **LinkRoutes**, with six built-in diagnostic
-workspaces. Their source, tests, packaging, and manager live in this private repository.
-Public downloads and automatic updates use
-[diamondplated/mac-tools-releases](https://github.com/diamondplated/mac-tools-releases/releases),
-a separate repository containing release artifacts, not app source.
+Andrew's native macOS apps, one repository:
+
+- **Mac Tools**, one app to install, update, open, and configure **DockPeek**,
+  **ScreenWren**, **ScrollSplit**, and **LinkRoutes**, with six built-in diagnostic
+  workspaces. Public downloads and automatic updates use
+  [diamondplated/mac-tools-releases](https://github.com/diamondplated/mac-tools-releases/releases),
+  a separate repository containing release artifacts, not app source.
+- **[Latent](Latent/README.md)**, a folder-first photo viewer with a local AI
+  enhancement pipeline. Formerly `diamondplated/latent`.
+- **[Sift](Sift/README.md)**, drop a data file in and explore it instantly.
+  Formerly `diamondplated/sift`.
+
+Latent and Sift build, test, and release on their own; they are not installed by
+Mac Tools. Each is distributed through the
+[diamondplated Homebrew tap](https://github.com/diamondplated/homebrew-tap).
+Everything here is MIT licensed.
 
 | App | What it does | Requires |
 | --- | --- | --- |
@@ -140,10 +150,13 @@ process checks are only a preflight; the final evidence comes from your next log
 - `ScreenWren/`: complete screenshot app, login helper, resources, and tests.
 - `ScrollSplit/`: menu-bar scrolling app, settings bridge, icon, and event tests.
 - `LinkRoutes/`: browser routing app, settings bridge, icon, and rule tests.
+- `Latent/`: standalone photo viewer, with its own README, CLAUDE.md, and CI (`latent.yml`).
+- `Sift/`: standalone data explorer, with its own README, AGENTS.md, and CI (`sift.yml`).
 - `MacTools/Sources/MacTools/Tools/`: six diagnostic workspaces and shared styling.
 - Root scripts and `.github/`: suite packaging, installation, and shared CI.
 
-ScreenWren's previous Git history is retained as merge ancestry. Its current
+ScreenWren's, Latent's, and Sift's previous Git histories are retained as merge
+ancestry; Latent's and Sift's old tags carry `latent-` and `sift-` prefixes. Its current
 working-tree changes were imported too; see
 [migration details](ScreenWren/docs/MIGRATION.md). The previous checkout remains
 available as a migration backup. Continue development in this repository.
