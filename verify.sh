@@ -8,7 +8,7 @@ case "${1:-}" in
     --no-build) [ "$#" -eq 1 ] || exit 64; BUILD=0 ;;
     *) echo "Usage: $0 [--no-build]" >&2; exit 64 ;;
 esac
-for script in build-app.sh install-app.sh verify.sh DockPeek/build_app.sh ScrollSplit/build-app.sh LinkRoutes/build-app.sh scripts/release.sh; do
+for script in build-app.sh install-app.sh verify.sh DockPeek/build_app.sh ScrollSplit/build-app.sh LinkRoutes/build-app.sh scripts/release.sh scripts/check-signing.sh; do
     bash -n "$PROJECT_DIR/$script"
 done
 for script in build-app.sh install-app.sh qa.sh; do
@@ -17,6 +17,7 @@ done
 sh -n "$PROJECT_DIR/scripts/verify-login.sh" "$PROJECT_DIR/scripts/install-login-check.sh"
 "$PROJECT_DIR/scripts/verify-login.sh" --self-test
 python3 "$PROJECT_DIR/scripts/compare-bundles.py" --self-test
+"$PROJECT_DIR/scripts/check-signing.sh" --self-test
 python3 "$PROJECT_DIR/scripts/verify-release-draft.py" --self-test
 for package in "$PROJECT_DIR/DockPeek" "$PROJECT_DIR/ScreenWren" "$PROJECT_DIR/ScrollSplit" "$PROJECT_DIR/LinkRoutes" "$PROJECT_DIR/MacTools"; do
     swift test --package-path "$package" --parallel
@@ -52,6 +53,7 @@ for name in MacTools DockPeek ScreenWren ScreenWrenLoginItem ScrollSplit LinkRou
     test "$(plutil -extract CFBundleIdentifier raw "$bundle/Contents/Info.plist")" = "$identifier"
     test "$(plutil -extract LSMinimumSystemVersion raw "$bundle/Contents/Info.plist")" = "$minimum"
     codesign --verify --deep --strict "$bundle"
+    "$PROJECT_DIR/scripts/check-signing.sh" "$bundle"
     for architecture in arm64 x86_64; do
         lipo "$bundle/Contents/MacOS/$name" -verify_arch "$architecture"
         binary_minimum=$(xcrun vtool -arch "$architecture" -show-build "$bundle/Contents/MacOS/$name" | awk '$1 == "minos" { print $2 }')

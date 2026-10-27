@@ -23,7 +23,7 @@ lipo -create "$STAGE/LinkRoutes-arm64" "$STAGE/LinkRoutes-x86_64" -output "$APP/
 cp "$PROJECT_DIR/Info.plist" "$APP/Contents/Info.plist"
 cp "$PROJECT_DIR/Resources/LinkRoutes.icns" "$APP/Contents/Resources/LinkRoutes.icns"
 if [ "$SIGNING_IDENTITY" = - ]; then
-    codesign --force --sign - --identifier com.andrew.linkroutes --requirements '=designated => identifier "com.andrew.linkroutes"' "$APP"
+    codesign --force --options runtime --sign - --timestamp=none "$APP"
 else
     codesign --force --sign "$SIGNING_IDENTITY" --options runtime "$TIMESTAMP_OPTION" "$APP"
 fi
