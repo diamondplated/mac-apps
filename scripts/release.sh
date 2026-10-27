@@ -147,7 +147,7 @@ build_isolated_payload() {
     fi
     swift package --package-path "$source_dir" describe >/dev/null
     if [ "$name" = DockPeek ]; then
-        "$source_dir/$build_script" --no-install --arch universal
+        SCREENWREN_SIGNING_IDENTITY="$SIGNING_IDENTITY" SCREENWREN_SIGNING_TIMESTAMP="$SIGNING_TIMESTAMP" "$source_dir/$build_script" --no-install --arch universal
         ditto "$source_dir/DockPeek.app" "$WORK/payloads/DockPeek.app"
     else
         SCREENWREN_SIGNING_IDENTITY="$SIGNING_IDENTITY" SCREENWREN_SIGNING_TIMESTAMP="$SIGNING_TIMESTAMP" "$source_dir/$build_script"
@@ -175,8 +175,6 @@ PY
     cp "$result" "$WORK/output/notarization-$name.json"
 }
 if [ "$MODE" = notarized ]; then
-    # Release-only DockPeek copy adopts Developer ID; its local TCC signature stays intact.
-    codesign --force --options runtime --timestamp --sign "$SIGNING_IDENTITY" "$WORK/payloads/DockPeek.app"
     for name in DockPeek ScreenWren ScrollSplit LinkRoutes; do
         notarize_and_staple "$WORK/payloads/$name.app" "$name"
     done
@@ -201,6 +199,9 @@ printf '\n' >> "$WORK/output/RELEASE-NOTES.md"
 cat "$NOTES" >> "$WORK/output/RELEASE-NOTES.md"
 codesign --verify --deep --strict "$APP"
 for name in DockPeek ScreenWren ScrollSplit LinkRoutes; do codesign --verify --deep --strict "$APP/Contents/Resources/Applications/$name.app"; done
+# Every shipped bundle must be certificate-anchored so no other code can inherit its permissions.
+"$PROJECT_DIR/scripts/check-signing.sh" --certificate "$APP" "$APP/Contents/Resources/Applications/"{DockPeek,ScreenWren,ScrollSplit,LinkRoutes}.app \
+    "$APP/Contents/Resources/Applications/ScreenWren.app/Contents/Library/LoginItems/ScreenWrenLoginItem.app"
 for name in ScreenWren ScrollSplit LinkRoutes; do
     "$APP/Contents/Resources/Applications/$name.app/Contents/MacOS/$name" --self-check
 done

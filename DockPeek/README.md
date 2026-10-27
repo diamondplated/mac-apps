@@ -44,6 +44,14 @@ cd DockPeek
 ./build_app.sh
 ```
 
+DockPeek signs with the same persistent local identity as ScreenWren
+(`SCREENWREN_SIGNING_IDENTITY` or the saved identity file) and hardened runtime,
+so its certificate-anchored designated requirement keeps permissions across
+rebuilds. Without an identity it builds ad-hoc for verification only and refuses
+to install. Builds before Mac Tools 1.2.2 used an identifier-only requirement
+that any app could satisfy; moving off it needs a one-time re-grant of
+Accessibility and Screen Recording.
+
 ---
 
 ## Architecture

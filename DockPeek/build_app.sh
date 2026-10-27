@@ -22,6 +22,31 @@ case "$ARCHITECTURE" in
     *) echo "Unsupported architecture: $ARCHITECTURE" >&2; exit 64 ;;
 esac
 
+IDENTITY_FILE="$DIR/../ScreenWren/.screenwren-signing-identity"
+if [ -n "${SCREENWREN_SIGNING_IDENTITY:-}" ]; then
+    SIGNING_IDENTITY=$SCREENWREN_SIGNING_IDENTITY
+elif [ -s "$IDENTITY_FILE" ]; then
+    SIGNING_IDENTITY=$(cat "$IDENTITY_FILE")
+else
+    SIGNING_IDENTITY=-
+fi
+if [ -n "${SCREENWREN_SIGNING_TIMESTAMP:-}" ]; then
+    SIGNING_TIMESTAMP=$SCREENWREN_SIGNING_TIMESTAMP
+elif [ -z "${SCREENWREN_SIGNING_IDENTITY:-}" ] && [ -f "$DIR/../ScreenWren/.screenwren-signing-timestamp" ]; then
+    SIGNING_TIMESTAMP=$(cat "$DIR/../ScreenWren/.screenwren-signing-timestamp")
+else
+    SIGNING_TIMESTAMP=secure
+fi
+case "$SIGNING_TIMESTAMP" in
+    secure) TIMESTAMP_OPTION=--timestamp ;;
+    none) TIMESTAMP_OPTION=--timestamp=none ;;
+    *) echo "SCREENWREN_SIGNING_TIMESTAMP must be secure or none." >&2; exit 64 ;;
+esac
+if [ "$INSTALL" = 1 ] && [ "$SIGNING_IDENTITY" = - ]; then
+    echo "Installing requires the saved local signing identity; an ad-hoc DockPeek loses its permissions on every rebuild." >&2
+    exit 1
+fi
+
 APP_NAME="DockPeek"
 APP_DIR="$DIR/$APP_NAME.app"
 mkdir -p "$DIR/.build"
@@ -71,11 +96,11 @@ cat << PLIST > "$CONTENTS_DIR/Info.plist"
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.1.1</string>
+    <string>1.1.2</string>
     <key>MacToolsSettingsProtocolVersion</key>
     <integer>1</integer>
     <key>CFBundleVersion</key>
-    <string>3</string>
+    <string>4</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>LSUIElement</key>
@@ -93,9 +118,16 @@ PLIST
 plutil -lint "$CONTENTS_DIR/Info.plist" >/dev/null
 test "$(plutil -extract LSMinimumSystemVersion raw "$CONTENTS_DIR/Info.plist")" = 14.0
 
-echo "==> Code signing with stable designated requirement..."
-# Preserve the existing designated requirement so TCC recognizes rebuilds.
-codesign --force -s - -r='designated => identifier "com.andrew.dockpeek"' "$STAGING_DIR/$APP_NAME.app"
+# Sign with the persistent local identity so TCC grants survive rebuilds through its
+# certificate-anchored requirement. An identifier-only requirement would let any
+# ad-hoc app claiming com.andrew.dockpeek inherit Accessibility and Screen Recording.
+if [ "$SIGNING_IDENTITY" = - ]; then
+    echo "==> Code signing ad-hoc (verification only; installs need a persistent identity)..."
+    codesign --force --options runtime --sign - --timestamp=none "$STAGING_DIR/$APP_NAME.app"
+else
+    echo "==> Code signing with the persistent local identity..."
+    codesign --force --options runtime --sign "$SIGNING_IDENTITY" "$TIMESTAMP_OPTION" "$STAGING_DIR/$APP_NAME.app"
+fi
 codesign --verify --deep --strict "$STAGING_DIR/$APP_NAME.app"
 rm -rf "$APP_DIR"
 mv "$STAGING_DIR/$APP_NAME.app" "$APP_DIR"
