@@ -8,6 +8,15 @@ is currently pre-1.0, so minor versions may include incompatible behavior change
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-10-27
+
+### Fixed
+
+- On macOS 27 a new capture opens fitted to the editor again instead of at 100%
+  zoom, where it spilled over the toolbar and status bar. The canvas now waits
+  until macOS has finished setting it up before fitting the image, and never
+  draws past its own edges.
+
 ## [0.5.1] - 2026-10-25
 
 ### Added

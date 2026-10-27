@@ -2703,6 +2703,8 @@ final class EditorViewController: NSViewController, @preconcurrency PaperMarkupV
 
         addChild(markupController)
         markupController.view.translatesAutoresizingMaskIntoConstraints = false
+        // macOS 27's canvas draws zoomed content past its own bounds, over the header and status bar.
+        markupController.view.clipsToBounds = true
         view.addSubview(markupController.view)
 
         instantInspect.analysisOverlayView.translatesAutoresizingMaskIntoConstraints = false
@@ -2775,9 +2777,27 @@ final class EditorViewController: NSViewController, @preconcurrency PaperMarkupV
         didFitImage = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.markupController.setContentVisibleFrame(self.imageBounds.insetBy(dx: -24, dy: -24), animated: false)
             self.instantInspect.install(image: self.workingImage)
-            self.instantInspect.updateGeometry()
+            self.fitImageWhenCanvasIsReady()
+        }
+    }
+
+    /// macOS 27's canvas finishes setting itself up after the editor appears and silently drops
+    /// a visible-frame request made before then, which left captures at 100% zoom. Wait until it
+    /// reports a visible area, then fit the image.
+    private func fitImageWhenCanvasIsReady(attempt: Int = 0) {
+        guard markupController.contentVisibleFrame.isEmpty else {
+            markupController.setContentVisibleFrame(imageBounds.insetBy(dx: -24, dy: -24), animated: false)
+            instantInspect.updateGeometry()
+            return
+        }
+        // Give up after about two seconds; the image stays usable at 100%, just unfitted.
+        guard attempt < 40 else {
+            instantInspect.updateGeometry()
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.fitImageWhenCanvasIsReady(attempt: attempt + 1)
         }
     }
 
