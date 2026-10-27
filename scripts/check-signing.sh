@@ -6,7 +6,8 @@ set -euo pipefail
 usage() { echo "Usage: $0 [--certificate] BUNDLE... | --self-test" >&2; exit 64; }
 check() {
     local certificate=$1 bundle=$2 requirement flags
-    requirement=$(codesign --display --requirements - "$bundle" 2>/dev/null | sed -n 's/^designated => //p')
+    # codesign prints an implicit (default) requirement behind "# ".
+    requirement=$(codesign --display --requirements - "$bundle" 2>/dev/null | sed -n 's/^\(# \)\{0,1\}designated => //p')
     flags=$(codesign --display --verbose=2 "$bundle" 2>&1 | sed -n 's/^CodeDirectory .*flags=\([^ ]*\).*/\1/p')
     case "$flags" in
         *runtime*) ;;
