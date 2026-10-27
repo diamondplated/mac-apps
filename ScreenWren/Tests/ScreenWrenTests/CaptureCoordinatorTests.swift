@@ -92,7 +92,6 @@ final class CaptureCoordinatorTests: XCTestCase {
             pasteboard.setString("image-\(image.width)", forType: .string)
         }
         let coordinator = CaptureCoordinator(preferences: context.preferences, pasteboard: context.pasteboard, services: services)
-        context.preferences.destination = .editor
         let oldGeneration = coordinator.supersedePendingCapture()
         let oldTicket = ClipboardTicket(on: context.pasteboard)
         let oldTask = Task { @MainActor in
@@ -338,5 +337,30 @@ final class CaptureCoordinatorTests: XCTestCase {
         XCTAssertEqual(pixel.greenComponent, 0, accuracy: 0.01)
         XCTAssertEqual(pixel.blueComponent, 0, accuracy: 0.01)
         XCTAssertEqual(pixel.alphaComponent, 1, accuracy: 0.01)
+    }
+
+    @MainActor func testNewCaptureHidesThePreviousCapturesEditor() throws {
+        let context = try CaptureTestContext()
+        defer { context.cleanUp() }
+        let coordinator = CaptureCoordinator(preferences: context.preferences, pasteboard: context.pasteboard)
+        func newEditors() -> [NSWindow] {
+            NSApp.windows.filter {
+                !context.existingWindows.contains(ObjectIdentifier($0)) && $0.contentViewController is EditorViewController
+            }
+        }
+        coordinator.finishImageCapture(try image(), scale: 1, destination: .editor,
+            clipboardGeneration: ClipboardDeliveryOrder.shared.begin(), clipboardChangeCount: context.pasteboard.changeCount)
+        let first = try XCTUnwrap(newEditors().first)
+        XCTAssertTrue(first.isVisible)
+
+        coordinator.finishImageCapture(try image(width: 30), scale: 1, destination: .editor,
+            clipboardGeneration: ClipboardDeliveryOrder.shared.begin(), clipboardChangeCount: context.pasteboard.changeCount)
+        let second = try XCTUnwrap(newEditors().first { $0 !== first })
+        XCTAssertFalse(first.isVisible, "The previous capture's editor must get out of the way")
+        XCTAssertTrue(second.isVisible)
+        XCTAssertEqual(coordinator.menuState.editorCount, 2, "Hidden, not closed: unsaved markup stays reachable")
+
+        coordinator.showEditors()
+        XCTAssertTrue(first.isVisible)
     }
 }

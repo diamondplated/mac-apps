@@ -1630,6 +1630,7 @@ final class CaptureCoordinator: NSObject {
 
     func finishImageCapture(_ image: CGImage, scale: CGFloat, destination: CaptureDestination,
                                     clipboardGeneration: UInt64, clipboardChangeCount: Int) {
+        putAwayPreviousSnapshots()
         if destination == .review {
             showRedactionReview(image, scale: scale)
             announce("Review the capture before copying", symbol: "eye")
@@ -1677,6 +1678,13 @@ final class CaptureCoordinator: NSObject {
             announce("Capture ready")
         }
         onStateChange?()
+    }
+
+    /// A new capture replaces the last one on screen. Editors are hidden rather than closed so
+    /// unsaved markup survives; Show Open Editors brings them back.
+    private func putAwayPreviousSnapshots() {
+        quickCapture?.close()
+        editors.forEach { $0.window?.orderOut(nil) }
     }
 
     private func actOnImage(_ action: RecentAction, image: CGImage, scale: CGFloat) {
