@@ -8,10 +8,6 @@ is currently pre-1.0, so minor versions may include incompatible behavior change
 
 ## [Unreleased]
 
-### Changed
-
-- A new capture hides the previous capture's editor and thumbnail instead of stacking on top of them. Hidden editors keep their markup; Show Open Editors brings them back.
-
 ## [0.5.1] - 2026-10-25
 
 ### Added
@@ -39,6 +35,7 @@ is currently pre-1.0, so minor versions may include incompatible behavior change
 
 ### Fixed
 
+- A new capture hides the previous capture's editor and thumbnail instead of stacking on top of them. Hidden editors keep their markup; Show Open Editors brings them back.
 - Starting a capture no longer drags an open editor (or any other ScreenWren
   window) in front of the thing you are capturing. They step aside while the
   selector is up and return behind the app you were using.
