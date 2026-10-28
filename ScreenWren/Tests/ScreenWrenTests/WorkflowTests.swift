@@ -288,7 +288,10 @@ final class WorkflowTests: XCTestCase {
         _ = NSApplication.shared
         var applied = false
         let controller = RedactionReviewWindow(
-            image: try solid(CGColor(gray: 1, alpha: 1)), actionTitle: "Apply to Editor", copiesOnApproval: false
+            image: try solid(CGColor(gray: 1, alpha: 1)), actionTitle: "Apply to Editor", copiesOnApproval: false,
+            // This test is about clipboard ordering, not OCR. Real Vision recognition stalled for
+            // over 30 s on the shared CI laptop while the OCR test ran in parallel (#68).
+            recognize: { _ in [] }
         ) { _, ticket in
             XCTAssertNil(ticket)
             applied = true
@@ -301,13 +304,11 @@ final class WorkflowTests: XCTestCase {
             pending.append(contentsOf: view.subviews)
         }
         let button = try XCTUnwrap(apply)
-        // Up to 30 s: the Air also runs the Latent and Sift builds while this suite runs,
-        // and the redaction analysis that enables Apply stalled past 10 s under that load (#68).
-        for _ in 0..<600 where !button.isEnabled { try await Task.sleep(for: .milliseconds(50)) }
+        for _ in 0..<200 where !button.isEnabled { try await Task.sleep(for: .milliseconds(50)) }
         XCTAssertTrue(button.isEnabled)
         let generation = ClipboardDeliveryOrder.shared.begin()
         button.performClick(nil)
-        for _ in 0..<600 where !applied { try await Task.sleep(for: .milliseconds(50)) }
+        for _ in 0..<200 where !applied { try await Task.sleep(for: .milliseconds(50)) }
         XCTAssertTrue(applied)
         XCTAssertTrue(ClipboardDeliveryOrder.shared.isCurrent(generation))
     }
