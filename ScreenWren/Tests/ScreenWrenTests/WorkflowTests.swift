@@ -301,11 +301,13 @@ final class WorkflowTests: XCTestCase {
             pending.append(contentsOf: view.subviews)
         }
         let button = try XCTUnwrap(apply)
-        for _ in 0..<200 where !button.isEnabled { try await Task.sleep(for: .milliseconds(50)) }
+        // Up to 30 s: the Air also runs the Latent and Sift builds while this suite runs,
+        // and the redaction analysis that enables Apply stalled past 10 s under that load (#68).
+        for _ in 0..<600 where !button.isEnabled { try await Task.sleep(for: .milliseconds(50)) }
         XCTAssertTrue(button.isEnabled)
         let generation = ClipboardDeliveryOrder.shared.begin()
         button.performClick(nil)
-        for _ in 0..<200 where !applied { try await Task.sleep(for: .milliseconds(50)) }
+        for _ in 0..<600 where !applied { try await Task.sleep(for: .milliseconds(50)) }
         XCTAssertTrue(applied)
         XCTAssertTrue(ClipboardDeliveryOrder.shared.isCurrent(generation))
     }
