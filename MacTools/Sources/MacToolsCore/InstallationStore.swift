@@ -155,6 +155,9 @@ struct InstallationStore: @unchecked Sendable {
     }
 
     func settings(_ app: ManagedApp, patch: Data? = nil) throws -> Data {
+        guard app.supportsSettingsBridge else {
+            throw AppManagerError.message("\(app.name) keeps its settings in the app. Open \(app.name) to change them.")
+        }
         guard let installed = try existing(app) else { throw AppManagerError.message("Install \(app.name) before managing its settings.") }
         _ = try validate(installed, app: app)
         let plistData = try Data(contentsOf: installed.appendingPathComponent("Contents/Info.plist"))
@@ -218,7 +221,7 @@ struct InstallationStore: @unchecked Sendable {
     /// ServiceManagement registration belongs to the bundle on disk, not UserDefaults.
     /// Capture it before moving that bundle and restore only an explicit enabled choice.
     func loginRegistrationToPreserve(_ app: ManagedApp) throws -> Bool {
-        guard let installed = try existing(app) else { return false }
+        guard app.supportsSettingsBridge, let installed = try existing(app) else { return false }
         let data = try Data(contentsOf: installed.appendingPathComponent("Contents/Info.plist"))
         let info = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
         // Older apps have no safe headless endpoint. Never launch their GUI as a probe.

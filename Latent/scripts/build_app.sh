@@ -22,6 +22,44 @@ APP_DIR="build/${APP_NAME}.app"
 BINARY_NAME="Latent"
 INFO_PLIST="Resources/AppBundle/Info.plist"
 
+# --mac-tools-payload builds the copy Mac Tools embeds and installs: universal,
+# hardened runtime, signed with the monorepo's persistent identity (the same
+# one DockPeek, ScrollSplit and LinkRoutes use, so permissions survive
+# updates), and never carrying model weights, which are not ours to
+# redistribute. Output: dist/Latent.app. Without the flag nothing changes.
+PAYLOAD=0
+case "${1:-}" in
+    '') [[ "$#" -eq 0 ]] || exit 64 ;;
+    --mac-tools-payload) [[ "$#" -eq 1 ]] || exit 64; PAYLOAD=1 ;;
+    *) echo "Usage: $0 [--mac-tools-payload]" >&2; exit 64 ;;
+esac
+if [[ "$PAYLOAD" == 1 ]]; then
+    IDENTITY_FILE="$REPO_ROOT/../ScreenWren/.screenwren-signing-identity"
+    if [[ -n "${SCREENWREN_SIGNING_IDENTITY:-}" ]]; then
+        PAYLOAD_IDENTITY=$SCREENWREN_SIGNING_IDENTITY
+    elif [[ -s "$IDENTITY_FILE" ]]; then
+        PAYLOAD_IDENTITY=$(cat "$IDENTITY_FILE")
+    else
+        PAYLOAD_IDENTITY=-
+    fi
+    if [[ -n "${SCREENWREN_SIGNING_TIMESTAMP:-}" ]]; then
+        PAYLOAD_TIMESTAMP=$SCREENWREN_SIGNING_TIMESTAMP
+    elif [[ -z "${SCREENWREN_SIGNING_IDENTITY:-}" && -f "$REPO_ROOT/../ScreenWren/.screenwren-signing-timestamp" ]]; then
+        PAYLOAD_TIMESTAMP=$(cat "$REPO_ROOT/../ScreenWren/.screenwren-signing-timestamp")
+    else
+        PAYLOAD_TIMESTAMP=secure
+    fi
+    case "$PAYLOAD_TIMESTAMP" in
+        secure) PAYLOAD_TIMESTAMP_OPTION=--timestamp ;;
+        none) PAYLOAD_TIMESTAMP_OPTION=--timestamp=none ;;
+        *) echo "SCREENWREN_SIGNING_TIMESTAMP must be secure or none." >&2; exit 64 ;;
+    esac
+    mkdir -p dist
+    STAGE=$(mktemp -d "$REPO_ROOT/dist/.latent-build.XXXXXX")
+    trap 'rm -rf "$STAGE"' EXIT
+    APP_DIR="$STAGE/${APP_NAME}.app"
+fi
+
 if ! plutil -lint "$INFO_PLIST" >/dev/null; then
     echo "error: invalid source Info.plist: $INFO_PLIST" >&2
     exit 1
@@ -29,10 +67,20 @@ fi
 
 # 1. Build release. `--product` (not `--target`) is what actually links the
 #    executable; `--target` would only compile the module sources.
-echo "==> swift build -c release --product $APP_NAME"
-swift build -c release --product "$APP_NAME"
-
-BINARY_PATH="$(swift build -c release --show-bin-path)/$BINARY_NAME"
+if [[ "$PAYLOAD" == 1 ]]; then
+    for architecture in arm64 x86_64; do
+        triple="$architecture-apple-macosx14.0"
+        echo "==> swift build -c release --product $APP_NAME --triple $triple"
+        swift build -c release --product "$APP_NAME" --scratch-path "$STAGE/$architecture" --triple "$triple"
+        cp "$(swift build -c release --scratch-path "$STAGE/$architecture" --triple "$triple" --show-bin-path)/$BINARY_NAME" "$STAGE/$BINARY_NAME-$architecture"
+    done
+    lipo -create "$STAGE/$BINARY_NAME-arm64" "$STAGE/$BINARY_NAME-x86_64" -output "$STAGE/$BINARY_NAME"
+    BINARY_PATH="$STAGE/$BINARY_NAME"
+else
+    echo "==> swift build -c release --product $APP_NAME"
+    swift build -c release --product "$APP_NAME"
+    BINARY_PATH="$(swift build -c release --show-bin-path)/$BINARY_NAME"
+fi
 if [[ ! -x "$BINARY_PATH" ]]; then
     echo "error: built binary not found at $BINARY_PATH" >&2
     exit 1
@@ -61,7 +109,7 @@ fi
 # gitignored, so a build without local models stays small; a build with them
 # remains functional after the app moves away from this source checkout.
 for resource_dir in Models Tokenizer; do
-    if [[ -d "Resources/$resource_dir" ]]; then
+    if [[ "$PAYLOAD" == 0 && -d "Resources/$resource_dir" ]]; then
         cp -R "Resources/$resource_dir" "$APP_DIR/Contents/Resources/$resource_dir"
     fi
 done
@@ -75,7 +123,14 @@ done
 #    LATENT_SIGNING_IDENTITY can name a Developer ID for a distribution build;
 #    the default "-" is ad-hoc, which is what a local build wants.
 SIGNING_IDENTITY="${LATENT_SIGNING_IDENTITY:--}"
-if [[ "$SIGNING_IDENTITY" == "-" ]]; then
+if [[ "$PAYLOAD" == 1 ]]; then
+    # The hardened runtime is required for every Mac Tools payload, ad-hoc included.
+    if [[ "$PAYLOAD_IDENTITY" == "-" ]]; then
+        codesign --force --options runtime --sign - --timestamp=none "$APP_DIR"
+    else
+        codesign --force --options runtime --sign "$PAYLOAD_IDENTITY" "$PAYLOAD_TIMESTAMP_OPTION" "$APP_DIR"
+    fi
+elif [[ "$SIGNING_IDENTITY" == "-" ]]; then
     # Ad-hoc signing remains deterministic and offline for local/CI builds.
     codesign --force --sign - --timestamp=none "$APP_DIR"
 else
@@ -84,6 +139,18 @@ else
     codesign --force --sign "$SIGNING_IDENTITY" --options runtime --timestamp "$APP_DIR"
 fi
 codesign --verify --strict --verbose=2 "$APP_DIR"
+
+if [[ "$PAYLOAD" == 1 ]]; then
+    for architecture in arm64 x86_64; do
+        lipo "$APP_DIR/Contents/MacOS/$BINARY_NAME" -verify_arch "$architecture"
+    done
+    test ! -e "$APP_DIR/Contents/Resources/Models"
+    test ! -e "$APP_DIR/Contents/Resources/Tokenizer"
+    rm -rf "dist/${APP_NAME}.app"
+    mv "$APP_DIR" "dist/${APP_NAME}.app"
+    echo "Built $REPO_ROOT/dist/${APP_NAME}.app"
+    exit 0
+fi
 
 # 6. Touch the bundle so Launch Services re-reads it. Without this, Finder
 #    sometimes serves a stale Info.plist from its cache and won't show the

@@ -4,6 +4,9 @@
 #   ./scripts/fetch-duckdb.sh       -> Vendor/duckdb/libduckdb.dylib (once)
 #   ./build-app.sh                  -> ./Sift.app
 #   ./build-app.sh /Applications    -> installs there
+#   ./build-app.sh --mac-tools-payload -> ./dist/Sift.app, the copy Mac Tools embeds and installs:
+#                                        universal, hardened runtime, signed with the monorepo's
+#                                        persistent identity, not registered with LaunchServices
 #
 # No Xcode required: swift build, PlistBuddy, sips, iconutil, osascript, install_name_tool,
 # codesign and lsregister all ship with the Command Line Tools. Gatekeeper: quarantine is applied
@@ -17,7 +20,37 @@ set -euo pipefail
 cd "$(dirname "$0")"
 HERE="$(pwd)"
 
-DEST="${1:-$HERE}"
+PAYLOAD=0
+if [[ "${1:-}" == --mac-tools-payload ]]; then
+  [[ "$#" -eq 1 ]] || exit 64
+  PAYLOAD=1
+  IDENTITY_FILE="$HERE/../ScreenWren/.screenwren-signing-identity"
+  if [[ -n "${SCREENWREN_SIGNING_IDENTITY:-}" ]]; then
+    PAYLOAD_IDENTITY=$SCREENWREN_SIGNING_IDENTITY
+  elif [[ -s "$IDENTITY_FILE" ]]; then
+    PAYLOAD_IDENTITY=$(cat "$IDENTITY_FILE")
+  else
+    PAYLOAD_IDENTITY=-
+  fi
+  if [[ -n "${SCREENWREN_SIGNING_TIMESTAMP:-}" ]]; then
+    PAYLOAD_TIMESTAMP=$SCREENWREN_SIGNING_TIMESTAMP
+  elif [[ -z "${SCREENWREN_SIGNING_IDENTITY:-}" && -f "$HERE/../ScreenWren/.screenwren-signing-timestamp" ]]; then
+    PAYLOAD_TIMESTAMP=$(cat "$HERE/../ScreenWren/.screenwren-signing-timestamp")
+  else
+    PAYLOAD_TIMESTAMP=secure
+  fi
+  case "$PAYLOAD_TIMESTAMP" in
+    secure) PAYLOAD_TIMESTAMP_OPTION=--timestamp ;;
+    none) PAYLOAD_TIMESTAMP_OPTION=--timestamp=none ;;
+    *) echo "SCREENWREN_SIGNING_TIMESTAMP must be secure or none." >&2; exit 64 ;;
+  esac
+  mkdir -p "$HERE/dist"
+  STAGE="$(mktemp -d "$HERE/dist/.sift-build.XXXXXX")"
+  trap 'rm -rf "$STAGE"' EXIT
+  DEST="$STAGE"
+else
+  DEST="${1:-$HERE}"
+fi
 APP="$DEST/Sift.app"
 PLIST="$APP/Contents/Info.plist"
 PB=/usr/libexec/PlistBuddy
@@ -32,8 +65,19 @@ fi
 rm -rf "$APP"
 
 echo "==> building the app"
-swift build -c release --product SiftApp
-BIN="$HERE/.build/release/SiftApp"
+if [[ "$PAYLOAD" == 1 ]]; then
+  # libduckdb-osx-universal carries both slices, so each architecture links against the same file.
+  for arch in arm64 x86_64; do
+    triple="$arch-apple-macosx14.0"
+    swift build -c release --product SiftApp --scratch-path "$STAGE/$arch" --triple "$triple"
+    cp "$(swift build -c release --scratch-path "$STAGE/$arch" --triple "$triple" --show-bin-path)/SiftApp" "$STAGE/SiftApp-$arch"
+  done
+  lipo -create "$STAGE/SiftApp-arm64" "$STAGE/SiftApp-x86_64" -output "$STAGE/SiftApp"
+  BIN="$STAGE/SiftApp"
+else
+  swift build -c release --product SiftApp
+  BIN="$HERE/.build/release/SiftApp"
+fi
 [[ -x "$BIN" ]] || { echo "build-app: swift build produced no binary" >&2; exit 1; }
 
 echo "==> assembling the bundle"
@@ -53,7 +97,9 @@ echo "==> re-pointing the engine at the bundled copy"
 # a path that is not there, which under `set -e` would take the whole build with it.
 EXE="$APP/Contents/MacOS/Sift"
 install_name_tool -add_rpath @executable_path/../Frameworks "$EXE"
-for rp in $(otool -l "$EXE" | awk '/LC_RPATH/ { want = 1 } want && $1 == "path" { print $2; want = 0 }'); do
+# sort -u: a universal binary lists each slice's load commands, and install_name_tool edits every
+# slice at once, so a repeated path would fail the second delete.
+for rp in $(otool -l "$EXE" | awk '/LC_RPATH/ { want = 1 } want && $1 == "path" { print $2; want = 0 }' | sort -u); do
   case "$rp" in /*/Vendor/duckdb) install_name_tool -delete_rpath "$rp" "$EXE" ;; esac
 done
 # The whole point of the two lines above, asserted rather than assumed.
@@ -70,14 +116,17 @@ set_plist CFBundlePackageType         string  "APPL"
 set_plist CFBundleIdentifier          string  "io.github.diamondplated.sift"
 set_plist CFBundleName                string  "Sift"
 set_plist CFBundleDisplayName         string  "Sift"
-# The bundle's version is the newest tag reachable from HEAD (2.0.0, 2.0.1, ...),
-# so a release zip and "About Sift" agree with the tag it was built from. Override
-# with SIFT_VERSION=x.y.z for a build off an untagged commit. CFBundleVersion is the
-# commit count, which only ever goes up.
-VERSION="${SIFT_VERSION:-$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')}"
-VERSION="${VERSION:-0.0.0}"
+# VERSION and BUILD are committed. They used to come from `git describe` and the commit count,
+# which broke in the mac-apps monorepo: the nearest tag can belong to another app, and Mac Tools
+# release builds run from a copy with no .git at all, which stamped 0.0.0 (1) and made Mac Tools
+# refuse the bundle as a downgrade. Bump both by hand when Sift changes; BUILD only ever goes up
+# (2.0.1 shipped as build 193, the old repo's commit count). Tag releases `sift-vX.Y.Z`.
+VERSION="${SIFT_VERSION:-$(tr -d '[:space:]' < "$HERE/VERSION")}"
+BUILD="$(tr -d '[:space:]' < "$HERE/BUILD")"
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "build-app: VERSION must be X.Y.Z" >&2; exit 1; }
+[[ "$BUILD" =~ ^[1-9][0-9]*$ ]] || { echo "build-app: BUILD must be a positive integer" >&2; exit 1; }
 set_plist CFBundleShortVersionString  string  "$VERSION"
-set_plist CFBundleVersion             string  "$(git rev-list --count HEAD 2>/dev/null || echo 1)"
+set_plist CFBundleVersion             string  "$BUILD"
 set_plist LSMinimumSystemVersion      string  "14.0"
 set_plist NSHumanReadableCopyright    string  "Copyright © 2026 diamondplated"
 set_plist NSHighResolutionCapable     bool    true
@@ -188,6 +237,29 @@ echo "==> signing"
 # editing load commands invalidates a signature. Deliberately NO --options runtime: the hardened
 # runtime's library validation would refuse the vendored libduckdb (different signing identity),
 # and without notarizing it buys nothing.
+if [[ "$PAYLOAD" == 1 ]]; then
+  # Mac Tools payloads all run under the hardened runtime. Library validation stays off: the
+  # persistent identity is self-signed (no Team ID to match), and DuckDB loads its delta/excel
+  # extensions from ~/.duckdb at run time, which no identity of ours signs.
+  cat > "$STAGE/Sift.entitlements" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>com.apple.security.cs.disable-library-validation</key><true/></dict></plist>
+PLIST
+  if [[ "$PAYLOAD_IDENTITY" == "-" ]]; then
+    codesign --force --options runtime --sign - --timestamp=none "$APP/Contents/Frameworks/libduckdb.dylib"
+    codesign --force --options runtime --sign - --timestamp=none --entitlements "$STAGE/Sift.entitlements" "$APP"
+  else
+    codesign --force --options runtime --sign "$PAYLOAD_IDENTITY" "$PAYLOAD_TIMESTAMP_OPTION" "$APP/Contents/Frameworks/libduckdb.dylib"
+    codesign --force --options runtime --sign "$PAYLOAD_IDENTITY" "$PAYLOAD_TIMESTAMP_OPTION" --entitlements "$STAGE/Sift.entitlements" "$APP"
+  fi
+  codesign --verify --deep --strict "$APP"
+  for arch in arm64 x86_64; do lipo "$APP/Contents/MacOS/Sift" -verify_arch "$arch"; done
+  rm -rf "$HERE/dist/Sift.app"
+  mv "$APP" "$HERE/dist/Sift.app"
+  echo "Built $HERE/dist/Sift.app"
+  exit 0
+fi
 codesign --force --sign - --timestamp=none "$APP/Contents/Frameworks/libduckdb.dylib"
 codesign --force --sign - --timestamp=none "$APP"
 codesign --verify --deep --verbose=1 "$APP" 2>&1 | sed 's/^/    /'

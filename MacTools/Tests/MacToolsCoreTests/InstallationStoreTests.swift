@@ -203,8 +203,8 @@ final class InstallationStoreTests: XCTestCase {
         XCTAssertNil(try store.existing(.screenWren))
     }
 
-    private func settingsFixture(script: String, capability: Int? = 1) throws -> URL {
-        let installed = try fixture(in: store.userDirectory, content: "#!/bin/sh\n" + script)
+    private func settingsFixture(app: ManagedApp = .dockPeek, script: String, capability: Int? = 1) throws -> URL {
+        let installed = try fixture(in: store.userDirectory, app: app, content: "#!/bin/sh\n" + script)
         let plist = installed.appendingPathComponent("Contents/Info.plist")
         var info = try XCTUnwrap(PropertyListSerialization.propertyList(from: Data(contentsOf: plist), format: nil) as? [String: Any])
         info["MacToolsSettingsProtocolVersion"] = capability
@@ -301,6 +301,34 @@ final class InstallationStoreTests: XCTestCase {
         try settingsFixture(script: "touch '\(marker.path)'", capability: nil)
         XCTAssertFalse(try store.loginRegistrationToPreserve(.dockPeek))
         XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
+    }
+
+    func testAppsWithoutSettingsBridgeAreNeverQueried() throws {
+        for app in ManagedApp.allCases where !app.supportsSettingsBridge {
+            let marker = root.appendingPathComponent("unexpected-launch-\(app.rawValue)")
+            // Even a bundle that claims the protocol must not be launched headlessly.
+            try settingsFixture(app: app, script: "touch '\(marker.path)'")
+            XCTAssertThrowsError(try store.settings(app)) { error in
+                XCTAssertTrue(error.localizedDescription.contains("keeps its settings in the app"))
+            }
+            XCTAssertThrowsError(try store.settings(app, patch: Data(#"{"launchAtLogin":true}"#.utf8)))
+            XCTAssertFalse(try store.loginRegistrationToPreserve(app))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
+        }
+    }
+
+    func testStandaloneAppsInstallAndUpdateLikeUtilities() throws {
+        for app in [ManagedApp.latent, .sift] {
+            try fixture(in: store.payloadDirectory!, app: app, release: "2.0.1", build: "193")
+            try store.install(app, scope: .user)
+            let installed = try XCTUnwrap(store.existing(app))
+            XCTAssertEqual(installed.lastPathComponent, app.payloadFilename)
+            try FileManager.default.removeItem(at: store.payloadDirectory!.appendingPathComponent(app.payloadFilename))
+            try fixture(in: store.payloadDirectory!, app: app, release: "2.0.2", build: "194", content: "new")
+            try store.install(app, scope: .system)
+            XCTAssertEqual(try store.existing(app)?.path, installed.path)
+            XCTAssertEqual(try store.metadata(installed, app: app).version.build, "194")
+        }
     }
 
     func testLoginPreservationRejectsAmbiguousSnapshot() throws {

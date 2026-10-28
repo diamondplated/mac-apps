@@ -8,7 +8,7 @@ case "${1:-}" in
     --no-build) [ "$#" -eq 1 ] || exit 64; BUILD=0 ;;
     *) echo "Usage: $0 [--no-build]" >&2; exit 64 ;;
 esac
-for script in build-app.sh install-app.sh verify.sh DockPeek/build_app.sh ScrollSplit/build-app.sh LinkRoutes/build-app.sh scripts/release.sh scripts/check-signing.sh; do
+for script in build-app.sh install-app.sh verify.sh DockPeek/build_app.sh ScrollSplit/build-app.sh LinkRoutes/build-app.sh Latent/scripts/build_app.sh Sift/build-app.sh Sift/scripts/fetch-duckdb.sh scripts/release.sh scripts/check-signing.sh; do
     bash -n "$PROJECT_DIR/$script"
 done
 for script in build-app.sh install-app.sh qa.sh; do
@@ -40,13 +40,15 @@ test "$(plutil -extract CFBundleIdentifier raw "$PLIST")" = com.andrew.mactools
 test "$(plutil -extract CFBundleExecutable raw "$PLIST")" = MacTools
 test "$(plutil -extract LSMinimumSystemVersion raw "$PLIST")" = 14.0
 codesign --verify --deep --strict "$APP"
-for name in MacTools DockPeek ScreenWren ScreenWrenLoginItem ScrollSplit LinkRoutes; do
+for name in MacTools DockPeek ScreenWren ScreenWrenLoginItem ScrollSplit LinkRoutes Latent Sift; do
     case "$name" in
         MacTools) bundle="$APP"; identifier=com.andrew.mactools; minimum=14.0 ;;
         DockPeek) bundle="$APP/Contents/Resources/Applications/DockPeek.app"; identifier=com.andrew.dockpeek; minimum=14.0 ;;
         ScreenWren) bundle="$APP/Contents/Resources/Applications/ScreenWren.app"; identifier=io.github.diamondplated.ScreenWren; minimum=26.0 ;;
         ScrollSplit) bundle="$APP/Contents/Resources/Applications/ScrollSplit.app"; identifier=com.andrew.scrollsplit; minimum=14.0 ;;
         LinkRoutes) bundle="$APP/Contents/Resources/Applications/LinkRoutes.app"; identifier=com.andrew.linkroutes; minimum=14.0 ;;
+        Latent) bundle="$APP/Contents/Resources/Applications/Latent.app"; identifier=com.diamondplated.latent; minimum=14.0 ;;
+        Sift) bundle="$APP/Contents/Resources/Applications/Sift.app"; identifier=io.github.diamondplated.sift; minimum=14.0 ;;
         ScreenWrenLoginItem) bundle="$APP/Contents/Resources/Applications/ScreenWren.app/Contents/Library/LoginItems/ScreenWrenLoginItem.app"; identifier=io.github.diamondplated.ScreenWren.LoginItem; minimum=26.0 ;;
     esac
     test -x "$bundle/Contents/MacOS/$name"
@@ -63,6 +65,16 @@ done
 for name in ScreenWren ScrollSplit LinkRoutes; do
     "$APP/Contents/Resources/Applications/$name.app/Contents/MacOS/$name" --self-check
 done
+# Latent's model weights are third-party and user-installed; Mac Tools must never redistribute them.
+for resource in Models Tokenizer; do
+    test ! -e "$APP/Contents/Resources/Applications/Latent.app/Contents/Resources/$resource"
+done
+# Sift ships its engine inside the bundle and must not search the build machine for it.
+test -f "$APP/Contents/Resources/Applications/Sift.app/Contents/Frameworks/libduckdb.dylib"
+if otool -l "$APP/Contents/Resources/Applications/Sift.app/Contents/MacOS/Sift" | grep -q 'Vendor/duckdb'; then
+    echo "Sift still searches the source tree for libduckdb." >&2
+    exit 1
+fi
 # Shipped ScreenWren must not contain the live QA capture path (its messages are long literals).
 if grep -aqF -e '--qa-capture needs' -e 'ScreenWren QA:' "$APP/Contents/Resources/Applications/ScreenWren.app/Contents/MacOS/ScreenWren"; then
     echo "ScreenWren was built with SCREENWREN_LIVE_QA; --qa-capture must not ship." >&2

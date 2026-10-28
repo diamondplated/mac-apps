@@ -7,14 +7,18 @@ DOCKPEEK_APP=${MACTOOLS_DOCKPEEK_APP:-"$PROJECT_DIR/DockPeek/DockPeek.app"}
 SCREENWREN_APP=${MACTOOLS_SCREENWREN_APP:-"$PROJECT_DIR/ScreenWren/dist/ScreenWren.app"}
 SCROLLSPLIT_APP=${MACTOOLS_SCROLLSPLIT_APP:-"$PROJECT_DIR/ScrollSplit/dist/ScrollSplit.app"}
 LINKROUTES_APP=${MACTOOLS_LINKROUTES_APP:-"$PROJECT_DIR/LinkRoutes/dist/LinkRoutes.app"}
+LATENT_APP=${MACTOOLS_LATENT_APP:-"$PROJECT_DIR/Latent/dist/Latent.app"}
+SIFT_APP=${MACTOOLS_SIFT_APP:-"$PROJECT_DIR/Sift/dist/Sift.app"}
 APP_PATH="$DIST_DIR/Mac Tools.app"
-PAYLOAD_NAMES=(DockPeek ScreenWren ScrollSplit LinkRoutes)
+PAYLOAD_NAMES=(DockPeek ScreenWren ScrollSplit LinkRoutes Latent Sift)
 select_payload() {
     case "$1" in
         DockPeek) source_app="$DOCKPEEK_APP"; identifier=com.andrew.dockpeek; minimum=14.0 ;;
         ScreenWren) source_app="$SCREENWREN_APP"; identifier=io.github.diamondplated.ScreenWren; minimum=26.0 ;;
         ScrollSplit) source_app="$SCROLLSPLIT_APP"; identifier=com.andrew.scrollsplit; minimum=14.0 ;;
         LinkRoutes) source_app="$LINKROUTES_APP"; identifier=com.andrew.linkroutes; minimum=14.0 ;;
+        Latent) source_app="$LATENT_APP"; identifier=com.diamondplated.latent; minimum=14.0 ;;
+        Sift) source_app="$SIFT_APP"; identifier=io.github.diamondplated.sift; minimum=14.0 ;;
         *) echo "Unknown managed app: $1" >&2; exit 1 ;;
     esac
 }
@@ -52,6 +56,9 @@ if [ "$REUSE_PAYLOADS" = 0 ]; then
     "$PROJECT_DIR/ScreenWren/build-app.sh"
     "$PROJECT_DIR/ScrollSplit/build-app.sh"
     "$PROJECT_DIR/LinkRoutes/build-app.sh"
+    "$PROJECT_DIR/Latent/scripts/build_app.sh" --mac-tools-payload
+    "$PROJECT_DIR/Sift/scripts/fetch-duckdb.sh"
+    "$PROJECT_DIR/Sift/build-app.sh" --mac-tools-payload
 fi
 # Validate reused payloads before doing any compilation or signing.
 for name in "${PAYLOAD_NAMES[@]}"; do
