@@ -12,12 +12,14 @@ SIFT_APP=${MACTOOLS_SIFT_APP:-"$PROJECT_DIR/Sift/dist/Sift.app"}
 APP_PATH="$DIST_DIR/Mac Tools.app"
 PAYLOAD_NAMES=(DockPeek ScreenWren ScrollSplit LinkRoutes Latent Sift)
 select_payload() {
+    # Latent is Apple silicon only (Float16 pipeline); Mac Tools refuses it on Intel.
+    architectures="arm64 x86_64"
     case "$1" in
         DockPeek) source_app="$DOCKPEEK_APP"; identifier=com.andrew.dockpeek; minimum=14.0 ;;
         ScreenWren) source_app="$SCREENWREN_APP"; identifier=io.github.diamondplated.ScreenWren; minimum=26.0 ;;
         ScrollSplit) source_app="$SCROLLSPLIT_APP"; identifier=com.andrew.scrollsplit; minimum=14.0 ;;
         LinkRoutes) source_app="$LINKROUTES_APP"; identifier=com.andrew.linkroutes; minimum=14.0 ;;
-        Latent) source_app="$LATENT_APP"; identifier=com.diamondplated.latent; minimum=14.0 ;;
+        Latent) source_app="$LATENT_APP"; identifier=com.diamondplated.latent; minimum=14.0; architectures="arm64" ;;
         Sift) source_app="$SIFT_APP"; identifier=io.github.diamondplated.sift; minimum=14.0 ;;
         *) echo "Unknown managed app: $1" >&2; exit 1 ;;
     esac
@@ -71,7 +73,7 @@ for name in "${PAYLOAD_NAMES[@]}"; do
     test -n "$(plutil -extract CFBundleVersion raw "$source_app/Contents/Info.plist")"
     test "$(codesign -dv --verbose=4 "$source_app" 2>&1 | sed -n 's/^Identifier=//p')" = "$identifier"
     test "$(plutil -extract LSMinimumSystemVersion raw "$source_app/Contents/Info.plist")" = "$minimum"
-    for architecture in arm64 x86_64; do
+    for architecture in $architectures; do
         lipo "$source_app/Contents/MacOS/$name" -verify_arch "$architecture"
         binary_minimum=$(xcrun vtool -arch "$architecture" -show-build "$source_app/Contents/MacOS/$name" | awk '$1 == "minos" { print $2 }')
         test "$binary_minimum" = "$minimum"

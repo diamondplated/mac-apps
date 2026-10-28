@@ -8,6 +8,7 @@ struct InstallationStore: @unchecked Sendable {
     let userDirectory: URL
     let systemDirectory: URL
     var osVersion = ProcessInfo.processInfo.operatingSystemVersion
+    var isAppleSilicon = Self.hostIsAppleSilicon
     var verifySignature: @Sendable (URL, ManagedApp) throws -> Void = Self.checkSignature
     var copy: @Sendable (URL, URL) throws -> Void = { try FileManager.default.copyItem(at: $0, to: $1) }
     var trash: @Sendable (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
@@ -81,15 +82,31 @@ struct InstallationStore: @unchecked Sendable {
     }
 
     func isSupported(_ metadata: Metadata, app: ManagedApp) -> Bool {
-        let current = "\(osVersion.majorVersion).\(osVersion.minorVersion).\(osVersion.patchVersion)"
-        return osVersion.majorVersion >= app.minimumOSMajor && current.compare(metadata.minimumOS, options: .numeric) != .orderedAscending
+        unsupportedReason(metadata, app: app) == nil
     }
+
+    /// Why this Mac cannot run the app, or nil when it can. Without metadata only the
+    /// app's own floor is checked.
+    func unsupportedReason(_ metadata: Metadata?, app: ManagedApp) -> String? {
+        if app.requiresAppleSilicon && !isAppleSilicon { return "\(app.name) requires a Mac with Apple silicon." }
+        let current = "\(osVersion.majorVersion).\(osVersion.minorVersion).\(osVersion.patchVersion)"
+        if osVersion.majorVersion < app.minimumOSMajor { return "\(app.name) requires macOS \(app.minimumOSMajor) or later." }
+        if let metadata, current.compare(metadata.minimumOS, options: .numeric) == .orderedAscending {
+            return "\(app.name) requires macOS \(metadata.minimumOS) or later."
+        }
+        return nil
+    }
+
+    // The manager is universal, so this is the slice actually running.
+    #if arch(arm64)
+    static let hostIsAppleSilicon = true
+    #else
+    static let hostIsAppleSilicon = false
+    #endif
 
     func validate(_ url: URL, app: ManagedApp) throws -> Metadata {
         let info = try metadata(url, app: app)
-        guard isSupported(info, app: app) else {
-            throw AppManagerError.message("\(app.name) requires macOS \(info.minimumOS) or later.")
-        }
+        if let reason = unsupportedReason(info, app: app) { throw AppManagerError.message(reason) }
         try verifySignature(url, app)
         return info
     }

@@ -291,7 +291,7 @@ struct LibraryView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     infoRow("Installed version", value: state?.installedVersion ?? "Not installed")
                     infoRow("Included version", value: state?.availableVersion ?? "Unavailable")
-                    infoRow("Requires", value: "macOS \(app.minimumOSMajor) or later")
+                    infoRow("Requires", value: app.requirement)
                     if let url = state?.installedURL {
                         infoRow("Location", value: url.path).textSelection(.enabled)
                     }
@@ -356,7 +356,7 @@ struct LibraryView: View {
                     Text(library.operation ?? "Working…").font(.caption).foregroundStyle(.secondary)
                 }
             } else if !state.isSupported {
-                Text("Requires macOS \(app.minimumOSMajor)").font(.caption).foregroundStyle(.secondary)
+                Text("Requires " + app.requirement).font(.caption).foregroundStyle(.secondary)
             } else if state.installedURL != nil && !state.isUpdateAvailable {
                 Button("Open", systemImage: "arrow.up.forward.app") { Task { await library.launch(app) } }
                     .buttonStyle(.borderedProminent).disabled(library.isBusy)

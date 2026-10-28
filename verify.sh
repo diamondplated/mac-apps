@@ -41,13 +41,15 @@ test "$(plutil -extract CFBundleExecutable raw "$PLIST")" = MacTools
 test "$(plutil -extract LSMinimumSystemVersion raw "$PLIST")" = 14.0
 codesign --verify --deep --strict "$APP"
 for name in MacTools DockPeek ScreenWren ScreenWrenLoginItem ScrollSplit LinkRoutes Latent Sift; do
+    # Latent is Apple silicon only (Float16 pipeline); Mac Tools refuses it on Intel.
+    architectures="arm64 x86_64"
     case "$name" in
         MacTools) bundle="$APP"; identifier=com.andrew.mactools; minimum=14.0 ;;
         DockPeek) bundle="$APP/Contents/Resources/Applications/DockPeek.app"; identifier=com.andrew.dockpeek; minimum=14.0 ;;
         ScreenWren) bundle="$APP/Contents/Resources/Applications/ScreenWren.app"; identifier=io.github.diamondplated.ScreenWren; minimum=26.0 ;;
         ScrollSplit) bundle="$APP/Contents/Resources/Applications/ScrollSplit.app"; identifier=com.andrew.scrollsplit; minimum=14.0 ;;
         LinkRoutes) bundle="$APP/Contents/Resources/Applications/LinkRoutes.app"; identifier=com.andrew.linkroutes; minimum=14.0 ;;
-        Latent) bundle="$APP/Contents/Resources/Applications/Latent.app"; identifier=com.diamondplated.latent; minimum=14.0 ;;
+        Latent) bundle="$APP/Contents/Resources/Applications/Latent.app"; identifier=com.diamondplated.latent; minimum=14.0; architectures=arm64 ;;
         Sift) bundle="$APP/Contents/Resources/Applications/Sift.app"; identifier=io.github.diamondplated.sift; minimum=14.0 ;;
         ScreenWrenLoginItem) bundle="$APP/Contents/Resources/Applications/ScreenWren.app/Contents/Library/LoginItems/ScreenWrenLoginItem.app"; identifier=io.github.diamondplated.ScreenWren.LoginItem; minimum=26.0 ;;
     esac
@@ -56,7 +58,7 @@ for name in MacTools DockPeek ScreenWren ScreenWrenLoginItem ScrollSplit LinkRou
     test "$(plutil -extract LSMinimumSystemVersion raw "$bundle/Contents/Info.plist")" = "$minimum"
     codesign --verify --deep --strict "$bundle"
     "$PROJECT_DIR/scripts/check-signing.sh" "$bundle"
-    for architecture in arm64 x86_64; do
+    for architecture in $architectures; do
         lipo "$bundle/Contents/MacOS/$name" -verify_arch "$architecture"
         binary_minimum=$(xcrun vtool -arch "$architecture" -show-build "$bundle/Contents/MacOS/$name" | awk '$1 == "minos" { print $2 }')
         test "$binary_minimum" = "$minimum"

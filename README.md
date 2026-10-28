@@ -93,7 +93,8 @@ options live in their utility pages, including watch controls and startup filter
 ## Build and install from source
 
 Building the full suite requires macOS 26+, Swift 6.2+, and the matching macOS SDK.
-The build creates Universal 2 binaries for Apple silicon and Intel and preserves
+The build creates Universal 2 binaries for Apple silicon and Intel (Latent is Apple
+silicon only; Mac Tools won't offer it on Intel) and preserves
 each tool's bundle identity and signing requirements.
 
 ```sh

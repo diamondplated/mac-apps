@@ -203,6 +203,19 @@ final class InstallationStoreTests: XCTestCase {
         XCTAssertNil(try store.existing(.screenWren))
     }
 
+    func testAppleSiliconOnlyAppIsRejectedOnIntelBeforeCopy() throws {
+        store.isAppleSilicon = false
+        try fixture(in: store.payloadDirectory!, app: .latent)
+        XCTAssertThrowsError(try store.install(.latent, scope: .user)) { error in
+            XCTAssertTrue(error.localizedDescription.contains("Apple silicon"))
+        }
+        XCTAssertNil(try store.existing(.latent))
+        // Universal apps are unaffected on the same Mac.
+        try fixture(in: store.payloadDirectory!, app: .sift)
+        try store.install(.sift, scope: .user)
+        XCTAssertNotNil(try store.existing(.sift))
+    }
+
     private func settingsFixture(app: ManagedApp = .dockPeek, script: String, capability: Int? = 1) throws -> URL {
         let installed = try fixture(in: store.userDirectory, app: app, content: "#!/bin/sh\n" + script)
         let plist = installed.appendingPathComponent("Contents/Info.plist")

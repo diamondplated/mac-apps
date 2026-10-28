@@ -86,6 +86,12 @@ public enum ManagedApp: String, CaseIterable, Identifiable, Sendable {
         case .dockPeek, .scrollSplit, .linkRoutes, .latent, .sift: 14
         }
     }
+    /// Latent's image pipeline stores pixels as Float16, which Swift does not offer on
+    /// Intel Macs, so its payload is built for Apple silicon only.
+    public var requiresAppleSilicon: Bool { self == .latent }
+    public var requirement: String {
+        "macOS \(minimumOSMajor) or later" + (requiresAppleSilicon ? " on Apple silicon" : "")
+    }
     public var payloadFilename: String { name + ".app" }
 }
 

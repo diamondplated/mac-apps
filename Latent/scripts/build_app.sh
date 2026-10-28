@@ -22,8 +22,9 @@ APP_DIR="build/${APP_NAME}.app"
 BINARY_NAME="Latent"
 INFO_PLIST="Resources/AppBundle/Info.plist"
 
-# --mac-tools-payload builds the copy Mac Tools embeds and installs: universal,
-# hardened runtime, signed with the monorepo's persistent identity (the same
+# --mac-tools-payload builds the copy Mac Tools embeds and installs: Apple
+# silicon only (the pipeline stores pixels as Float16, which Swift does not
+# offer on Intel Macs; Mac Tools refuses it there), hardened runtime, signed with the monorepo's persistent identity (the same
 # one DockPeek, ScrollSplit and LinkRoutes use, so permissions survive
 # updates), and never carrying model weights, which are not ours to
 # redistribute. Output: dist/Latent.app. Without the flag nothing changes.
@@ -68,13 +69,10 @@ fi
 # 1. Build release. `--product` (not `--target`) is what actually links the
 #    executable; `--target` would only compile the module sources.
 if [[ "$PAYLOAD" == 1 ]]; then
-    for architecture in arm64 x86_64; do
-        triple="$architecture-apple-macosx14.0"
-        echo "==> swift build -c release --product $APP_NAME --triple $triple"
-        swift build -c release --product "$APP_NAME" --scratch-path "$STAGE/$architecture" --triple "$triple"
-        cp "$(swift build -c release --scratch-path "$STAGE/$architecture" --triple "$triple" --show-bin-path)/$BINARY_NAME" "$STAGE/$BINARY_NAME-$architecture"
-    done
-    lipo -create "$STAGE/$BINARY_NAME-arm64" "$STAGE/$BINARY_NAME-x86_64" -output "$STAGE/$BINARY_NAME"
+    triple="arm64-apple-macosx14.0"
+    echo "==> swift build -c release --product $APP_NAME --triple $triple"
+    swift build -c release --product "$APP_NAME" --scratch-path "$STAGE/arm64" --triple "$triple"
+    cp "$(swift build -c release --scratch-path "$STAGE/arm64" --triple "$triple" --show-bin-path)/$BINARY_NAME" "$STAGE/$BINARY_NAME"
     BINARY_PATH="$STAGE/$BINARY_NAME"
 else
     echo "==> swift build -c release --product $APP_NAME"
@@ -141,9 +139,7 @@ fi
 codesign --verify --strict --verbose=2 "$APP_DIR"
 
 if [[ "$PAYLOAD" == 1 ]]; then
-    for architecture in arm64 x86_64; do
-        lipo "$APP_DIR/Contents/MacOS/$BINARY_NAME" -verify_arch "$architecture"
-    done
+    lipo "$APP_DIR/Contents/MacOS/$BINARY_NAME" -verify_arch arm64
     test ! -e "$APP_DIR/Contents/Resources/Models"
     test ! -e "$APP_DIR/Contents/Resources/Tokenizer"
     rm -rf "dist/${APP_NAME}.app"

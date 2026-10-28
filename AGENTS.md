@@ -8,7 +8,8 @@
 - Latent and Sift are standalone apps that Mac Tools also embeds and installs.
   Follow `Latent/CLAUDE.md` and `Sift/AGENTS.md` inside those folders. Their tests
   run in their own workflows (`latent.yml`, `sift.yml`); `verify.sh` builds and
-  checks their `--mac-tools-payload` bundles (universal, hardened runtime,
+  checks their `--mac-tools-payload` bundles (Sift universal, Latent Apple
+  silicon only because Swift has no Float16 on Intel; hardened runtime,
   persistent identity, no Latent model weights). They have no settings bridge, so
   `ManagedApp.supportsSettingsBridge` is false and Mac Tools never runs
   `--mac-tools-settings` against them. Sift's version lives in `Sift/VERSION`
