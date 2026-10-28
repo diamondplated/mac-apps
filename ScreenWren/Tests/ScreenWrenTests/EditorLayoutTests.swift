@@ -5,6 +5,31 @@ import XCTest
 @testable import ScreenWren
 
 final class EditorLayoutTests: XCTestCase {
+    /// macOS 27's canvas drops a visible-frame request made before it finishes setting up, which
+    /// left new captures at 100% zoom, spilling over the toolbar instead of fitting the window.
+    @MainActor
+    func testNewEditorFitsAndClipsACaptureLargerThanItsCanvas() async throws {
+        _ = NSApplication.shared
+        let image = try renderCGImage(width: 863, height: 739) { context in
+            context.setFillColor(CGColor(gray: 1, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: 863, height: 739))
+        }
+        let controller = EditorWindowController(image: image, copied: true) { _ in }
+        defer { controller.close() }
+        let editor = try XCTUnwrap(controller.contentViewController as? EditorViewController)
+        controller.showWindow(nil)
+        let canvas = try XCTUnwrap(editor.children.compactMap { $0 as? PaperMarkupViewController }.first)
+        XCTAssertTrue(canvas.view.clipsToBounds, "The canvas must not draw over the header or status bar")
+
+        let imageBounds = CGRect(x: 0, y: 0, width: 863, height: 739)
+        let deadline = Date().addingTimeInterval(5)
+        while !canvas.contentVisibleFrame.contains(imageBounds), Date() < deadline {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertTrue(canvas.contentVisibleFrame.contains(imageBounds),
+                      "Whole capture must be visible, got \(canvas.contentVisibleFrame)")
+    }
+
     @MainActor
     func testEditorKeepsToolsActionsAndStatusVisibleWhenResizing() throws {
         _ = NSApplication.shared
