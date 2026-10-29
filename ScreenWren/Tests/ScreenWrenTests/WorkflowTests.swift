@@ -301,11 +301,15 @@ final class WorkflowTests: XCTestCase {
             pending.append(contentsOf: view.subviews)
         }
         let button = try XCTUnwrap(apply)
-        for _ in 0..<200 where !button.isEnabled { try await Task.sleep(for: .milliseconds(50)) }
+        // The button waits on Vision text recognition, which can take well over ten seconds while
+        // the parallel suite saturates the runner. Wait on the real signal with a generous ceiling.
+        var deadline = Date().addingTimeInterval(60)
+        while !button.isEnabled, Date() < deadline { try await Task.sleep(for: .milliseconds(50)) }
         XCTAssertTrue(button.isEnabled)
         let generation = ClipboardDeliveryOrder.shared.begin()
         button.performClick(nil)
-        for _ in 0..<200 where !applied { try await Task.sleep(for: .milliseconds(50)) }
+        deadline = Date().addingTimeInterval(60)
+        while !applied, Date() < deadline { try await Task.sleep(for: .milliseconds(50)) }
         XCTAssertTrue(applied)
         XCTAssertTrue(ClipboardDeliveryOrder.shared.isCurrent(generation))
     }
