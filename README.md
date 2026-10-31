@@ -3,7 +3,8 @@
 Andrew's native macOS apps, one repository:
 
 - **Mac Tools**, one app to install, update, open, and configure **DockPeek**,
-  **ScreenWren**, **ScrollSplit**, and **LinkRoutes**, with six built-in diagnostic
+  **ScreenWren**, **ScrollSplit**, and **LinkRoutes**, and to install, update, and
+  open **Latent** and **Sift**, with six built-in diagnostic
   workspaces. Public downloads and automatic updates use
   [diamondplated/mac-tools-releases](https://github.com/diamondplated/mac-tools-releases/releases),
   a separate repository containing release artifacts, not app source.
@@ -12,9 +13,11 @@ Andrew's native macOS apps, one repository:
 - **[Sift](Sift/README.md)**, drop a data file in and explore it instantly.
   Formerly `diamondplated/sift`.
 
-Latent and Sift build, test, and release on their own; they are not installed by
-Mac Tools. Each is distributed through the
-[diamondplated Homebrew tap](https://github.com/diamondplated/homebrew-tap).
+Latent and Sift build and test on their own, and Mac Tools bundles a signed copy of
+each. Their Homebrew casks in the
+[diamondplated Homebrew tap](https://github.com/diamondplated/homebrew-tap) still
+point at the archived standalone releases; Mac Tools updates a cask-installed copy
+in place.
 Everything here is MIT licensed.
 
 | App | What it does | Requires |
@@ -24,6 +27,8 @@ Everything here is MIT licensed.
 | [ScreenWren](ScreenWren/README.md) | Precise screenshots, markup, redaction, and text recognition | macOS 26+ |
 | [ScrollSplit](ScrollSplit/README.md) | Mouse-wheel direction and speed without changing trackpad gestures | macOS 14+ |
 | [LinkRoutes](LinkRoutes/README.md) | Send websites to chosen browsers and supported profiles | macOS 14+ |
+| [Latent](Latent/README.md) | Folder-first photo viewer with keyboard culling and local enhancement | macOS 14+ |
+| [Sift](Sift/README.md) | Explore CSV, Parquet, JSON, and Excel files instantly | macOS 14+ |
 
 The manager includes **Permission Doctor**, **Startup Detective**, **SleepPeek**,
 **SpaceWatch**, **HogWatch**, and **NetPeek**. These utilities run in Mac Tools and
@@ -88,7 +93,8 @@ options live in their utility pages, including watch controls and startup filter
 ## Build and install from source
 
 Building the full suite requires macOS 26+, Swift 6.2+, and the matching macOS SDK.
-The build creates Universal 2 binaries for Apple silicon and Intel and preserves
+The build creates Universal 2 binaries for Apple silicon and Intel (Latent is Apple
+silicon only; Mac Tools won't offer it on Intel) and preserves
 each tool's bundle identity and signing requirements.
 
 ```sh

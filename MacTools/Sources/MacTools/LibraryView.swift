@@ -62,13 +62,13 @@ struct LibraryView: View {
             List(selection: $selection) {
                 Section("Library") {
                     Label("Overview", systemImage: "square.grid.2x2")
-                        .badge(ManagedApp.allCases.count + UtilityTool.allCases.count).tag(LibrarySelection.all)
+                        .badge(library.updateCount).tag(LibrarySelection.all)
                     Label("Installed", systemImage: "checkmark.circle")
                         .badge(library.installedCount).tag(LibrarySelection.installed)
                 }
-                Section("Your Apps") {
-                    ForEach(ManagedApp.allCases) { app in
-                        Label(app.name, systemImage: app.symbolName).tag(LibrarySelection.app(app))
+                ForEach(ManagedApp.Kind.allCases, id: \.self) { kind in
+                    Section(kind.title) {
+                        ForEach(ManagedApp.allCases.filter { $0.kind == kind }) { app in sidebarRow(app) }
                     }
                 }
                 Section("Utilities") {
@@ -103,12 +103,15 @@ struct LibraryView: View {
                     } else if case let .utility(tool) = selection { utilityPage(tool) }
                     else if case let .app(app) = selection { detail(app) }
                     else { collection }
-                    activity
                 }
                 .padding(32)
                 .frame(maxWidth: 960, alignment: .leading)
                 .frame(maxWidth: .infinity)
             }
+            // Pinned, so progress stays visible however far down the page the action was.
+            .safeAreaInset(edge: .top, spacing: 0) { activity }
+            .animation(.easeOut(duration: 0.2), value: library.operation)
+            .animation(.easeOut(duration: 0.2), value: library.notice)
             .background(Color(nsColor: .windowBackgroundColor))
             .navigationTitle(title)
             .toolbar {
@@ -120,7 +123,7 @@ struct LibraryView: View {
             }
         }
         .task { await library.refresh() }
-        .alert("Couldn’t complete the action", isPresented: Binding(
+        .alert("Something went wrong", isPresented: Binding(
             get: { library.error != nil }, set: { if !$0 { library.error = nil } }
         )) { Button("OK", role: .cancel) { library.error = nil } }
         message: { Text(library.error ?? "") }
@@ -155,46 +158,53 @@ struct LibraryView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(selection == .installed ? "Ready when you are." : "Small tools. A calmer Mac.")
                     .font(.system(size: 31, weight: .bold, design: .rounded))
-                Text("Capture, navigate, and make sense of your Mac. Your everyday tools, in one place.")
+                Text("Capture, navigate, browse photos, explore data, and make sense of your Mac. Your everyday tools, in one place.")
                     .font(.body).foregroundStyle(.secondary)
             }
             HStack(spacing: 0) {
-                metric("IN YOUR COLLECTION", value: "\(ManagedApp.allCases.count + UtilityTool.allCases.count)", symbol: "square.grid.2x2")
+                metric("INSTALLED", value: "\(library.installedCount) of \(ManagedApp.allCases.count)", symbol: "checkmark.circle")
                 Divider().frame(height: 40).padding(.horizontal, 24)
-                metric("INSTALLED", value: "\(library.installedCount)", symbol: "checkmark.circle")
+                metric("UPDATES", value: "\(library.updateCount)", symbol: "arrow.down.circle")
                 Divider().frame(height: 40).padding(.horizontal, 24)
                 metric("BUILT IN", value: "\(UtilityTool.allCases.count)", symbol: "sparkles")
                 Spacer()
                 if library.updateCount > 0 {
                     Button("Update All (\(library.updateCount))") { Task { await library.updateAll() } }
                         .buttonStyle(.borderedProminent).disabled(library.isBusy)
+                } else if !library.missingApps.isEmpty && selection != .installed {
+                    Button("Install \(library.missingApps.count == 1 ? library.missingApps[0].name : "All \(library.missingApps.count)")") {
+                        Task { await library.installMissing() }
+                    }.buttonStyle(.bordered).disabled(library.isBusy)
+                    .help("Installs " + ListFormatter.localizedString(byJoining: library.missingApps.map(\.name)))
                 }
             }.padding(22).background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 16))
             if visibleApps.isEmpty {
                 ContentUnavailableView("Your apps will appear here", systemImage: "tray", description: Text("Choose Overview to install your first tool."))
             } else {
-                Text("Everyday apps").font(.title3.bold())
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 330), spacing: 16)], spacing: 16) {
-                    ForEach(visibleApps) { app in appCard(app) }
+                ForEach(ManagedApp.Kind.allCases, id: \.self) { kind in
+                    let apps = visibleApps.filter { $0.kind == kind }
+                    if !apps.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(kind.title).font(.title3.bold())
+                            Text(kind == .utility ? "Run quietly in the menu bar. Configure them here in Tool Settings." : "Open files and folders in their own windows.")
+                                .foregroundStyle(.secondary)
+                        }
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 330), spacing: 16)], spacing: 16) {
+                            ForEach(apps) { app in appCard(app) }
+                        }
+                    }
                 }
             }
             if selection != .installed {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Know your Mac").font(.title3.bold())
-                    Text("Six useful places to start when something feels off.").foregroundStyle(.secondary)
+                    Text("Useful places to start when something feels off.").foregroundStyle(.secondary)
                 }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 16)], spacing: 16) {
                     ForEach(UtilityTool.allCases) { tool in utilityCard(tool) }
                 }
             }
             installDestination
-            if library.installedCount < ManagedApp.allCases.count && ManagedApp.allCases.contains(where: {
-                guard let state = library.states[$0] else { return false }
-                return state.installedURL == nil && state.payloadAvailable && state.isSupported
-            }) {
-                Button("Install Missing Apps") { Task { await library.installMissing() } }
-                    .buttonStyle(.bordered).disabled(library.isBusy)
-            }
             Text("Apps are included with this copy of Mac Tools. Get a newer Mac Tools release to receive new app versions.")
                 .font(.caption).foregroundStyle(.secondary)
         }
@@ -223,7 +233,7 @@ struct LibraryView: View {
                 }
             }
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 105), alignment: .leading)], alignment: .leading, spacing: 8) {
-                ForEach(features(app), id: \.self) { feature in
+                ForEach(app.features, id: \.self) { feature in
                     Text(feature).font(.caption).padding(.horizontal, 10).padding(.vertical, 5)
                         .background(.quaternary.opacity(0.5), in: Capsule())
                 }
@@ -265,10 +275,12 @@ struct LibraryView: View {
                         .buttonStyle(.bordered).disabled(library.isBusy)
                 }
                 if state?.installedURL != nil {
-                    Button("Settings", systemImage: "slider.horizontal.3") {
-                        library.settingsApp = app
-                        selection = .settings
-                    }.buttonStyle(.bordered)
+                    if app.supportsSettingsBridge {
+                        Button("Settings", systemImage: "slider.horizontal.3") {
+                            library.settingsApp = app
+                            selection = .settings
+                        }.buttonStyle(.bordered)
+                    }
                     Button("Show in Finder") { library.reveal(app) }.buttonStyle(.bordered)
                     if state?.isRunning == true {
                         Button("Quit") { Task { await library.quit(app) } }.buttonStyle(.bordered).disabled(library.isBusy)
@@ -279,7 +291,7 @@ struct LibraryView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     infoRow("Installed version", value: state?.installedVersion ?? "Not installed")
                     infoRow("Included version", value: state?.availableVersion ?? "Unavailable")
-                    infoRow("Requires", value: "macOS \(app.minimumOSMajor) or later")
+                    infoRow("Requires", value: app.requirement)
                     if let url = state?.installedURL {
                         infoRow("Location", value: url.path).textSelection(.enabled)
                     }
@@ -292,7 +304,7 @@ struct LibraryView: View {
             if state?.installedURL == nil { installDestination }
             VStack(alignment: .leading, spacing: 12) {
                 Text("Make it yours").font(.title3.bold())
-                Text(onboarding(app))
+                Text(app.onboarding)
                     .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 HStack {
                     if app == .dockPeek || app == .scrollSplit {
@@ -305,13 +317,15 @@ struct LibraryView: View {
                         Button("Input Monitoring") { library.openSettings("com.apple.preference.security?Privacy_ListenEvent") }
                     }
                     Button("Check Setup") { selection = .utility(.permissions) }
-                    Button("Login Items") { library.openSettings("com.apple.LoginItems-Settings.extension") }
+                    if app.supportsSettingsBridge {
+                        Button("Login Items") { library.openSettings("com.apple.LoginItems-Settings.extension") }
+                    }
                 }.buttonStyle(.bordered)
             }
             if state?.installedURL != nil {
                 Divider()
                 HStack {
-                    Text("Remove the app and keep your settings.").font(.caption).foregroundStyle(.secondary)
+                    Text("Move the app to the Trash and keep your settings and files.").font(.caption).foregroundStyle(.secondary)
                     Spacer()
                     Button("Uninstall…", role: .destructive) { removal = app }
                         .disabled(library.isBusy)
@@ -336,8 +350,13 @@ struct LibraryView: View {
     @ViewBuilder
     private func primaryAction(_ app: ManagedApp) -> some View {
         if let state = library.states[app] {
-            if !state.isSupported {
-                Text("Requires macOS \(app.minimumOSMajor)").font(.caption).foregroundStyle(.secondary)
+            if library.activeApp == app {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(library.operation ?? "Working…").font(.caption).foregroundStyle(.secondary)
+                }
+            } else if !state.isSupported {
+                Text("Requires " + app.requirement).font(.caption).foregroundStyle(.secondary)
             } else if state.installedURL != nil && !state.isUpdateAvailable {
                 Button("Open", systemImage: "arrow.up.forward.app") { Task { await library.launch(app) } }
                     .buttonStyle(.borderedProminent).disabled(library.isBusy)
@@ -347,6 +366,18 @@ struct LibraryView: View {
                 }.buttonStyle(.borderedProminent).disabled(library.isBusy || !state.payloadAvailable)
             }
         } else { ProgressView().controlSize(.small) }
+    }
+
+    private func sidebarRow(_ app: ManagedApp) -> some View {
+        let state = library.states[app]
+        return Label {
+            Text(app.name).foregroundStyle(state?.installedURL == nil ? .secondary : .primary)
+        } icon: {
+            Image(systemName: app.symbolName)
+        }
+        .badge(state?.isUpdateAvailable == true ? Text("Update") : nil)
+        .tag(LibrarySelection.app(app))
+        .help(state?.installedURL == nil ? "\(app.name) is not installed" : app.summary)
     }
 
     private func status(_ state: ManagedAppState?) -> some View {
@@ -359,11 +390,9 @@ struct LibraryView: View {
     }
 
     private func appIcon(_ app: ManagedApp, size: CGFloat) -> some View {
-        let payload = Bundle.main.resourceURL?.appendingPathComponent("Applications").appendingPathComponent(app.payloadFilename)
-        let url = library.states[app]?.installedURL ?? payload
-        return Group {
-            if let url, FileManager.default.fileExists(atPath: url.path), app == .screenWren {
-                Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable().interpolation(.high)
+        Group {
+            if let icon = library.icons[app] {
+                Image(nsImage: icon).resizable().interpolation(.high)
             } else {
                 Image(systemName: app.symbolName).font(.system(size: size * 0.46, weight: .medium))
                     .foregroundStyle(.white).frame(width: size, height: size)
@@ -379,30 +408,14 @@ struct LibraryView: View {
         }.font(.callout)
     }
 
-    private func features(_ app: ManagedApp) -> [String] {
-        switch app {
-        case .dockPeek: ["Live previews", "Window switching", "Browser tabs"]
-        case .screenWren: ["Region & window capture", "Markup", "Text recognition"]
-        case .scrollSplit: ["Mouse direction", "Wheel speed", "Trackpad preserved"]
-        case .linkRoutes: ["Domain rules", "Browser profiles", "Link preview"]
-        }
-    }
-
     private func appColors(_ app: ManagedApp) -> [Color] {
         switch app {
         case .dockPeek: [.indigo, .blue]
         case .screenWren: [.teal, .cyan]
         case .scrollSplit: [.teal, .green]
         case .linkRoutes: [.indigo, .purple]
-        }
-    }
-
-    private func onboarding(_ app: ManagedApp) -> String {
-        switch app {
-        case .dockPeek: "Grant Accessibility and Screen Recording, then hover an app in your Dock. Use DockPeek’s menu bar icon for its permission status."
-        case .screenWren: "Grant Screen Recording, then capture and annotate from the menu bar. Set shortcuts and launch at login in Tool Settings."
-        case .scrollSplit: "Open ScrollSplit to enable scrolling and grant its requested access. Set wheel direction and speed in Tool Settings. Smooth scrolling devices pass through unchanged."
-        case .linkRoutes: "Choose browsers and domain rules in Tool Settings. Open LinkRoutes to make it your default link handler when you’re ready."
+        case .latent: [.purple, .pink]
+        case .sift: [.orange, .red]
         }
     }
 
@@ -452,11 +465,24 @@ struct LibraryView: View {
     private var activity: some View {
         if let operation = library.operation {
             HStack(spacing: 12) { ProgressView().controlSize(.small); Text(operation).font(.callout) }
-                .padding(14).frame(maxWidth: .infinity, alignment: .leading)
-                .background(.indigo.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
-                .accessibilityLabel(operation)
+                .padding(.horizontal, 32).padding(.vertical, 10).frame(maxWidth: .infinity, alignment: .leading)
+                .background(.bar)
+                .overlay(alignment: .bottom) { Divider() }
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .accessibilityElement(children: .combine)
         } else if let notice = library.notice {
-            Label(notice, systemImage: "checkmark.circle.fill").font(.callout).foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                Text(notice).font(.callout)
+                Spacer()
+                Button { library.notice = nil } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.borderless).help("Dismiss")
+            }
+            .padding(.horizontal, 32).padding(.vertical, 10)
+            .background(.bar)
+            .overlay(alignment: .bottom) { Divider() }
+            .transition(.move(edge: .top).combined(with: .opacity))
+            .accessibilityElement(children: .combine)
         }
     }
 }

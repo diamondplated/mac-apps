@@ -62,7 +62,10 @@ public enum PermissionDiagnostics {
             } catch {
                 checks.append(PermissionFinding(id: "signature", title: "App signature", status: .notChecked, detail: error.localizedDescription, settingsPane: nil))
             }
-            if signatureValid {
+            if signatureValid && !app.supportsSettingsBridge {
+                checks.append(PermissionFinding(id: "readiness", title: "App connection", status: .notChecked,
+                    detail: "\(app.name) keeps its settings in the app, so Mac Tools does not query it.", settingsPane: nil))
+            } else if signatureValid {
                 do {
                     let data = try await manager.readSettings(app)
                     if validSnapshot(data, app: app) {
