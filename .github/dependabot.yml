@@ -30,6 +30,11 @@ updates:
     cooldown:
       default-days: 7
     open-pull-requests-limit: 3
+    ignore:
+      # coremltools 9.0 can't convert on NumPy 2 (see Latent/scripts/requirements.txt).
+      # Revisit when coremltools moves past 9.0.
+      - dependency-name: numpy
+        update-types: ["version-update:semver-major"]
     groups:
       pip-security:
         applies-to: security-updates

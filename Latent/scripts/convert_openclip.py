@@ -14,7 +14,7 @@ Usage:
     pip install -r scripts/requirements.txt
     python3 scripts/convert_openclip.py
 
-Tested with: Python 3.12, torch 2.7.1, coremltools 9.0.
+Tested with: Python 3.12, torch 2.14.1, coremltools 9.0, open_clip_torch 3.3.0.
 
 Notes:
 - ViT-B/32 is the smallest "good" CLIP variant — 86M params, 224×224 input,
@@ -79,14 +79,33 @@ def build_text_module(model):
     return TextEncoder(model)
 
 
+def trace(model_module, example):
+    """Trace for coremltools without PyTorch's fused attention kernel.
+
+    open_clip 3.x builds every attention layer from nn.MultiheadAttention with
+    batch_first=True. Under no_grad, PyTorch routes that through its fast path,
+    so the trace records `_native_multi_head_attention`, which coremltools 9.0
+    has no converter for. With the fast path off, the trace holds the plain
+    attention math, which converts. The outputs are the same either way.
+    """
+    import torch
+
+    previous = torch.backends.mha.get_fastpath_enabled()
+    torch.backends.mha.set_fastpath_enabled(False)
+    try:
+        with torch.no_grad():
+            return torch.jit.trace(model_module, example)
+    finally:
+        torch.backends.mha.set_fastpath_enabled(previous)
+
+
 def convert_image(model_module):
     import torch
     import coremltools as ct
     from coremltools import TensorType
 
     example = torch.zeros(1, 3, IMAGE_SIZE, IMAGE_SIZE)
-    with torch.no_grad():
-        traced = torch.jit.trace(model_module, example)
+    traced = trace(model_module, example)
 
     print("converting image encoder…")
     mlmodel = ct.convert(
@@ -110,8 +129,7 @@ def convert_text(model_module):
     from coremltools import TensorType
 
     example = torch.zeros(1, CONTEXT_LENGTH, dtype=torch.int32)
-    with torch.no_grad():
-        traced = torch.jit.trace(model_module, example)
+    traced = trace(model_module, example)
 
     print("converting text encoder…")
     mlmodel = ct.convert(
