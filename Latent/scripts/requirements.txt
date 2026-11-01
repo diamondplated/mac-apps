@@ -15,7 +15,7 @@
 # and still clears the critical advisory.
 torch==2.13.0
 coremltools==9.0
-open_clip_torch==2.24.0
+open_clip_torch==3.3.0
 numpy<2.0
 
 # basicsr is deliberately NOT here. It was pulled in for two architecture
