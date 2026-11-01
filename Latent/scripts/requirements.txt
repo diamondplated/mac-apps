@@ -15,7 +15,11 @@
 # and still clears the critical advisory.
 torch==2.14.1
 coremltools==9.0
-open_clip_torch==2.24.0
+# open_clip 3.x needs the trace in convert_openclip.py that skips PyTorch's
+# fused attention kernel; coremltools 9.0 can't convert that op.
+open_clip_torch==3.3.0
+# Stays below 2: coremltools 9.0's torch frontend calls int() on one-element
+# arrays, which NumPy 2.4 and 2.5 reject, so OpenCLIP conversion fails.
 numpy<2.0
 
 # basicsr is deliberately NOT here. It was pulled in for two architecture
