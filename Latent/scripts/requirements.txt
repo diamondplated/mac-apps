@@ -16,7 +16,7 @@
 torch==2.14.1
 coremltools==9.0
 open_clip_torch==2.24.0
-numpy<2.0
+numpy<3.0
 
 # basicsr is deliberately NOT here. It was pulled in for two architecture
 # classes, and it:
