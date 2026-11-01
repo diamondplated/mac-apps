@@ -9,7 +9,7 @@ let package = Package(
     // version for the signing tools, so a bump updates them too. One package
     // per line keeps Dependabot's Swift parser from reading past the `)`.
     dependencies: [
-        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0"),
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.1"),
     ],
     targets: [
         .target(name: "MacToolsCore"),
