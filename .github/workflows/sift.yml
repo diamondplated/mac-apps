@@ -35,13 +35,15 @@ jobs:
         with:
           persist-credentials: false
 
-      # The Air carries the macOS 26 SDK. Since hosted macos-15 went away, nothing here
-      # catches a break that only an older SDK would reject.
+      # Since hosted macos-15 went away, nothing here catches a break that only an older SDK
+      # would reject. Ask for the macOS SDK by name: with Xcode selected and the Command Line
+      # Tools also installed, a bare `xcrun --show-sdk-version` resolves the CLT SDK path, then
+      # fails to read it through Xcode ("SDK ... cannot be located"). SwiftPM asks by name too.
       - name: Show toolchain
         run: |
           sw_vers
           swift --version
-          xcrun --show-sdk-version
+          xcrun --sdk macosx --show-sdk-version
 
       - name: Fetch libduckdb
         run: ./scripts/fetch-duckdb.sh
