@@ -34,7 +34,7 @@ jobs:
         run: |
           test "$(sw_vers -productVersion | cut -d. -f1)" -ge 26
           xcrun swift --version
-          xcrun --show-sdk-path
+          xcrun --sdk macosx --show-sdk-path
       - name: Test and package every app
         run: ./verify.sh
       - name: Upload verified suite
