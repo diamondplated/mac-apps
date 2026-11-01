@@ -13,7 +13,7 @@
 # (max abs diff 0.00114). Measured beats tabulated — but if a future model
 # trips on it, 2.7.1 is the fallback that is inside coremltools' tested range
 # and still clears the critical advisory.
-torch==2.13.0
+torch==2.14.1
 coremltools==9.0
 open_clip_torch==2.24.0
 numpy<2.0
