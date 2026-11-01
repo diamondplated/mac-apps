@@ -5,9 +5,16 @@
 - This repository owns Mac Tools, DockPeek, ScreenWren, ScrollSplit, LinkRoutes,
   Latent, and Sift. Do not make new development changes in the previous standalone
   ScreenWren, Latent, or Sift repositories; they are archived.
-- Latent and Sift are standalone apps, not Mac Tools payloads. Follow
-  `Latent/CLAUDE.md` and `Sift/AGENTS.md` inside those folders; `verify.sh` does
-  not cover them, their own workflows (`latent.yml`, `sift.yml`) do.
+- Latent and Sift are standalone apps that Mac Tools also embeds and installs.
+  Follow `Latent/CLAUDE.md` and `Sift/AGENTS.md` inside those folders. Their tests
+  run in their own workflows (`latent.yml`, `sift.yml`); `verify.sh` builds and
+  checks their `--mac-tools-payload` bundles (Sift universal, Latent Apple
+  silicon only because Swift has no Float16 on Intel; hardened runtime,
+  persistent identity, no Latent model weights). They have no settings bridge, so
+  `ManagedApp.supportsSettingsBridge` is false and Mac Tools never runs
+  `--mac-tools-settings` against them. Sift's version lives in `Sift/VERSION`
+  and `Sift/BUILD`, Latent's in its Info.plist; bump them when the app changes,
+  and BUILD only goes up.
 - This repository is public and its CI runs on Andrew's laptop. Every workflow
   job that runs on `pull_request` must skip fork PRs
   (`github.event.pull_request.head.repo.full_name == github.repository`).

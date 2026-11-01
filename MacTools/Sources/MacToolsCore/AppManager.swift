@@ -17,7 +17,7 @@ public final class AppManager {
             var installedURL: URL?
             var installedVersion: String?
             var availableVersion: String?
-            var supported = store.osVersion.majorVersion >= app.minimumOSMajor
+            var supported = store.unsupportedReason(nil, app: app) == nil
             var payloadAvailable = false
             var update = false
             var detail = "Ready to install."
@@ -30,8 +30,8 @@ public final class AppManager {
                 availableVersion = available.version.release
                 supported = store.isSupported(available, app: app)
                 payloadAvailable = true
-                if !supported {
-                    detail = "Requires macOS \(available.minimumOS) or later."
+                if let reason = store.unsupportedReason(available, app: app) {
+                    detail = reason
                 } else if let installed, let installedURL {
                     if installed.version > available.version {
                         detail = "A newer version is already installed."

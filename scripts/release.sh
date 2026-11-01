@@ -129,6 +129,10 @@ mkdir -p "$WORK/payloads" "$WORK/output"
 build_isolated_payload() {
     local name=$1 source_dir="$WORK/source/$1" build_script
     mkdir -p "$source_dir"
+    if [ "$name" = Latent ] || [ "$name" = Sift ]; then
+        build_standalone_payload "$name" "$source_dir"
+        return
+    fi
     for path in Package.swift Sources Tests; do
         ditto "$PROJECT_DIR/$name/$path" "$source_dir/$path"
     done
@@ -154,7 +158,25 @@ build_isolated_payload() {
         ditto "$source_dir/dist/$name.app" "$WORK/payloads/$name.app"
     fi
 }
-for name in DockPeek ScreenWren ScrollSplit LinkRoutes; do
+# Latent and Sift are standalone apps with their own layouts. Copy tracked inputs only:
+# Latent's local model weights and every build cache stay behind. Sift's engine
+# (Vendor/ and Sources/CDuckDB/duckdb.h) is fetched fresh at its pinned checksum.
+build_standalone_payload() {
+    local name=$1 source_dir=$2 path
+    git -C "$PROJECT_DIR" ls-files -z -- "$name" | while IFS= read -r -d '' path; do
+        mkdir -p "$source_dir/$(dirname "${path#"$name"/}")"
+        ditto "$PROJECT_DIR/$path" "$source_dir/${path#"$name"/}"
+    done
+    swift package --package-path "$source_dir" describe >/dev/null
+    if [ "$name" = Latent ]; then
+        SCREENWREN_SIGNING_IDENTITY="$SIGNING_IDENTITY" SCREENWREN_SIGNING_TIMESTAMP="$SIGNING_TIMESTAMP" "$source_dir/scripts/build_app.sh" --mac-tools-payload
+    else
+        "$source_dir/scripts/fetch-duckdb.sh"
+        SCREENWREN_SIGNING_IDENTITY="$SIGNING_IDENTITY" SCREENWREN_SIGNING_TIMESTAMP="$SIGNING_TIMESTAMP" "$source_dir/build-app.sh" --mac-tools-payload
+    fi
+    ditto "$source_dir/dist/$name.app" "$WORK/payloads/$name.app"
+}
+for name in DockPeek ScreenWren ScrollSplit LinkRoutes Latent Sift; do
     build_isolated_payload "$name"
 done
 
@@ -175,13 +197,14 @@ PY
     cp "$result" "$WORK/output/notarization-$name.json"
 }
 if [ "$MODE" = notarized ]; then
-    for name in DockPeek ScreenWren ScrollSplit LinkRoutes; do
+    for name in DockPeek ScreenWren ScrollSplit LinkRoutes Latent Sift; do
         notarize_and_staple "$WORK/payloads/$name.app" "$name"
     done
 fi
 MACTOOLS_DIST_DIR="$WORK/output" MACTOOLS_DOCKPEEK_APP="$WORK/payloads/DockPeek.app" \
 MACTOOLS_SCREENWREN_APP="$WORK/payloads/ScreenWren.app" \
 MACTOOLS_SCROLLSPLIT_APP="$WORK/payloads/ScrollSplit.app" MACTOOLS_LINKROUTES_APP="$WORK/payloads/LinkRoutes.app" \
+MACTOOLS_LATENT_APP="$WORK/payloads/Latent.app" MACTOOLS_SIFT_APP="$WORK/payloads/Sift.app" \
 SCREENWREN_SIGNING_IDENTITY="$SIGNING_IDENTITY" SCREENWREN_SIGNING_TIMESTAMP="$SIGNING_TIMESTAMP" \
     "$PROJECT_DIR/build-app.sh" --reuse-payloads
 APP="$WORK/output/Mac Tools.app"
@@ -198,9 +221,9 @@ fi
 printf '\n' >> "$WORK/output/RELEASE-NOTES.md"
 cat "$NOTES" >> "$WORK/output/RELEASE-NOTES.md"
 codesign --verify --deep --strict "$APP"
-for name in DockPeek ScreenWren ScrollSplit LinkRoutes; do codesign --verify --deep --strict "$APP/Contents/Resources/Applications/$name.app"; done
+for name in DockPeek ScreenWren ScrollSplit LinkRoutes Latent Sift; do codesign --verify --deep --strict "$APP/Contents/Resources/Applications/$name.app"; done
 # Every shipped bundle must be certificate-anchored so no other code can inherit its permissions.
-"$PROJECT_DIR/scripts/check-signing.sh" --certificate "$APP" "$APP/Contents/Resources/Applications/"{DockPeek,ScreenWren,ScrollSplit,LinkRoutes}.app \
+"$PROJECT_DIR/scripts/check-signing.sh" --certificate "$APP" "$APP/Contents/Resources/Applications/"{DockPeek,ScreenWren,ScrollSplit,LinkRoutes,Latent,Sift}.app \
     "$APP/Contents/Resources/Applications/ScreenWren.app/Contents/Library/LoginItems/ScreenWrenLoginItem.app"
 for name in ScreenWren ScrollSplit LinkRoutes; do
     "$APP/Contents/Resources/Applications/$name.app/Contents/MacOS/$name" --self-check
@@ -235,7 +258,7 @@ python3 - "$WORK/output/release.json" "$VERSION" "$BUILD" "$MODE" "$SOURCE_REPOS
 import hashlib, json, pathlib, plistlib, sys
 path, version, build, mode, repository, revision, app=sys.argv[1:]
 managed_apps=[]
-for name in ['DockPeek','ScreenWren','ScrollSplit','LinkRoutes']:
+for name in ['DockPeek','ScreenWren','ScrollSplit','LinkRoutes','Latent','Sift']:
     bundle=pathlib.Path(app)/'Contents/Resources/Applications'/f'{name}.app'
     with (bundle/'Contents/Info.plist').open('rb') as source:
         info=plistlib.load(source)

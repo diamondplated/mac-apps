@@ -25,7 +25,7 @@ struct ToolSettingsView: View {
                 Text("Settings are shared with each tool and take effect when you save.").foregroundStyle(.secondary)
             }
             Picker("Tool", selection: $library.settingsApp) {
-                ForEach(ManagedApp.allCases) { app in Text(app.name).tag(app) }
+                ForEach(ManagedApp.allCases.filter(\.supportsSettingsBridge)) { app in Text(app.name).tag(app) }
             }.pickerStyle(.segmented).disabled(settings.loading || settings.saving || library.isBusy || (app == .linkRoutes && hasUnsavedRoutes))
             if settings.loading {
                 ProgressView("Loading settings…").frame(maxWidth: .infinity, minHeight: 180)
@@ -47,6 +47,7 @@ struct ToolSettingsView: View {
                             shortcutSettings(snapshot)
                         case .scrollSplit: scrollSettings(snapshot)
                         case .linkRoutes: linkSettings(snapshot)
+                        case .latent, .sift: EmptyView()
                         }
                         permissions
                     }.padding(.trailing, 3)
@@ -375,6 +376,7 @@ struct ToolSettingsView: View {
         case .screenWren: "ScreenWren needs Screen Recording to capture the screen."
         case .scrollSplit: "ScrollSplit uses Accessibility and Input Monitoring to adjust mouse scrolling. Grant access to ScrollSplit, then reopen it."
         case .linkRoutes: "LinkRoutes uses your chosen browser and routing rules. Manage its startup behavior in Login Items."
+        case .latent, .sift: "\(app.name) keeps its settings in the app."
         }
     }
 

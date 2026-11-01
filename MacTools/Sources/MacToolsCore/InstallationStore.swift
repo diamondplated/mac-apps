@@ -8,6 +8,7 @@ struct InstallationStore: @unchecked Sendable {
     let userDirectory: URL
     let systemDirectory: URL
     var osVersion = ProcessInfo.processInfo.operatingSystemVersion
+    var isAppleSilicon = Self.hostIsAppleSilicon
     var verifySignature: @Sendable (URL, ManagedApp) throws -> Void = Self.checkSignature
     var copy: @Sendable (URL, URL) throws -> Void = { try FileManager.default.copyItem(at: $0, to: $1) }
     var trash: @Sendable (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
@@ -81,15 +82,31 @@ struct InstallationStore: @unchecked Sendable {
     }
 
     func isSupported(_ metadata: Metadata, app: ManagedApp) -> Bool {
-        let current = "\(osVersion.majorVersion).\(osVersion.minorVersion).\(osVersion.patchVersion)"
-        return osVersion.majorVersion >= app.minimumOSMajor && current.compare(metadata.minimumOS, options: .numeric) != .orderedAscending
+        unsupportedReason(metadata, app: app) == nil
     }
+
+    /// Why this Mac cannot run the app, or nil when it can. Without metadata only the
+    /// app's own floor is checked.
+    func unsupportedReason(_ metadata: Metadata?, app: ManagedApp) -> String? {
+        if app.requiresAppleSilicon && !isAppleSilicon { return "\(app.name) requires a Mac with Apple silicon." }
+        let current = "\(osVersion.majorVersion).\(osVersion.minorVersion).\(osVersion.patchVersion)"
+        if osVersion.majorVersion < app.minimumOSMajor { return "\(app.name) requires macOS \(app.minimumOSMajor) or later." }
+        if let metadata, current.compare(metadata.minimumOS, options: .numeric) == .orderedAscending {
+            return "\(app.name) requires macOS \(metadata.minimumOS) or later."
+        }
+        return nil
+    }
+
+    // The manager is universal, so this is the slice actually running.
+    #if arch(arm64)
+    static let hostIsAppleSilicon = true
+    #else
+    static let hostIsAppleSilicon = false
+    #endif
 
     func validate(_ url: URL, app: ManagedApp) throws -> Metadata {
         let info = try metadata(url, app: app)
-        guard isSupported(info, app: app) else {
-            throw AppManagerError.message("\(app.name) requires macOS \(info.minimumOS) or later.")
-        }
+        if let reason = unsupportedReason(info, app: app) { throw AppManagerError.message(reason) }
         try verifySignature(url, app)
         return info
     }
@@ -155,6 +172,9 @@ struct InstallationStore: @unchecked Sendable {
     }
 
     func settings(_ app: ManagedApp, patch: Data? = nil) throws -> Data {
+        guard app.supportsSettingsBridge else {
+            throw AppManagerError.message("\(app.name) keeps its settings in the app. Open \(app.name) to change them.")
+        }
         guard let installed = try existing(app) else { throw AppManagerError.message("Install \(app.name) before managing its settings.") }
         _ = try validate(installed, app: app)
         let plistData = try Data(contentsOf: installed.appendingPathComponent("Contents/Info.plist"))
@@ -218,7 +238,7 @@ struct InstallationStore: @unchecked Sendable {
     /// ServiceManagement registration belongs to the bundle on disk, not UserDefaults.
     /// Capture it before moving that bundle and restore only an explicit enabled choice.
     func loginRegistrationToPreserve(_ app: ManagedApp) throws -> Bool {
-        guard let installed = try existing(app) else { return false }
+        guard app.supportsSettingsBridge, let installed = try existing(app) else { return false }
         let data = try Data(contentsOf: installed.appendingPathComponent("Contents/Info.plist"))
         let info = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
         // Older apps have no safe headless endpoint. Never launch their GUI as a probe.

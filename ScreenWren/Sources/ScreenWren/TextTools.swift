@@ -396,6 +396,7 @@ final class RedactionReviewWindow: NSWindowController, NSWindowDelegate {
     var onClose: (() -> Void)?
     init(
         image: CGImage, actionTitle: String, copiesOnApproval: Bool = true,
+        recognize: @escaping @Sendable (CGImage) throws -> [RecognizedLine] = recognizeLines(in:),
         onApply: @escaping (CGImage, ClipboardTicket?) -> Void
     ) {
         self.image = image
@@ -476,7 +477,7 @@ final class RedactionReviewWindow: NSWindowController, NSWindowDelegate {
         let payload = SendableImage(image: image)
         task = Task { @MainActor [weak self] in
             do {
-                let lines = try await Task.detached(priority: .userInitiated) { try recognizeLines(in: payload.image) }
+                let lines = try await Task.detached(priority: .userInitiated) { try recognize(payload.image) }
                     .value
                 try Task.checkCancellation()
                 guard let self else { return }
