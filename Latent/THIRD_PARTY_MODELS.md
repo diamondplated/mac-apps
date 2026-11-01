@@ -47,6 +47,12 @@ only license each project publishes. Some ML projects license their code and the
 checkpoints under different terms and do not always say so clearly. If your use is commercial,
 verify the checkpoint terms upstream rather than relying on this table.
 
+## Vendored code
+
+`scripts/archs/rrdbnet.py` (the Real-ESRGAN generator architecture) is vendored from
+[BasicSR](https://github.com/XPixelGroup/BasicSR), Apache-2.0. Its license text and copyright line
+are in [`scripts/archs/LICENSE-BasicSR`](scripts/archs/LICENSE-BasicSR).
+
 ## Attribution
 
 If you distribute a build that includes converted weights, carry the upstream copyright and license

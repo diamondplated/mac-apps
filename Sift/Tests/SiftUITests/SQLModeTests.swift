@@ -103,6 +103,15 @@ private func appKitReady() { _ = NSApplication.shared }
         Issue.record("a legitimate query with a semicolon in a literal was refused"); return
     }
     #expect(row == [.text("; DROP TABLE t")])
+
+    // A single trailing semicolon, the way SQL arrives from most other tools, is one statement
+    // and must run rather than come back as a parser error from inside the wrap.
+    model.typeSQL("SELECT 42 AS n;")
+    try await model.runSQL()
+    guard case .loaded(let trailing) = model.rowSlot(at: 0) else {
+        Issue.record("a query ending in a semicolon was refused"); return
+    }
+    #expect(trailing == [.int(42)])
 }
 
 /// 🔴 **A prepare failure is not a guard rejection.** `SELECT * FROM nonexistent` cannot be

@@ -3,6 +3,7 @@
 Vendored from BasicSR (https://github.com/XPixelGroup/BasicSR), Apache-2.0,
 files `basicsr/archs/rrdbnet_arch.py` and the three helpers this needs from
 `basicsr/archs/arch_util.py`. Copyright 2018-2022 BasicSR Authors.
+The Apache-2.0 license text is in LICENSE-BasicSR beside this file.
 
 Why vendored instead of `pip install basicsr`:
 

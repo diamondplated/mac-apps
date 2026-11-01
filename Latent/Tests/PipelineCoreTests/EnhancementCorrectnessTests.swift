@@ -132,6 +132,33 @@ final class EnhancementParameterCorrectnessTests: XCTestCase {
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         XCTAssertNil(object["qualityHint"])
     }
+
+    func testUpscaleSidecarWithOutOfRangeValuesIsClampedInsteadOfTrapping() throws {
+        func decode(_ json: String) throws -> Upscale.Params {
+            try JSONDecoder().decode(Upscale.Params.self, from: Data(json.utf8))
+        }
+        let zero = try decode(#"{"scale":0,"model":"realESRGANx4plus","tileSize":512}"#)
+        XCTAssertEqual(zero.scale, 2)
+        let three = try decode(#"{"scale":3,"model":"realESRGANx4plus","tileSize":512}"#)
+        XCTAssertTrue(three.scale == 2 || three.scale == 4)
+        let huge = try decode(#"{"scale":1000,"model":"realESRGANx4plus","tileSize":512}"#)
+        XCTAssertEqual(huge.scale, 4)
+        let tinyTile = try decode(#"{"scale":2,"model":"realESRGANx4plus","tileSize":64}"#)
+        XCTAssertEqual(tinyTile.tileSize, Upscale.Params.tileSizeRange.lowerBound)
+        let hugeTile = try decode(#"{"scale":2,"model":"realESRGANx4plus","tileSize":1000000}"#)
+        XCTAssertEqual(hugeTile.tileSize, Upscale.Params.tileSizeRange.upperBound)
+
+        // The clamped values are ones TileExecutor accepts with process()'s overlap.
+        for params in [zero, three, huge, tinyTile, hugeTile] {
+            _ = TileExecutor(tileSize: params.tileSize, overlap: 32, scale: params.scale)
+        }
+
+        // Valid sidecars round-trip unchanged.
+        let valid = Upscale.Params(scale: 4, model: .realESRGANx4plus, tileSize: 256)
+        let roundTripped = try JSONDecoder().decode(Upscale.Params.self, from: JSONEncoder().encode(valid))
+        XCTAssertEqual(roundTripped.scale, 4)
+        XCTAssertEqual(roundTripped.tileSize, 256)
+    }
 }
 
 final class ModelTensorConversionTests: XCTestCase {

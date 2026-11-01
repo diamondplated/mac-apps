@@ -9,7 +9,11 @@ VERSION="1.5.5"
 SHA256="7b5b8915cc382d0708636fe6385c0cdad5a61c9ff8ba2638b3e2141640783155"
 URL="https://github.com/duckdb/duckdb/releases/download/v${VERSION}/libduckdb-osx-universal.zip"
 
-if [ -f Vendor/duckdb/libduckdb.dylib ] && [ -f Sources/CDuckDB/duckdb.h ]; then
+# Skip only when the files on disk are the pinned version. Presence alone isn't enough: after a
+# bump, an existing checkout would keep the old dylib and header while this reported the new one.
+STAMP="Vendor/duckdb/VERSION"
+if [ -f Vendor/duckdb/libduckdb.dylib ] && [ -f Sources/CDuckDB/duckdb.h ] \
+   && [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "${VERSION}" ]; then
   echo "libduckdb ${VERSION} already present; delete Vendor/ to refetch."
   exit 0
 fi
@@ -34,5 +38,7 @@ mkdir -p Vendor/duckdb Sources/CDuckDB
 cp "$tmp/out/libduckdb.dylib" Vendor/duckdb/
 # The header lives beside the module map so the module map needs no -I flag.
 cp "$tmp/out/duckdb.h" Sources/CDuckDB/
+# Written last, so an interrupted fetch never looks complete.
+printf '%s\n' "${VERSION}" > "$STAMP"
 
 echo "libduckdb ${VERSION} ready."

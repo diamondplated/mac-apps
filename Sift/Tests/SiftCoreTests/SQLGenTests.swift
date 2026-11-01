@@ -178,6 +178,7 @@ func operatorRendering(f: Filter, wantSQL: String, wantParams: [SQLValue]) throw
     "DROP TABLE x", "SELECT 1; DROP TABLE x", "COPY (SELECT 1) TO '/tmp/x.csv'",
     "ATTACH 'x.db' AS y", "INSTALL httpfs", "PRAGMA database_list", "SET threads=1",
     "CREATE TABLE z AS SELECT 1", "EXPORT DATABASE '/tmp/d'", "INSERT INTO x VALUES (1)",
+    "DROP TABLE x;", "SELECT 1; DROP TABLE x;",
 ])
 func wrapEnforcementRejectsAtParseTime(sql: String) throws {
     let con = try Database.inMemory().connect()
@@ -190,6 +191,7 @@ func wrapEnforcementRejectsAtParseTime(sql: String) throws {
 @Test(arguments: [
     "SELECT 1", "WITH a AS (SELECT 1) SELECT * FROM a", "VALUES (1),(2)",
     "select 1 -- trailing comment", "SELECT 1 /* block */",
+    "SELECT 1;", "SELECT 1 ;\n", "SELECT 1;;", "SELECT ';' AS s;",
 ])
 func wrapStillRunsLegitimateSelects(sql: String) throws {
     let con = try Database.inMemory().connect()

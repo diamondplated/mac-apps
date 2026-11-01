@@ -11,6 +11,12 @@ updates:
     cooldown:
       default-days: 7
     open-pull-requests-limit: 3
+    ignore:
+      # Deliberate pin (MacTools/Package.swift, exact: "2.10.0"): the release
+      # tooling and Sparkle signing key are matched to it. Weekly upkeep checks
+      # Sparkle advisories; bump by hand after re-checking scripts/release.sh.
+      - dependency-name: "github.com/sparkle-project/sparkle"
+        update-types: ["version-update:semver-major", "version-update:semver-minor", "version-update:semver-patch"]
     groups:
       swift-security:
         applies-to: security-updates

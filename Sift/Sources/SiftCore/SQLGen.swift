@@ -231,7 +231,13 @@ public func renderSQL(_ spec: QuerySpec, cols: [String: Column]) -> String {
 /// That grammar-level rejection — not a keyword blocklist — is the actual enforcement; the guard
 /// (Task 5) runs first only so the error message is a sentence instead of a parser dump.
 public func wrapUserSQL(_ sql: String, limit: Int, offset: Int) -> (String, [SQLValue]) {
-    let trimmed = sql.trimmingCharacters(in: .whitespacesAndNewlines)
+    // A trailing `;` (what most other tools paste) is a syntax error inside the subquery, so it
+    // is dropped here. Only trailing ones: the gate has already counted exactly one statement, and
+    // anything that still isn't a lone SELECT keeps failing at parse time below.
+    var trimmed = sql.trimmingCharacters(in: .whitespacesAndNewlines)
+    while trimmed.hasSuffix(";") {
+        trimmed = String(trimmed.dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
     return (
         "SELECT * FROM (\n\(trimmed)\n) AS _q\nLIMIT ? OFFSET ?",
         [.int(Int64(limit)), .int(Int64(offset))]
