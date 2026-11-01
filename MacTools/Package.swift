@@ -5,7 +5,12 @@ let package = Package(
     name: "MacTools",
     platforms: [.macOS(.v14)],
     products: [.executable(name: "MacTools", targets: ["MacTools"])],
-    dependencies: [.package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0")],
+    // Keep the exact pin: docs/RELEASING.md and scripts/release.sh name this
+    // version for the signing tools, so a bump updates them too. One package
+    // per line keeps Dependabot's Swift parser from reading past the `)`.
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0"),
+    ],
     targets: [
         .target(name: "MacToolsCore"),
         .executableTarget(name: "MacTools", dependencies: ["MacToolsCore", .product(name: "Sparkle", package: "Sparkle")],
