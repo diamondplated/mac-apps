@@ -1,0 +1,50 @@
+# Monthly, grouped, capped: self-hosted CI runs every PR, so keep the volume low.
+# Security updates arrive on their own (grouped below), whatever the schedule.
+version: 2
+updates:
+  - package-ecosystem: swift
+    directories: ["/DockPeek", "/Latent", "/LinkRoutes", "/MacTools", "/ScreenWren", "/ScrollSplit", "/Sift"]
+    schedule:
+      interval: monthly
+      time: "07:20"
+      timezone: America/Chicago
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 3
+    groups:
+      swift-security:
+        applies-to: security-updates
+        patterns: ["*"]
+      swift-minor-patch:
+        update-types: [minor, patch]
+        patterns: ["*"]
+      swift-major:
+        update-types: [major]
+        patterns: ["*"]
+  - package-ecosystem: pip
+    directories: ["/Latent/scripts"]
+    schedule:
+      interval: monthly
+      time: "07:20"
+      timezone: America/Chicago
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 3
+    groups:
+      pip-security:
+        applies-to: security-updates
+        patterns: ["*"]
+      pip-minor-patch:
+        update-types: [minor, patch]
+        patterns: ["*"]
+      pip-major:
+        update-types: [major]
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directories: ["/"]
+    schedule: { interval: monthly, time: "07:20", timezone: America/Chicago }
+    cooldown: { default-days: 7 }
+    open-pull-requests-limit: 2
+    groups:
+      actions:
+        patterns: ["*"]
