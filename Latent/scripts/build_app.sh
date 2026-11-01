@@ -68,15 +68,20 @@ fi
 
 # 1. Build release. `--product` (not `--target`) is what actually links the
 #    executable; `--target` would only compile the module sources.
+#    The prefix map rewrites the checkout's absolute path to `.` in `#filePath`
+#    literals and debug info, so a shipped binary doesn't carry the build
+#    machine's home directory (and with it the account name).
+CHECKOUT_ROOT="$(cd "$REPO_ROOT/.." && pwd)"
+PREFIX_MAP=(-Xswiftc -file-prefix-map -Xswiftc "$CHECKOUT_ROOT=.")
 if [[ "$PAYLOAD" == 1 ]]; then
     triple="arm64-apple-macosx14.0"
     echo "==> swift build -c release --product $APP_NAME --triple $triple"
-    swift build -c release --product "$APP_NAME" --scratch-path "$STAGE/arm64" --triple "$triple"
+    swift build -c release --product "$APP_NAME" --scratch-path "$STAGE/arm64" --triple "$triple" "${PREFIX_MAP[@]}"
     cp "$(swift build -c release --scratch-path "$STAGE/arm64" --triple "$triple" --show-bin-path)/$BINARY_NAME" "$STAGE/$BINARY_NAME"
     BINARY_PATH="$STAGE/$BINARY_NAME"
 else
     echo "==> swift build -c release --product $APP_NAME"
-    swift build -c release --product "$APP_NAME"
+    swift build -c release --product "$APP_NAME" "${PREFIX_MAP[@]}"
     BINARY_PATH="$(swift build -c release --show-bin-path)/$BINARY_NAME"
 fi
 if [[ ! -x "$BINARY_PATH" ]]; then
@@ -90,6 +95,13 @@ rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BINARY_PATH" "$APP_DIR/Contents/MacOS/$BINARY_NAME"
 chmod +x "$APP_DIR/Contents/MacOS/$BINARY_NAME"
+# Drop the linker's debug map: it records one absolute object-file path per .o.
+# Must happen before signing.
+strip -S "$APP_DIR/Contents/MacOS/$BINARY_NAME"
+if strings "$APP_DIR/Contents/MacOS/$BINARY_NAME" | grep -qF "$CHECKOUT_ROOT"; then
+    echo "error: the binary still contains the build checkout's path ($CHECKOUT_ROOT)" >&2
+    exit 1
+fi
 cp "$INFO_PLIST" "$APP_DIR/Contents/Info.plist"
 plutil -lint "$APP_DIR/Contents/Info.plist" >/dev/null
 

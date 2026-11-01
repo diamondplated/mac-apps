@@ -15,8 +15,7 @@
 # committed to git (the .mlpackage extension is in .gitignore).
 #
 # Runs in a one-shot virtualenv so we don't pollute the system Python.
-# Requires: Python 3.11 exactly and Xcode CommandLineTools (for the C compiler
-# basicsr needs to build).
+# Requires: Python 3.11 exactly.
 
 set -euo pipefail
 
@@ -73,28 +72,44 @@ echo "==> Installing Python dependencies (pinned in scripts/requirements.txt)"
 
 # 3. Run each conversion. They each check for an existing .mlpackage and
 #    skip if found, so re-running this script is cheap.
+#
+#    Real-ESRGAN and OpenCLIP download their own weights, so they run first and
+#    a failure there stops the script. NAFNet needs a hand-placed checkpoint
+#    (it can't be downloaded automatically) and FBCNN is optional too, so their
+#    failures are reported at the end instead of skipping everything after them.
+SKIPPED=()
+
+optional() {
+    local name="$1"; shift
+    if ! "$@"; then
+        echo "    ${name} was skipped; see the message above. The other models still install." >&2
+        SKIPPED+=("$name")
+    fi
+}
+
 echo
 echo "==> Converting Real-ESRGAN x2 (super-resolution)"
 "$VENV_PYTHON" "$REPO_ROOT/scripts/convert_realesrgan.py"
-
-echo
-echo "==> Converting NAFNet (denoise — the answer to grainy photos)"
-"$VENV_PYTHON" "$REPO_ROOT/scripts/convert_nafnet.py"
-
-echo
-echo "==> Converting FBCNN (JPEG artifact removal)"
-"$VENV_PYTHON" "$REPO_ROOT/scripts/convert_fbcnn.py"
-
-echo
 
 echo
 echo "==> Converting OpenCLIP ViT-B/32 (image + text encoders for search)"
 "$VENV_PYTHON" "$REPO_ROOT/scripts/convert_openclip.py"
 
 echo
+echo "==> Converting NAFNet (denoise — the answer to grainy photos)"
+optional "NAFNet" "$VENV_PYTHON" "$REPO_ROOT/scripts/convert_nafnet.py"
+
+echo
+echo "==> Converting FBCNN (JPEG artifact removal)"
+optional "FBCNN" "$VENV_PYTHON" "$REPO_ROOT/scripts/convert_fbcnn.py"
+
+echo
 echo "==> Done."
 echo "    Installed models:"
 ls -lh "$REPO_ROOT/Resources/Models/"*.mlpackage 2>/dev/null || echo "    (none — check the per-script logs above for failures)"
+if (( ${#SKIPPED[@]} > 0 )); then
+    echo "    Skipped: ${SKIPPED[*]}. Fix what the messages above name and rerun this script."
+fi
 echo
 echo "Restart Latent (Cmd-Q then re-open) and the disabled toggles in"
 echo "the enhancement panel will light up green. Open a grainy photo,"

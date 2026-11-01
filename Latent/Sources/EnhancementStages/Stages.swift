@@ -88,6 +88,26 @@ public struct Upscale: Stage {
             self.model = model
             self.tileSize = tileSize
         }
+
+        /// Tile sizes a sidecar may ask for. The floor keeps `TileExecutor`'s
+        /// `overlap * 2 < tileSize` precondition true with the 32 px overlap
+        /// `process` uses; the ceiling bounds per-tile memory.
+        public static let tileSizeRange = 128...1024
+
+        private enum CodingKeys: String, CodingKey { case scale, model, tileSize }
+
+        /// Sidecars travel with folders and archives, so their values are
+        /// untrusted. Synthesized decoding skipped `init`'s precondition and
+        /// let `scale: 0` or `tileSize: 64` reach `TileExecutor`'s traps;
+        /// clamp them to what the stage supports instead of crashing.
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            let rawScale = try container.decode(Int.self, forKey: .scale)
+            let rawTile = try container.decode(Int.self, forKey: .tileSize)
+            self.scale = rawScale >= 4 ? 4 : 2
+            self.model = try container.decode(Model.self, forKey: .model)
+            self.tileSize = min(max(rawTile, Self.tileSizeRange.lowerBound), Self.tileSizeRange.upperBound)
+        }
     }
 
     public let id: StageID = "upscale"
