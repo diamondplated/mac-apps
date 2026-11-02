@@ -77,7 +77,7 @@ let package = Package(
         ),
         .testTarget(
             name: "PipelineCoreTests",
-            dependencies: ["PipelineCore", "EnhancementStages", "PhotoIO", "PhotoML", "PhotoSearch"],
+            dependencies: ["PipelineCore", "EnhancementStages", "PhotoIO", "PhotoML", "PhotoSearch", "PhotoQuickLook"],
             path: "Tests/PipelineCoreTests"
         ),
         .testTarget(

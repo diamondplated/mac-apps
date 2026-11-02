@@ -316,11 +316,15 @@ forget in five places.
 
 Latent is pre-1.0. It is a working app, not a finished distribution:
 
-- Packaging is SwiftPM plus a script. `scripts/build_app.sh` produces and verifies a usable `.app`
-  with ad-hoc signing by default, or Developer ID signing when you supply an identity. Notarization,
-  stapling, sandbox entitlements, and App Store packaging are not automated yet.
-- The Quick Look extension target isn't built yet — `PhotoQuickLook.QuickLookRenderer` is written
-  and ready for it.
+- Packaging uses SwiftPM for the app and a small extension-only Xcode project for Quick Look.
+  `scripts/build_app.sh` embeds `Contents/PlugIns/LatentPreview.appex` in standalone and Mac Tools
+  payload builds, signs the read-only sandboxed extension first, then signs and verifies the host.
+  Local builds use ad-hoc signing; a supplied identity enables Developer ID signing. Notarization,
+  stapling, whole-app sandboxing, and App Store packaging are not automated yet.
+- The Quick Look provider shares `PhotoQuickLook` rendering and generates bounded, oriented PNG
+  previews. Builds do not register or enable it. Finder discovery and preference over built-in
+  image handlers still require verification after installation; bundled presence alone does not
+  establish that Finder will select Latent.
 - Display is not yet Metal-backed, so HDR and wide-gamut rendering aren't what they could be.
 - Semantic search is optional rather than turnkey: OpenCLIP assets are not shipped, are never
   downloaded automatically, and must be supplied or generated locally. Each folder must also be

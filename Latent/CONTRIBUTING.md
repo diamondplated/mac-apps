@@ -56,7 +56,10 @@ and the trash flow all behave differently at a few thousand images than they do 
 - `PhotoGeo` — EXIF GPS extraction for the map view.
 - `PhotoServe` — the opt-in LAN server, address gate, pairing and the phone client.
 - `PhotoSearch` — embeddings, per-folder index, CLIP image and text encoders, Swift BPE tokenizer.
-- `PhotoQuickLook` — `QuickLookRenderer`, ready for an extension target that is not built yet.
+- `PhotoQuickLook` — shared renderer and PNG reply content, compiled into the extension-only
+  `QuickLookExtension/LatentPreview.xcodeproj` target as well as the testable Swift library.
+  `scripts/build_quicklook.sh` builds the provider without registration; `build_app.sh` embeds
+  and signs it before sealing the host app.
 - `PhotoViewerApp` — the SwiftUI app.
 - `PipelineCLI` — `pv-pipeline`.
 
