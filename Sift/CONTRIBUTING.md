@@ -12,7 +12,8 @@ swift build && swift test    # default suite; remoteFact tests gated off
 ```
 
 Use full Xcode 27 or newer; macOS SDK 27.2 and Swift 6.4.2 are verified locally.
-The Command Line Tools alone cannot build the SwiftUI app. No Python or Node is needed.
+The Command Line Tools alone cannot build the SwiftUI app. The app needs no Python or Node;
+CI uses Python 3 for the source-contract checks in `scripts/`.
 The `delta` and `excel` DuckDB extensions can install at session startup (one-time, needs
 network). Saving a remote connection installs nothing in a strict session; `httpfs` and
 `azure` load or install on the next launch with remote access enabled.
@@ -45,6 +46,7 @@ Two disciplines this suite runs on:
 ## Before you open a PR
 
 ```bash
+python3 scripts/check-contracts.py && python3 scripts/test-contracts.py
 swift build 2>&1 | grep -c warning:   # must be 0 — warning-free is the bar, not a nicety
 swift test                            # must be green
 swift run sift --verify               # the engine end to end: 26 checks
