@@ -22,6 +22,7 @@ concurrency:
 
 jobs:
   verify:
+    name: ${{ inputs.headless_core_only && 'Manager core (headless)' || 'Full suite' }}
     # The runner is Andrew's laptop and this repository is public, so a fork's
     # pull request must never reach it. Fork PRs skip the job; same-repo
     # branches, pushes to main and manual runs still build.
