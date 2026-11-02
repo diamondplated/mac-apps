@@ -50,11 +50,15 @@ Vision frameworks. A malicious image that exploits those is an Apple-level issue
 patched. Latent adds no image parser of its own.
 
 **Archive extraction shells out to external tools.** `ArchiveExtractor` runs `/usr/bin/unzip` and
-`/usr/bin/tar` for zip and tar formats, using `Process` with argument arrays — there is no shell, so
-a hostile filename cannot inject a command. Latent preflights member names, rejects absolute and
-parent-traversal paths, monitors count and expanded-size ceilings during extraction, enforces a
+`/usr/bin/tar` for zip and tar formats. A fixed shell supervisor invokes these tools with positional
+arguments; filenames are never interpolated into shell code. Latent preflights member names, rejects
+absolute and parent-traversal paths, monitors count and expanded-size ceilings during extraction, enforces a
 timeout, and validates the finished tree (including symbolic links) before showing it. Failed or
-cancelled extractions are removed from their private, mode-0700 temporary directory.
+cancelled extractions are removed from their private, mode-0700 temporary directory once the
+supervisor's tool process group can no longer write. If cancellation cannot finish promptly, the
+supervisor retains a kernel lease and cleanup leaves the directory alone until that lease is released.
+A later sweep reclaims unfinished directories created by this lease-aware version; historical
+unfinished directories remain untouched because their tools did not inherit a lease.
 
 For `.rar` and `.7z`, Latent accepts `unrar` / `7zz` only from fixed Homebrew and MacPorts prefixes;
 it does not execute an arbitrary same-named binary earlier on `PATH`. Helper processes receive a

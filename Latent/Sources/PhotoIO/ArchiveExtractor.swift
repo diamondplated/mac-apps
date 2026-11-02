@@ -402,12 +402,12 @@ public actor ArchiveExtractor {
     }
 
     /// Internal entry point retained for focused process-runner tests.
-    func runProcess(tool: String, args: [String], inputArchive: URL) async throws {
+    func runProcess(tool: String, args: [String], inputArchive: URL, destination: URL? = nil) async throws {
         _ = try await runTool(
             tool: tool,
             args: args,
             inputArchive: inputArchive,
-            destination: nil,
+            destination: destination,
             stdoutLimit: nil
         )
     }
@@ -454,6 +454,10 @@ public actor ArchiveExtractor {
             process.standardInput = FileHandle.nullDevice
         }
 
+        let inheritedLease = destination == nil ? nil : process.standardInput as? FileHandle
+        // Also close on monitor setup or spawn failure; Process retains stdin.
+        defer { try? inheritedLease?.close() }
+
         let stderrPipe = Pipe()
         let stderrCollector = BoundedDataCollector(limit: limits.maximumDiagnosticBytes)
         process.standardError = stderrPipe
@@ -492,6 +496,11 @@ public actor ArchiveExtractor {
 
         do {
             try process.run()
+            if destination != nil {
+                // The child now owns the duplicated stdin descriptor. Drop this
+                // parent's duplicate immediately; the registry retains our lease.
+                try? inheritedLease?.close()
+            }
         } catch {
             treeMonitor?.stop(flushPendingEvents: false)
             throw error
@@ -518,8 +527,12 @@ public actor ArchiveExtractor {
         } catch {
             await Self.terminateAndWait(processBox, supervised: destination != nil)
             treeMonitor?.stop(flushPendingEvents: false)
-            await stderrTask.value
-            await stdoutTask?.value
+            // A stalled supervisor keeps its lease in the background. Its bounded
+            // drainers finish when it exits; cancellation must not await them forever.
+            if !process.isRunning {
+                await stderrTask.value
+                await stdoutTask?.value
+            }
             if error is CancellationError {
                 throw CancellationError()
             }
@@ -574,7 +587,7 @@ public actor ArchiveExtractor {
             if process.isRunning && !supervised {
                 Darwin.kill(process.processIdentifier, SIGKILL)
             }
-            if process.isRunning {
+            if process.isRunning && !supervised {
                 process.waitUntilExit()
             }
         }.value

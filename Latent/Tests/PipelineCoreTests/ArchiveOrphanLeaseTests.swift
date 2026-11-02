@@ -78,4 +78,91 @@ while True: time.sleep(1)
         try ArchiveTemporaryStorage.remove(directory)
         XCTAssertFalse(fm.fileExists(atPath: directory.path))
     }
+    func testCancellationRetainsLeaseUntilDelayedDescendantExits() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("latent-descendant-test-\(UUID().uuidString)")
+        try fm.createDirectory(at: root, withIntermediateDirectories: false)
+        defer { try? fm.removeItem(at: root) }
+        let directory = try ArchiveTemporaryStorage.createDirectory(root: root)
+        let ready = root.appendingPathComponent("ready")
+        let done = root.appendingPathComponent("done")
+        let process = Process()
+        let tool = #"""
+        /bin/sh -c 'echo $$ > "$1"; while [ ! -e "$2" ]; do /bin/sleep 0.02; done' descendant "$1" "$2" &
+        wait
+        """#
+        try ArchiveProcessLease.configure(process, tool: "/bin/sh", arguments: ["-c", tool, "tool", ready.path, done.path], directory: directory)
+        // Fault injection makes group termination delayed: kill only the leader,
+        // leaving the real descendant alive until the fixture releases it. This
+        // deterministically tests the gap between leader death and descendant exit.
+        let delayedGroupSignal = #"""
+        kill() {
+            if [ "$1" = -KILL ] && [ "$2" = -- ]; then
+                command kill -KILL "${3#-}"
+            else
+                command kill "$@"
+            fi
+        }
+        """#
+        process.arguments?[1] = delayedGroupSignal + "\n" + ArchiveProcessLease.supervisor
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        try (process.standardInput as? FileHandle)?.close()
+        defer {
+            try? Data().write(to: done)
+            if process.isRunning { process.terminate() }
+        }
+        let startDeadline = Date().addingTimeInterval(10)
+        while !fm.fileExists(atPath: ready.path) && Date() < startDeadline { usleep(10_000) }
+        XCTAssertTrue(fm.fileExists(atPath: ready.path))
+        process.terminate()
+        usleep(150_000)
+        XCTAssertTrue(process.isRunning, "leader death must not release the descendant's lease")
+        XCTAssertThrowsError(try ArchiveTemporaryStorage.remove(directory))
+        try ArchiveTemporaryStorage.sweepInactiveDirectories(root: root)
+        XCTAssertTrue(fm.fileExists(atPath: directory.path))
+        try Data().write(to: done)
+        let exitDeadline = Date().addingTimeInterval(5)
+        while process.isRunning && Date() < exitDeadline { usleep(10_000) }
+        XCTAssertFalse(process.isRunning, "supervisor must finish once descendants exit")
+        try ArchiveTemporaryStorage.remove(directory)
+    }
+
+    func testCancellationReturnsWhileStoppedSupervisorKeepsLease() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("latent-stopped-test-\(UUID().uuidString)")
+        try fm.createDirectory(at: root, withIntermediateDirectories: false)
+        defer { try? fm.removeItem(at: root) }
+        let directory = try ArchiveTemporaryStorage.createDirectory(root: root)
+        let ready = root.appendingPathComponent("ready")
+        let extractor = ArchiveExtractor()
+        let task = Task {
+            try await extractor.runProcess(tool: "/bin/sh", args: ["-c", #"""
+            kill -STOP "$PPID"
+            echo "$PPID" > "$1"
+            exec /bin/sleep 60
+            """#, "tool", ready.path], inputArchive: root.appendingPathComponent("fixture.zip"), destination: directory)
+        }
+        let deadline = Date().addingTimeInterval(10)
+        while !fm.fileExists(atPath: ready.path) && Date() < deadline { try await Task.sleep(nanoseconds: 10_000_000) }
+        let supervisor = try XCTUnwrap(Int32(String(contentsOf: ready, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)))
+        defer { kill(supervisor, SIGCONT) }
+        let started = Date()
+        task.cancel()
+        do { try await task.value; XCTFail("expected cancellation") }
+        catch is CancellationError {}
+        XCTAssertLessThan(Date().timeIntervalSince(started), 4, "cancellation cannot wait indefinitely for supervisor or pipe drainers")
+        XCTAssertThrowsError(try ArchiveTemporaryStorage.remove(directory))
+        try ArchiveTemporaryStorage.sweepInactiveDirectories(root: root)
+        XCTAssertTrue(fm.fileExists(atPath: directory.path))
+        kill(supervisor, SIGCONT)
+        let exitDeadline = Date().addingTimeInterval(5)
+        while fm.fileExists(atPath: directory.path) && Date() < exitDeadline {
+            try ArchiveTemporaryStorage.sweepInactiveDirectories(root: root)
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertFalse(fm.fileExists(atPath: directory.path))
+    }
+
 }
