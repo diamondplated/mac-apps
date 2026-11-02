@@ -10,7 +10,7 @@
 <p align="center">
   <a href="https://github.com/diamondplated/mac-apps/actions/workflows/sift.yml"><img src="https://github.com/diamondplated/mac-apps/actions/workflows/sift.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/platform-macOS%2014%2B-lightgrey.svg" alt="macOS 14+">
-  <img src="https://img.shields.io/badge/DuckDB-1.5.5-yellow.svg" alt="DuckDB 1.5.5">
+  <img src="https://img.shields.io/badge/DuckDB-1.5.6-yellow.svg" alt="DuckDB 1.5.6">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
 </p>
 
@@ -228,7 +228,7 @@ neither. Sift says so in a note rather than silently costing you the range reads
 </details>
 
 <details>
-<summary><strong>DuckDB 1.5.5 specifics this code depends on</strong></summary><br>
+<summary><strong>DuckDB specifics first measured on 1.5.5 (current pin: 1.5.6)</strong></summary><br>
 
 Verified by probe, pinned executable in `Tests/DuckDBKitTests/DuckDB155FactsTests.swift`; re-run
 before bumping the pin.

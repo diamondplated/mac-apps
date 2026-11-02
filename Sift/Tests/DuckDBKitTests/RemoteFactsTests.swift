@@ -3,7 +3,7 @@ import Testing
 import TestSupport
 @testable import DuckDBKit
 
-// Executable pins for the ten remote-connection measurements in
+// Executable pins for sections 1–9 and 11 of the remote-connection measurements in
 // docs/superpowers/specs/2026-08-16-duckdb-remote-facts.md. A failure here is not a test bug —
 // it means libduckdb's remote behavior moved and the Connections design must move with it.
 //
@@ -720,3 +720,30 @@ final class LoopbackServer: @unchecked Sendable {
     }
 }
 
+
+@Test(.enabled(if: remoteFacts))
+func remoteFact11_externalFileCacheIsEnabledByDefault() throws {
+    let d = try remoteDB()
+    #expect(try d.connect().query("SELECT current_setting('enable_external_file_cache')").allRows()[0][0] == .bool(true))
+}
+
+@Test(.enabled(if: remoteFacts))
+func remoteFact_deltaAndExcelInstallThenLoadWithAutoloadDisabled() throws {
+    let d = try Database.inMemory()
+    d.harden()
+    let c = try d.connect()
+    // A fresh extension directory proves INSTALL is necessary even on a warm runner.
+    let directory = TestTemp.dir("extension-fact")
+    try c.execute("SET extension_directory='\(directory.replacingOccurrences(of: "'", with: "''"))'")
+    for name in ["delta", "excel"] {
+        #expect(throws: DuckDBError.self) { try c.execute("LOAD \(name)") }
+    }
+    d.loadExtensions(["delta", "excel"])
+    #expect(d.networkInstalls == ["delta", "excel"])
+    #expect(d.loadedExtensions["delta"] == .loaded)
+    #expect(d.loadedExtensions["excel"] == .loaded)
+    #expect(try c.query("SELECT current_setting('autoload_known_extensions')").allRows()[0][0] == .bool(false))
+    // Successful LOAD must prevent a second INSTALL.
+    d.loadExtensions(["delta", "excel"])
+    #expect(d.networkInstalls == ["delta", "excel"])
+}

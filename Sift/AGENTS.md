@@ -133,7 +133,11 @@ copies need explicit review, and removed sites must be removed from the baseline
 - Every engine error is **one clean sentence** (`SiftError.description`) — never a parser dump,
   never swallowed with `try?`. That contract was broken and repaired four times; don't be five.
 
-## DuckDB 1.5.5 facts this code depends on (re-verify before bumping the pin)
+## DuckDB facts this code depends on (re-verify before bumping the pin)
+
+The current library pin is **1.5.6**. The observations below were first measured on
+1.5.5; `DuckDB155FactsTests.swift` keeps that historical name while enforcing them
+against the current library. `linkedLibraryIsThePinnedDuckDBVersion` checks the loaded pin.
 
 Executable pins live in `Tests/DuckDBKitTests/DuckDB155FactsTests.swift`; extension loading
 is also covered by `SmokeTests.swift` and the gated `RemoteFactsTests.swift`. Re-verify against

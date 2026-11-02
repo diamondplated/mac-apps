@@ -9,9 +9,9 @@ import TestSupport
 private let remoteFacts = ProcessInfo.processInfo.environment["SIFT_REMOTE_FACTS"] == "1"
 
 // Forces an actual link against libduckdb (module autolink only fires on import)
-// and pins that the loaded library is genuinely the 1.5.5 build we checksummed.
+// and pins that the loaded library is genuinely the 1.5.6 build we checksummed.
 @Test func linkedLibraryIsThePinnedDuckDBVersion() {
-    #expect(String(cString: duckdb_library_version()) == "v1.5.5")
+    #expect(String(cString: duckdb_library_version()) == "v1.5.6")
 }
 
 @Test func errorKeepsOnlyTheFirstLine() {

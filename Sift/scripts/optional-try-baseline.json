@@ -91,6 +91,12 @@
   },
   {
     "path": "Sources/SiftEngine/Session.swift",
+    "code": "guard let attributes = try? manager.attributesOfItem(atPath: cache),",
+    "count": 1,
+    "reason": "Cleanup fails closed if parent metadata cannot establish that the cache is a directory, not a symlink."
+  },
+  {
+    "path": "Sources/SiftEngine/Session.swift",
     "code": "guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),",
     "count": 1,
     "reason": "Existing metadata fallback: unavailable metadata selects the current absent/default path; retained for focused contract review."
@@ -130,6 +136,12 @@
     "code": "try? FileManager.default.removeItem(atPath: path)",
     "count": 1,
     "reason": "Best-effort cleanup after completion or failure; the primary operation retains its own result."
+  },
+  {
+    "path": "Sources/SiftEngine/Session.swift",
+    "code": "try? manager.removeItem(atPath: (cache as NSString).appendingPathComponent(\"stage-\\(pid)\"))",
+    "count": 1,
+    "reason": "Best-effort cleanup of a private cache directory only after its PID is proven dead by ESRCH and its parent is verified not to be a symlink."
   },
   {
     "path": "Sources/SiftEngine/Session.swift",

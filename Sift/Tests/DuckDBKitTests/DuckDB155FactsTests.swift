@@ -3,7 +3,7 @@ import Testing
 import TestSupport
 @testable import DuckDBKit
 
-/// Re-verification of the nine DuckDB 1.5.5 behaviors AGENTS.md pins, measured against
+/// Executable DuckDB 1.5.5 behavior pins, including the concurrency facts in AGENTS.md, measured against
 /// libduckdb rather than the Python wheel. A failure here is not a test bug — it means
 /// the engine changed and the design must change with it.
 private func con() throws -> Connection {
@@ -268,4 +268,22 @@ func fact6_deltaTimeTravelUsesVersionArrowNotAtVersion() throws {
                       "SET memory_limit='1GB'", "SELECT 1; DROP TABLE t"] {
         #expect(throws: DuckDBError.self) { _ = try c.query(wrapped(dangerous)) }
     }
+}
+
+@Test func fact10_interruptBeforeExecutionDoesNotCancelTheNextQuery() throws {
+    let c = try con()
+    c.interrupt()
+    #expect(try c.query("SELECT sum(i)::BIGINT FROM range(10000) AS t(i)").allRows()[0][0] == .int(49_995_000))
+}
+
+@Test func fact11_temporaryTablesBelongToTheirCreatingConnection() throws {
+    let db = try Database.inMemory()
+    db.harden()
+    let owner = try db.connect()
+    let other = try db.connect()
+    try owner.execute("CREATE TEMP TABLE sorted AS SELECT 42 AS value")
+    #expect(try owner.query("SELECT value FROM sorted").allRows()[0][0] == .int(42))
+    #expect(throws: DuckDBError.self) { _ = try other.query("SELECT value FROM sorted") }
+    // The failed cross-connection lookup must not destroy the owner's table.
+    #expect(try owner.query("SELECT count(*) FROM sorted").allRows()[0][0] == .int(1))
 }

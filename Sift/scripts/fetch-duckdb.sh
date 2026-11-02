@@ -5,8 +5,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="1.5.5"
-SHA256="7b5b8915cc382d0708636fe6385c0cdad5a61c9ff8ba2638b3e2141640783155"
+VERSION="1.5.6"
+SHA256="e0bc007d9b0094c0970ac1847a8601d10aad07cbd2910ce586ec810f77b638d6"
 URL="https://github.com/duckdb/duckdb/releases/download/v${VERSION}/libduckdb-osx-universal.zip"
 
 # Skip only when the files on disk are the pinned version. Presence alone isn't enough: after a
