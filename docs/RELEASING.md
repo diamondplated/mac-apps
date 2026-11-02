@@ -35,10 +35,26 @@ Dispatch **Release Mac Tools** with the next version and mode **signedlocal** fo
 
 For a credential-only workflow check, select **signedlocal**, enable **preflight_only**,
 and leave **publish** off. Supply the version already committed in the manager plist.
-The workflow runs the existing preflight and skips app tests, builds, release signing,
+The signedlocal preflight-only workflow runs a noninteractive identity diagnostic and skips app tests, app builds, release signing,
 publication, and artifact upload. Selecting both preflight_only and publish fails before
-credential checks. This mode still reads existing signing credentials and may resolve
-pinned Sparkle tools; it is not a credential-free diagnostic.
+credential checks. This mode still reads the existing key in memory; it is not a credential-free diagnostic.
+
+The diagnostic compiles a small helper, disables Keychain interaction inside that process
+before lookup, and sets the explicit fail-on-authentication-UI flag on the exact Sparkle query.
+Failure never falls back to an interactive tool. It compares the key-derived public identity
+with `SUPublicEDKey` and emits status only. The helper accepts Sparkle's 32-byte seed and
+legacy 96-byte format (the latter uses its stored public suffix, as the official tool does).
+It never writes, exports, replaces, unlocks or changes access to a key.
+
+Run it explicitly with `./scripts/release.sh --local --preflight --noninteractive`.
+Other combinations, including publication, are rejected before credential work. Normal
+release and interactive preflight paths continue using the official Sparkle tools.
+**This helper has a different Keychain ACL identity.** Its success proves only the existing
+key's public identity, not that `generate_keys`, `sign_update` or `generate_appcast` can
+access that key. A denial also does not establish denial for those tools. Do not close the
+runner-access issue or claim release readiness from this diagnostic. Official-tool acceptance
+still requires an approved session or an upstream noninteractive tool mode. The notarized
+preflight-only mode is unchanged and is not a no-UI diagnostic.
 
 If Sparkle reports that the existing key is unavailable, do not replace it or export it.
 Check the runner's actual launchd domain first: a runner already loaded as a GUI LaunchAgent

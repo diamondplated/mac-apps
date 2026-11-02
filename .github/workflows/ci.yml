@@ -8,6 +8,10 @@ on:
     paths-ignore: ['.github/workflows/latent.yml', '.github/workflows/sift.yml']
   workflow_dispatch:
     inputs:
+      release_diagnostic_only:
+        description: Run only synthetic release diagnostic checks; no apps or live credentials
+        type: boolean
+        default: false
       headless_core_only:
         description: Run only the headless Mac Tools package tests
         type: boolean
@@ -22,7 +26,7 @@ concurrency:
 
 jobs:
   verify:
-    name: ${{ inputs.headless_core_only && 'Manager core (headless)' || 'Full suite' }}
+    name: ${{ inputs.release_diagnostic_only && 'Release diagnostic (synthetic only)' || inputs.headless_core_only && 'Manager core (headless)' || 'Full suite' }}
     # The runner is Andrew's laptop and this repository is public, so a fork's
     # pull request must never reach it. Fork PRs skip the job; same-repo
     # branches, pushes to main and manual runs still build.
@@ -49,14 +53,16 @@ jobs:
           test "$(sw_vers -productVersion | cut -d. -f1)" -ge 26
           xcrun swift --version
           xcrun --sdk macosx --show-sdk-path
+      - name: Test noninteractive release diagnostic with synthetic keys
+        run: ./scripts/test-sparkle-preflight.sh
       - name: Test manager core without app windows
-        if: ${{ inputs.headless_core_only }}
+        if: ${{ inputs.headless_core_only && !inputs.release_diagnostic_only }}
         run: swift test --package-path MacTools
       - name: Test and package every app
-        if: ${{ !inputs.headless_core_only }}
+        if: ${{ !inputs.headless_core_only && !inputs.release_diagnostic_only }}
         run: ./verify.sh
       - name: Upload verified suite
-        if: ${{ !inputs.headless_core_only }}
+        if: ${{ !inputs.headless_core_only && !inputs.release_diagnostic_only }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: Mac-Tools
