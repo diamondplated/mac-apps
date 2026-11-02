@@ -9,7 +9,10 @@ ARCHITECTURES=$3
 CHECKOUT="$(cd "$ROOT/.." && pwd)"
 VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT/Resources/AppBundle/Info.plist")
 BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$ROOT/Resources/AppBundle/Info.plist")
-xcodebuild -project "$ROOT/QuickLookExtension/LatentPreview.xcodeproj" \
+# Xcode prints its command environment, including PATH, in public build logs.
+# Its selected developer tools resolve through the system shims; keep user
+# executable directories out of this child process without changing HOME.
+PATH=/usr/bin:/bin:/usr/sbin:/sbin /usr/bin/xcodebuild -project "$ROOT/QuickLookExtension/LatentPreview.xcodeproj" \
     -scheme LatentPreview -configuration Release -derivedDataPath "$DERIVED" \
     CODE_SIGNING_ALLOWED=NO "ARCHS=$ARCHITECTURES" ONLY_ACTIVE_ARCH=NO \
     "MARKETING_VERSION=$VERSION" "CURRENT_PROJECT_VERSION=$BUILD" \
