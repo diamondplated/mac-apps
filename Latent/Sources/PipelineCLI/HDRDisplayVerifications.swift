@@ -1,5 +1,7 @@
 import Foundation
 import CoreGraphics
+import ImageIO
+import UniformTypeIdentifiers
 import Metal
 import PhotoIO
 import PipelineCore
@@ -88,4 +90,80 @@ private func checkHDRDisplayOnMainActor() async throws {
                         "display tone mapping exceeded SDR headroom: \(value)")
         }
     }
+}
+
+func generatedGainMapSurvivesPreview() async throws {
+    guard #available(macOS 26.0, *) else {
+        print("SKIP: generated gain-map proof requires macOS 26 HDR statistics")
+        return
+    }
+    try await checkGeneratedGainMapOnMainActor()
+}
+
+@MainActor
+private func checkGeneratedGainMapOnMainActor() async throws {
+    guard #available(macOS 26.0, *) else { return }
+    guard let renderer = HDRDisplayRenderer() else {
+        throw VerifyError(message: "generated gain-map proof needs Metal")
+    }
+    let width = 64, height = 32
+    var sourcePixels = [Float]()
+    for _ in 0..<height {
+        for x in 0..<width {
+            let value: Float = x < width / 2 ? 0.25 : 4
+            sourcePixels += [value, value, value, 1]
+        }
+    }
+    let data = sourcePixels.withUnsafeBytes { Data($0) }
+    let provider = CGDataProvider(data: data as CFData)!
+    let bitmap = CGBitmapInfo.floatComponents.union(.byteOrder32Little)
+        .union(CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue))
+    let raw = CGImage(width: width, height: height, bitsPerComponent: 32, bitsPerPixel: 128,
+        bytesPerRow: width * 16, space: renderer.colorSpace, bitmapInfo: bitmap,
+        provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
+    let image = raw.copyWithCalculatedHDRStats() ?? raw
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("latent-gainmap-\(UUID().uuidString).heic")
+    defer { try? FileManager.default.removeItem(at: url) }
+    guard let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.heic.identifier as CFString, 1, nil) else {
+        throw VerifyError(message: "HEIC encoder unavailable")
+    }
+    CGImageDestinationAddImage(destination, image, [
+        kCGImageDestinationEncodeRequest: kCGImageDestinationEncodeToISOGainmap,
+        kCGImageDestinationEncodeRequestOptions: [kCGImageDestinationEncodeBaseIsSDR: true],
+        kCGImageDestinationLossyCompressionQuality: 1,
+        kCGImagePropertyOrientation: 6,
+    ] as CFDictionary)
+    try require(CGImageDestinationFinalize(destination), "generated gain-map HEIC encoding failed")
+    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
+        throw VerifyError(message: "generated HEIC source could not reopen")
+    }
+    try require(CGImageSourceCopyAuxiliaryDataInfoAtIndex(source, 0, kCGImageAuxiliaryDataTypeISOGainMap) != nil,
+                "generated HEIC lacks an ISO gain map")
+    guard let preview = ImageReader.previewCGImage(url: url) else {
+        throw VerifyError(message: "production HDR preview decode failed")
+    }
+    try require(preview.width == height && preview.height == width, "HDR preview lost EXIF orientation")
+    let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba16Float,
+        width: preview.width, height: preview.height, mipmapped: false)
+    descriptor.storageMode = .shared
+    descriptor.usage = [.shaderRead, .shaderWrite, .renderTarget]
+    let texture = renderer.device.makeTexture(descriptor: descriptor)!
+    let commands = renderer.commandQueue.makeCommandBuffer()!
+    renderer.render(preview, to: texture, commandBuffer: commands)
+    let status = await withCheckedContinuation { continuation in
+        commands.addCompletedHandler { continuation.resume(returning: $0.status) }
+        commands.commit()
+    }
+    try require(status == .completed, "gain-map render failed")
+    var output = [UInt16](repeating: 0, count: preview.width * preview.height * 4)
+    output.withUnsafeMutableBytes {
+        texture.getBytes($0.baseAddress!, bytesPerRow: preview.width * 8,
+                         from: MTLRegionMake2D(0, 0, preview.width, preview.height), mipmapLevel: 0)
+    }
+    // Orientation 6 rotates the left dark / right bright halves into top dark
+    // and bottom bright. Sample away from the lossy codec's shared edge.
+    let top = Float(Float16(bitPattern: output[(8 * preview.width + 16) * 4]))
+    let bottom = Float(Float16(bitPattern: output[(48 * preview.width + 16) * 4]))
+    try require(top > 0.1 && top < 0.5 && bottom > 2,
+                "gain-map highlight or orientation lost: top=\(top), bottom=\(bottom)")
 }
