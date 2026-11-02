@@ -75,6 +75,9 @@ jobs:
           trap 'rm -rf "$PV_MODELS_DIR"' EXIT
           swift test
 
+      - name: Native Trash and undo (isolated disposable volume)
+        run: python3 scripts/test_native_trash.py --mutation
+
       - name: Build app bundle
         run: ./scripts/build_app.sh
 

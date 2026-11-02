@@ -41,6 +41,17 @@ swift test                 # XCTest targets, needs full Xcode (not just CommandL
 on machines that only have CommandLineTools. Both are run in CI. If you add a scenario to one,
 consider whether it belongs in the other.
 
+`python3 scripts/test_native_trash.py --mutation` also runs in CI. It compiles the production
+Trash adapter with a headless harness, mounts a private 64 MiB disk image without Finder browsing
+or windows, and checks native Trash receipts, exact recovered bytes, and undo overwrite refusal.
+The probe's sandbox permits writes only on that disposable volume and denies home file-data,
+user preferences, and network access. A permanent-delete mutant must fail the receipt check.
+This requires macOS with Swift 6, `hdiutil`, and `sandbox-exec`; it never uses your home Trash
+or photos. The script prints its temporary log directory, detaches its own image on success,
+failure, or handled cancellation, and removes the image only after detach. If detach fails (or
+the process is killed forcibly), retain the image and detach it before removing the printed
+temporary directory. No application or Quick Look registration is involved.
+
 For anything touching the viewer UI, actually open a real folder of photos. The grid, the prefetcher
 and the trash flow all behave differently at a few thousand images than they do at ten.
 
