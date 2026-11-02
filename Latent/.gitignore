@@ -3,6 +3,7 @@
 build/
 .swiftpm/
 *.xcodeproj/
+!QuickLookExtension/LatentPreview.xcodeproj/
 *.xcworkspace/
 DerivedData/
 Package.resolved
