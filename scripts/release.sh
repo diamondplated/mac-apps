@@ -4,6 +4,7 @@ PROJECT_DIR=$(cd -- "$(dirname -- "$0")/.." && pwd)
 MODE=notarized
 PUBLISH=0
 PREFLIGHT_ONLY=0
+NONINTERACTIVE=0
 REQUESTED_VERSION=
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -11,10 +12,15 @@ while [ "$#" -gt 0 ]; do
         --notarized) MODE=notarized; shift ;;
         --publish) PUBLISH=1; shift ;;
         --preflight) PREFLIGHT_ONLY=1; shift ;;
+        --noninteractive) NONINTERACTIVE=1; shift ;;
         --version) [ "$#" -ge 2 ] || exit 64; REQUESTED_VERSION=$2; shift 2 ;;
-        *) echo "Usage: $0 [--notarized|--local] [--version X.Y.Z] [--preflight] [--publish]" >&2; exit 64 ;;
+        *) echo "Usage: $0 [--notarized|--local] [--version X.Y.Z] [--preflight] [--noninteractive] [--publish]" >&2; exit 64 ;;
     esac
 done
+if [ "$NONINTERACTIVE" = 1 ] && { [ "$MODE" != local ] || [ "$PREFLIGHT_ONLY" != 1 ] || [ "$PUBLISH" != 0 ]; }; then
+    echo "--noninteractive requires --local --preflight without --publish." >&2
+    exit 64
+fi
 fail() { echo "Release preflight failed: $*" >&2; exit 1; }
 [ "${SCREENWREN_LIVE_QA:-0}" = 0 ] || fail "Unset SCREENWREN_LIVE_QA; live QA builds must never be released."
 PLIST="$PROJECT_DIR/MacTools/Info.plist"
@@ -53,22 +59,30 @@ SOURCE_REPOSITORY=${MACTOOLS_SOURCE_REPOSITORY:-diamondplated/mac-apps}
 [ "$(plutil -extract MacToolsReleasesURL raw "$PLIST")" = "https://github.com/$RELEASE_REPOSITORY/releases" ] || fail "MacToolsReleasesURL does not match the download repository."
 [ "$(gh api "repos/$RELEASE_REPOSITORY" --jq '.private')" = false ] || fail "The download repository must be public so Sparkle can fetch releases without credentials."
 
-SPARKLE_TOOLS_DIR=${SPARKLE_TOOLS_DIR:-}
-if [ -z "$SPARKLE_TOOLS_DIR" ]; then
-    for candidate in "$PROJECT_DIR/.build/sparkle-tools/bin" "$PROJECT_DIR/.build/package-arm64/artifacts/sparkle/Sparkle/bin" "$PROJECT_DIR/MacTools/.build/artifacts/sparkle/Sparkle/bin"; do
-        if [ -x "$candidate/generate_appcast" ]; then SPARKLE_TOOLS_DIR=$candidate; break; fi
+if [ "$NONINTERACTIVE" = 1 ]; then
+    # This helper owns its UI policy; a shell parent cannot set Sparkle's process policy.
+    PREFLIGHT_WORK=$(mktemp -d)
+    trap 'rm -rf "$PREFLIGHT_WORK"' EXIT
+    swiftc -module-cache-path "$PREFLIGHT_WORK/module-cache" -parse-as-library "$PROJECT_DIR/scripts/sparkle-key-preflight.swift" -o "$PREFLIGHT_WORK/sparkle-key-preflight"
+    "$PREFLIGHT_WORK/sparkle-key-preflight" "${SPARKLE_KEYCHAIN_ACCOUNT:-mac-tools}" "$(plutil -extract SUPublicEDKey raw "$PLIST")"
+else
+    SPARKLE_TOOLS_DIR=${SPARKLE_TOOLS_DIR:-}
+    if [ -z "$SPARKLE_TOOLS_DIR" ]; then
+        for candidate in "$PROJECT_DIR/.build/sparkle-tools/bin" "$PROJECT_DIR/.build/package-arm64/artifacts/sparkle/Sparkle/bin" "$PROJECT_DIR/MacTools/.build/artifacts/sparkle/Sparkle/bin"; do
+            if [ -x "$candidate/generate_appcast" ]; then SPARKLE_TOOLS_DIR=$candidate; break; fi
+        done
+    fi
+    if [ -z "$SPARKLE_TOOLS_DIR" ]; then
+        swift package --package-path "$PROJECT_DIR/MacTools" resolve
+        SPARKLE_TOOLS_DIR="$PROJECT_DIR/MacTools/.build/artifacts/sparkle/Sparkle/bin"
+    fi
+    for tool in generate_appcast generate_keys sign_update; do
+        [ -n "$SPARKLE_TOOLS_DIR" ] && [ -x "$SPARKLE_TOOLS_DIR/$tool" ] || fail "Set SPARKLE_TOOLS_DIR to the official Sparkle 2.10.0 bin directory."
     done
+    SPARKLE_ACCOUNT=${SPARKLE_KEYCHAIN_ACCOUNT:-mac-tools}
+    PUBLIC_KEY=$("$SPARKLE_TOOLS_DIR/generate_keys" --account "$SPARKLE_ACCOUNT" -p) || fail "Existing Sparkle keychain key '$SPARKLE_ACCOUNT' is unavailable in this process context. Check the runner login session, unlocked keychain/search list, and access for the configured official Sparkle tools (docs/RELEASING.md). Do not regenerate or export the key."
+    [ "$PUBLIC_KEY" = "$(plutil -extract SUPublicEDKey raw "$PLIST")" ] || fail "Sparkle keychain public key does not match the app's SUPublicEDKey."
 fi
-if [ -z "$SPARKLE_TOOLS_DIR" ]; then
-    swift package --package-path "$PROJECT_DIR/MacTools" resolve
-    SPARKLE_TOOLS_DIR="$PROJECT_DIR/MacTools/.build/artifacts/sparkle/Sparkle/bin"
-fi
-for tool in generate_appcast generate_keys sign_update; do
-    [ -n "$SPARKLE_TOOLS_DIR" ] && [ -x "$SPARKLE_TOOLS_DIR/$tool" ] || fail "Set SPARKLE_TOOLS_DIR to the official Sparkle 2.10.0 bin directory."
-done
-SPARKLE_ACCOUNT=${SPARKLE_KEYCHAIN_ACCOUNT:-mac-tools}
-PUBLIC_KEY=$("$SPARKLE_TOOLS_DIR/generate_keys" --account "$SPARKLE_ACCOUNT" -p) || fail "Existing Sparkle keychain key '$SPARKLE_ACCOUNT' is unavailable in this process context. Check the runner login session, unlocked keychain/search list, and access for the configured official Sparkle tools (docs/RELEASING.md). Do not regenerate or export the key."
-[ "$PUBLIC_KEY" = "$(plutil -extract SUPublicEDKey raw "$PLIST")" ] || fail "Sparkle keychain public key does not match the app's SUPublicEDKey."
 [ "$(plutil -extract SURequireSignedFeed raw "$PLIST")" = true ] || fail "Signed feeds must be required."
 [ "$(plutil -extract SUVerifyUpdateBeforeExtraction raw "$PLIST")" = true ] || fail "Archive verification before extraction must be required."
 
@@ -108,7 +122,14 @@ while True:
     page += 1
 PY
 fi
-if [ "$PREFLIGHT_ONLY" = 1 ]; then echo "Release preflight passed ($MODE, $VERSION, build $BUILD)."; exit 0; fi
+if [ "$PREFLIGHT_ONLY" = 1 ]; then
+    if [ "$NONINTERACTIVE" = 1 ]; then
+        echo "Noninteractive identity diagnostic passed; official Sparkle tool access remains unverified."
+    else
+        echo "Release preflight passed ($MODE, $VERSION, build $BUILD)."
+    fi
+    exit 0
+fi
 
 # Every published build reaches installed copies through Sparkle; test before signing anything.
 for package in DockPeek ScreenWren ScrollSplit LinkRoutes MacTools; do

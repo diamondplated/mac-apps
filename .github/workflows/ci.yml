@@ -49,6 +49,8 @@ jobs:
           test "$(sw_vers -productVersion | cut -d. -f1)" -ge 26
           xcrun swift --version
           xcrun --sdk macosx --show-sdk-path
+      - name: Test noninteractive release diagnostic with synthetic keys
+        run: ./scripts/test-sparkle-preflight.sh
       - name: Test manager core without app windows
         if: ${{ inputs.headless_core_only }}
         run: swift test --package-path MacTools

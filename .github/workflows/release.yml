@@ -65,6 +65,9 @@ jobs:
           fi
           args=(--notarized)
           if [ "$RELEASE_MODE" = signedlocal ]; then args=(--local); fi
+          if [ "$RELEASE_PREFLIGHT_ONLY" = true ] && [ "$RELEASE_MODE" = signedlocal ]; then
+            args+=(--noninteractive)
+          fi
           ./scripts/release.sh "${args[@]}" --version "$RELEASE_VERSION" --preflight
       - name: Test all apps
         if: ${{ !inputs.preflight_only }}
