@@ -79,7 +79,7 @@ private func digest(_ rep: NSBitmapImageRep) -> UInt64 {
 
 /// A verbatim port of `opLabel` (`web/index.html:929-941`). Every branch, because each one is a
 /// different sentence a user reads off a chip and none of them is reachable from a render.
-@Test func theChipLabelsMatchTheShippingWebBuildsOpLabel() {
+@Test(.engineLifetime) func theChipLabelsMatchTheShippingWebBuildsOpLabel() {
     #expect(filterChipLabel(Filter(col: "a", op: .isNull)) == "is null")
     #expect(filterChipLabel(Filter(col: "a", op: .notNull)) == "is not null")
     #expect(filterChipLabel(Filter(col: "a", op: .isEmpty)) == "is empty")
@@ -106,7 +106,7 @@ private func digest(_ rep: NSBitmapImageRep) -> UInt64 {
 /// The four value cases a chip can carry, and the sentinel. `␀ NULL` is the same string the distinct
 /// panel's NULL row carries and the same one `applyDistinctClick` dispatches on — a chip spelling it
 /// differently would be the app calling one thing two names on two panels.
-@Test func aNullFilterValueRendersAsTheSameSentinelTheValueListUses() {
+@Test(.engineLifetime) func aNullFilterValueRendersAsTheSameSentinelTheValueListUses() {
     #expect(filterChipLabel(Filter(col: "a", op: .inList, values: [.null])) == "= ␀ NULL")
     #expect(filterChipLabel(Filter(col: "a", op: .notIn, values: [.null])) == "≠ ␀ NULL")
     #expect(filterChipLabel(Filter(col: "a", op: .inList, values: [.bool(true)])) == "= true")
@@ -121,7 +121,7 @@ private func digest(_ rep: NSBitmapImageRep) -> UInt64 {
 /// every branch below rounds UP to a coarse step and names the disks it is wrong about. A sentence
 /// that says "about 12s" for a file that takes 90 on an SMB share is the product telling its one
 /// lie, in the one banner whose whole job is to say "this will be a moment".
-@Test func theStagingBannerRoundsUpHardAndAdmitsWhenItDoesNotKnow() {
+@Test(.engineLifetime) func theStagingBannerRoundsUpHardAndAdmitsWhenItDoesNotKnow() {
     #expect(
         stagingText(estSeconds: 12.4)
             == "Staging into native storage — the grid may be slower for about 30 seconds, "
@@ -150,14 +150,14 @@ private func digest(_ rep: NSBitmapImageRep) -> UInt64 {
     #expect(stagingDuration(estSeconds: 100_000) == "over half an hour")
 }
 
-@Test func theTruncationBannerNamesBothCountsAndTheWayOut() {
+@Test(.engineLifetime) func theTruncationBannerNamesBothCountsAndTheWayOut() {
     #expect(
         sortTruncationText(rows: 40_000_000)
             == "Sorted view reaches the first 5,000,000 rows of 40,000,000. "
             + "Clear the sort to page the rest.")
 }
 
-@Test func theMissingExtensionBannerIsPluralised_sorted_andCarriesItsFix() throws {
+@Test(.engineLifetime) func theMissingExtensionBannerIsPluralised_sorted_andCarriesItsFix() throws {
     #expect(missingExtensionsBanner([:]).isEmpty)
     #expect(missingExtensionsBanner(["excel": .loaded, "delta": .loaded]).isEmpty)
 
@@ -187,7 +187,7 @@ private func digest(_ rep: NSBitmapImageRep) -> UInt64 {
 /// wrong, and the old boolean banner sent them off to install a string containing a semicolon. The
 /// two failures get two rows, and the bug row deliberately carries **no** `fix` — there is nothing
 /// to paste, and a sentence rendered in a keycap reads as a command to run.
-@Test func aRejectedExtensionNameSaysSiftBugRatherThanRunInstall() throws {
+@Test(.engineLifetime) func aRejectedExtensionNameSaysSiftBugRatherThanRunInstall() throws {
     let bug = try #require(missingExtensionsBanner(["httpfs; ATTACH 'evil.db'": .rejectedName]).first)
     #expect(bug.message.hasPrefix("Sift bug — report it:"))
     #expect(bug.message.contains("httpfs; ATTACH 'evil.db'"))
@@ -211,7 +211,7 @@ private func digest(_ rep: NSBitmapImageRep) -> UInt64 {
 /// nothing on screen saying why. In SQL mode, where every block re-runs the user's query, that is a
 /// grid of placeholders under a console reporting success.
 @MainActor
-@Test func aBlockThatThrowsReachesTheBannerInsteadOfVanishing() async throws {
+@Test(.engineLifetime) func aBlockThatThrowsReachesTheBannerInsteadOfVanishing() async throws {
     let (state, model) = try await openedFixture(rows: 12)
     #expect(model.pageError == nil)
 
@@ -249,7 +249,7 @@ private func digest(_ rep: NSBitmapImageRep) -> UInt64 {
 /// compared across two different contents measures the renderer as much as the code. Nothing below
 /// asserts a magnitude, a colour, or a coordinate.
 @MainActor
-@Test func theFilterBarDrawsItsFiltersAndNotJustItsChrome() async throws {
+@Test(.engineLifetime) func theFilterBarDrawsItsFiltersAndNotJustItsChrome() async throws {
     let (state, model) = try await openedFixture(rows: 12)
     var showSQL = false
     let binding = Binding(get: { showSQL }, set: { showSQL = $0 })

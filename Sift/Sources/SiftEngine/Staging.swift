@@ -138,6 +138,7 @@ extension Session {
     /// returns the job id, or `nil` when nothing was started.
     @discardableResult
     public func stageNow(_ name: String, force: Bool = false) throws -> String? {
+        try requireOpen()
         var t = try table(name)
         if t.staged || t.staging != nil { return nil }
 
@@ -169,7 +170,11 @@ extension Session {
 
         let spec = t.spec
         let openedAt = t.openedAt
+        let barrier = stageBarrierForTest
+        ownedWork.begin()
         Task.detached { [self] in
+            defer { ownedWork.finish() }
+            await barrier?()
             await runStage(name: name, spec: spec, jobID: jobID, job: job, openedAt: openedAt)
         }
         return jobID
@@ -189,7 +194,7 @@ extension Session {
             // `openedAt`, not just presence: a table closed and reopened under the same name
             // during the dwell is a different table, and this job is not about it (Session.swift's
             // `runAfterOpen` doc comment has the measurement behind that guard).
-            guard let t = tables[name], t.openedAt == openedAt else { return }
+            guard !isClosing, let t = tables[name], t.openedAt == openedAt else { return }
             if t.firstAggregateAt != nil { break }
             try? await Task.sleep(nanoseconds: 100_000_000)
         }
@@ -552,6 +557,7 @@ extension Session {
     /// opened, which is the plausible-wrong-value failure this product exists to avoid — in Sift's
     /// own UI.
     public func stagedEntries() throws -> [StagedSource] {
+        try requireOpen()
         let rows: [[Cell]]
         do {
             let con = try database.connect()
@@ -700,6 +706,7 @@ extension Session {
     /// exists here, so it is not ported.
     @discardableResult
     public func purgeStaged(tables names: [String]? = nil, all: Bool = false) throws -> PurgeResult {
+        try requireOpen()
         do {
             let con = try database.connect()
             let dropped = try Self.purgeStagedTables(
@@ -819,6 +826,9 @@ extension Session {
     /// Drop a staged table and go back to reading the source in place. Ported from `unstage`.
     @discardableResult
     public func unstage(_ name: String) async throws -> Table {
+        try requireOpen()
+        ownedWork.begin()
+        defer { ownedWork.finish() }
         var t = try table(name)
         guard t.staged else { return t }
 

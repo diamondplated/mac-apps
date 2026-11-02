@@ -40,7 +40,7 @@ private func wideFixture(cols: Int, rows: Int) throws -> String {
     return path
 }
 
-@Test(.enabled(if: ProcessInfo.processInfo.environment["SIFT_PROFILE_BENCH"] == "1"))
+@Test(.engineLifetime, .enabled(if: ProcessInfo.processInfo.environment["SIFT_PROFILE_BENCH"] == "1"))
 func benchActorHoldDuringAProfile() async throws {
     let cols = Int(ProcessInfo.processInfo.environment["SIFT_BENCH_COLS"] ?? "200") ?? 200
     let rows = Int(ProcessInfo.processInfo.environment["SIFT_BENCH_ROWS"] ?? "200000") ?? 200_000

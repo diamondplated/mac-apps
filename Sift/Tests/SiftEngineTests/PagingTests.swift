@@ -57,7 +57,7 @@ private func orderID(_ row: [Cell]) -> Int {
 
 // MARK: - contiguity
 
-@Test func pagesAreContiguousAndNonOverlapping() throws {
+@Test(.engineLifetime) func pagesAreContiguousAndNonOverlapping() throws {
     let con = try newConnection()
     let (_, cols) = try view(con, sharedData.cleanCSV, "pg1")
 
@@ -77,7 +77,7 @@ private func orderID(_ row: [Cell]) -> Int {
 
 // MARK: - sorted-page stability
 
-@Test func sortedPagesAreStableAcrossOffsets() throws {
+@Test(.engineLifetime) func sortedPagesAreStableAcrossOffsets() throws {
     let con = try newConnection()
     let (_, cols) = try view(con, sharedData.cleanCSV, "pg2")
     let spec = QuerySpec(relation: "pg2", sort: [.init(column: "order_id", direction: .desc)])
@@ -105,7 +105,7 @@ private func orderID(_ row: [Cell]) -> Int {
 /// could not have at all — its `_sorted_relation` materializes into a connection-scoped
 /// `CREATE OR REPLACE TEMP TABLE` while every request takes a fresh cursor, so page 2 throws
 /// `Catalog Error: Table with name _sift_rs_... does not exist!`.
-@Test func aTieBearingSortIsStableWhenTheSameOffsetIsAskedTwice() async throws {
+@Test(.engineLifetime) func aTieBearingSortIsStableWhenTheSameOffsetIsAskedTwice() async throws {
     let session = try newSession()
     let t = try await session.openPath(sharedData.cleanCSV)
     // 4 values over 1000 rows. `limit` divides neither 1000 nor a region's 250-row block, so page
@@ -146,7 +146,7 @@ private func orderID(_ row: [Cell]) -> Int {
 
 // MARK: - filtered counts
 
-@Test func filteredCountMatchesTheFilteredRows() throws {
+@Test(.engineLifetime) func filteredCountMatchesTheFilteredRows() throws {
     let con = try newConnection()
     let (_, cols) = try view(con, sharedData.cleanCSV, "pg3")
     let spec = QuerySpec(
@@ -168,7 +168,7 @@ private func orderID(_ row: [Cell]) -> Int {
 
 // MARK: - SQL mode
 
-@Test func sqlModeWrappingPages() throws {
+@Test(.engineLifetime) func sqlModeWrappingPages() throws {
     let con = try newConnection()
     _ = try view(con, sharedData.cleanCSV, "pg4")
 
@@ -199,7 +199,7 @@ private func orderID(_ row: [Cell]) -> Int {
 // type id, because duckdb 1.5.5's C header has no `logical_type_to_string`. Pinned below, since
 // `kind(of:)`'s `hasPrefix("LIST")` / `hasSuffix("]")` branches only both exist because of it.
 
-@Test func nestedBlobAndZonedColumnsAreClassifiedFromDuckDBsOwnTypeNames() async throws {
+@Test(.engineLifetime) func nestedBlobAndZonedColumnsAreClassifiedFromDuckDBsOwnTypeNames() async throws {
     let session = try newSession()
     let t = try await session.openPath(sharedData.cleanCSV)
     let page = try await session.runSQL(

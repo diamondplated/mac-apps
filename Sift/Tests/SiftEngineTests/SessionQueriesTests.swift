@@ -86,7 +86,7 @@ private func makeUniqueIntCSV(dir: String, count: Int) throws -> String {
 
 // MARK: - faceting (brief gotcha #1) — both halves in one test
 
-@Test func distinctFacetingIgnoresItsOwnColumnsFilterButRespectsOtherColumns() async throws {
+@Test(.engineLifetime) func distinctFacetingIgnoresItsOwnColumnsFilterButRespectsOtherColumns() async throws {
     // clean.csv: 1000 rows, region cycles West/Midwest/South/Northeast every 4 rows (250 each) —
     // the same fixture and the same fact SessionTests.swift's own filtering test relies on.
     let session = try newSession()
@@ -113,7 +113,7 @@ private func makeUniqueIntCSV(dir: String, count: Int) throws -> String {
     #expect(amountPanel.nRows == 250)
 }
 
-@Test func distinctThrowsForAnUnknownColumn() async throws {
+@Test(.engineLifetime) func distinctThrowsForAnUnknownColumn() async throws {
     let session = try newSession()
     let t = try await session.openPath(sharedData.cleanCSV)
     do {
@@ -128,7 +128,7 @@ private func makeUniqueIntCSV(dir: String, count: Int) throws -> String {
 
 // MARK: - distinct clamps an approx count that overshoots the real row count (brief gotcha #3)
 
-@Test func distinctClampsAnApproxCountThatOvershootsTheRealRowCount() async throws {
+@Test(.engineLifetime) func distinctClampsAnApproxCountThatOvershootsTheRealRowCount() async throws {
     // `wantsExactDistinct` only lets `distinct()` reach the approximate/clamp branch when the
     // CACHED profile's own `approxDistinct` is already >= 100,000 — a real table would need that
     // many actual distinct values to get there, which is not a size worth paying for in a unit
@@ -186,7 +186,7 @@ private func makeUniqueIntCSV(dir: String, count: Int) throws -> String {
 /// The table below is a real 1,000-row CSV wearing a 30 GB spec, which is what makes the refusal
 /// visible: the profile is perfectly computable, so if the gate goes the job runs and
 /// `nextProfileJobID` moves. A fixture that genuinely could not be profiled would prove nothing.
-@Test func aSpeculativeProfileRefusesASourceTooBigToProfileUnasked() async throws {
+@Test(.engineLifetime) func aSpeculativeProfileRefusesASourceTooBigToProfileUnasked() async throws {
     let session = try newSession()
 
     // Cheap: a 12 KB CSV. The speculative kick takes it.
@@ -224,7 +224,7 @@ private func hugeCSVSpec(like spec: SourceSpec) -> SourceSpec {
 
 // MARK: - compute_profile reuses the cached bad-cell scan (brief gotcha #2)
 
-@Test func computeProfileReusesTheCachedUncastableScanInsteadOfRescanning() async throws {
+@Test(.engineLifetime) func computeProfileReusesTheCachedUncastableScanInsteadOfRescanning() async throws {
     // clean.csv's order_id column is always a valid integer ("0".."999"), so a REAL uncastable
     // scan reports 0 bad cells for it. Waiting for background work first means the real scan has
     // already run and will not run again — only then is it safe to plant an impossible sentinel
@@ -243,7 +243,7 @@ private func hugeCSVSpec(like spec: SourceSpec) -> SourceSpec {
     #expect(profile[0].nUncastable == 424_242, "a real rescan of order_id would report 0, not the sentinel")
 }
 
-@Test func profileOfThrowsForAnUnknownColumn() async throws {
+@Test(.engineLifetime) func profileOfThrowsForAnUnknownColumn() async throws {
     let session = try newSession()
     let t = try await session.openPath(sharedData.cleanCSV)
     do {
@@ -258,7 +258,7 @@ private func hugeCSVSpec(like spec: SourceSpec) -> SourceSpec {
 
 // MARK: - the Excel-serial-date note is column-scoped, not table-wide (brief gotcha #8)
 
-@Test(.enabled(if: extensionIsAvailable("excel"), "duckdb excel extension not installed"))
+@Test(.engineLifetime, .enabled(if: extensionIsAvailable("excel"), "duckdb excel extension not installed"))
 func computeProfileNotesAnExcelSerialDateLookingColumnOnlyForXlsx() async throws {
     // excel_serial.xlsx: "serial" holds five values inside looksLikeExcelSerialDates' 25,000-
     // 50,000 window (2 distinct is already > 1), "id" is an ordinary small integer. Both columns
@@ -292,7 +292,7 @@ func computeProfileNotesAnExcelSerialDateLookingColumnOnlyForXlsx() async throws
 /// dates are an artefact of Excel, so the note is only ever true of a workbook; fired on a CSV it
 /// is a confident, wrong claim about someone's data, in the tool whose whole pitch is not making
 /// those.
-@Test func aSerialDateShapedColumnInACsvGetsNoExcelNote() async throws {
+@Test(.engineLifetime) func aSerialDateShapedColumnInACsvGetsNoExcelNote() async throws {
     let dir = TestTemp.dir("serial-csv")
 
     // Values sitting squarely inside the window, 100 distinct — so the PREDICATE says yes and the
@@ -321,7 +321,7 @@ func computeProfileNotesAnExcelSerialDateLookingColumnOnlyForXlsx() async throws
 
 // MARK: - bad_rows decodes the LIST of failing column names (brief gotcha #4)
 
-@Test func badRowsDecodesBadColumnsAsTheListOfFailingColumnNames() async throws {
+@Test(.engineLifetime) func badRowsDecodesBadColumnsAsTheListOfFailingColumnNames() async throws {
     // Reuses SessionTests.swift's own established trick for producing a genuinely dirty table:
     // under fullSniffMaxBytes the sniffer scans the WHOLE file and would correctly widen "amount"
     // to VARCHAR the moment it saw one non-numeric value, leaving nothing to detect. A
@@ -349,7 +349,7 @@ func computeProfileNotesAnExcelSerialDateLookingColumnOnlyForXlsx() async throws
     #expect(panel.data[0][0] == .list([.text("amount")]))
 }
 
-@Test func badRowsReturnsTheEmptyShapeWhenThereAreNoBadCells() async throws {
+@Test(.engineLifetime) func badRowsReturnsTheEmptyShapeWhenThereAreNoBadCells() async throws {
     let session = try newSession()
     let t = try await session.openPath(sharedData.cleanCSV)
     _ = try await waitForBackgroundWork(session, t.name)
@@ -363,7 +363,7 @@ func computeProfileNotesAnExcelSerialDateLookingColumnOnlyForXlsx() async throws
 
 // MARK: - set_spec: validation and cache invalidation (brief gotchas #6, #7)
 
-@Test func setSpecRejectsAnUnknownFilterColumn() async throws {
+@Test(.engineLifetime) func setSpecRejectsAnUnknownFilterColumn() async throws {
     let session = try newSession()
     let t = try await session.openPath(sharedData.cleanCSV)
     do {
@@ -378,7 +378,7 @@ func computeProfileNotesAnExcelSerialDateLookingColumnOnlyForXlsx() async throws
     }
 }
 
-@Test func setSpecRejectsAnUnknownSortColumn() async throws {
+@Test(.engineLifetime) func setSpecRejectsAnUnknownSortColumn() async throws {
     let session = try newSession()
     let t = try await session.openPath(sharedData.cleanCSV)
     do {
@@ -393,7 +393,7 @@ func computeProfileNotesAnExcelSerialDateLookingColumnOnlyForXlsx() async throws
     }
 }
 
-@Test func setSpecClearsTheCachedFilteredCount() async throws {
+@Test(.engineLifetime) func setSpecClearsTheCachedFilteredCount() async throws {
     // The other half of Task 4's caching test, which guards that `filteredCount` STAYS cached
     // across pages of the same spec: this is what makes it re-derive once the spec actually
     // changes. Planting an impossible sentinel first proves `setSpec` itself clears it — a page()
@@ -413,7 +413,7 @@ func computeProfileNotesAnExcelSerialDateLookingColumnOnlyForXlsx() async throws
 
 // MARK: - run_sql: the guard runs first, then the wrap (brief gotcha #5)
 
-@Test func runSQLAcceptsALegitimateSelectAndEntersSqlMode() async throws {
+@Test(.engineLifetime) func runSQLAcceptsALegitimateSelectAndEntersSqlMode() async throws {
     let session = try newSession()
     let t = try await session.openPath(sharedData.cleanCSV)
     let sql = "SELECT * FROM \(q(t.name)) ORDER BY order_id"
@@ -429,7 +429,7 @@ func computeProfileNotesAnExcelSerialDateLookingColumnOnlyForXlsx() async throws
     #expect(after.sqlText == sql)
 }
 
-@Test func runSQLRejectsAMultiStatementQueryWithoutMutatingTheTable() async throws {
+@Test(.engineLifetime) func runSQLRejectsAMultiStatementQueryWithoutMutatingTheTable() async throws {
     let session = try newSession()
     let t = try await session.openPath(sharedData.cleanCSV)
     do {
@@ -447,7 +447,7 @@ func computeProfileNotesAnExcelSerialDateLookingColumnOnlyForXlsx() async throws
     }
 }
 
-@Test func exitSqlModeClearsSqlModeAndText() async throws {
+@Test(.engineLifetime) func exitSqlModeClearsSqlModeAndText() async throws {
     let session = try newSession()
     let t = try await session.openPath(sharedData.cleanCSV)
     _ = try await session.runSQL(t.name, sql: "SELECT * FROM \(q(t.name))", offset: 0, limit: 5)
@@ -461,7 +461,7 @@ func computeProfileNotesAnExcelSerialDateLookingColumnOnlyForXlsx() async throws
 
 // MARK: - histogram: a real numeric column produces real, non-degenerate buckets
 
-@Test func histogramBucketsCoverEveryNonNullValue() async throws {
+@Test(.engineLifetime) func histogramBucketsCoverEveryNonNullValue() async throws {
     // amount = "{i}.50" for i in 0..<1000 — a real, non-degenerate numeric range.
     let session = try newSession()
     let t = try await session.openPath(sharedData.cleanCSV)
@@ -474,7 +474,7 @@ func computeProfileNotesAnExcelSerialDateLookingColumnOnlyForXlsx() async throws
 
 // MARK: - sample_values and length_histogram: decode, and swallow rather than throw
 
-@Test func sampleValuesDecodesUpToLimitRowsForAKnownColumn() async throws {
+@Test(.engineLifetime) func sampleValuesDecodesUpToLimitRowsForAKnownColumn() async throws {
     let session = try newSession()
     let t = try await session.openPath(sharedData.cleanCSV)
 
@@ -490,7 +490,7 @@ func computeProfileNotesAnExcelSerialDateLookingColumnOnlyForXlsx() async throws
     }
 }
 
-@Test func sampleValuesSwallowsAnUnknownColumnAndReturnsEmpty() async throws {
+@Test(.engineLifetime) func sampleValuesSwallowsAnUnknownColumnAndReturnsEmpty() async throws {
     let session = try newSession()
     let t = try await session.openPath(sharedData.cleanCSV)
     // Deliberately no existence check inside `sampleValues` (brief gotcha #9) — a bad column name
@@ -499,7 +499,7 @@ func computeProfileNotesAnExcelSerialDateLookingColumnOnlyForXlsx() async throws
     #expect(sample.isEmpty)
 }
 
-@Test func lengthHistogramBucketsSumToTheNonNullRowCount() async throws {
+@Test(.engineLifetime) func lengthHistogramBucketsSumToTheNonNullRowCount() async throws {
     // note = "note {i}" for every row — never null, so the buckets must account for all 1000.
     let session = try newSession()
     let t = try await session.openPath(sharedData.cleanCSV)
@@ -511,7 +511,7 @@ func computeProfileNotesAnExcelSerialDateLookingColumnOnlyForXlsx() async throws
 
 // MARK: - rendered_sql / snippet: reflect SQL-mode vs. spec-mode (thin wiring over SiftCore)
 
-@Test func renderedSqlAndSnippetReflectSqlModeVersusSpecMode() async throws {
+@Test(.engineLifetime) func renderedSqlAndSnippetReflectSqlModeVersusSpecMode() async throws {
     let session = try newSession()
     let t = try await session.openPath(sharedData.cleanCSV)
 

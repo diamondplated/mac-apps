@@ -143,7 +143,7 @@ func withWorkspace(_ body: (Workspace) async throws -> Void) async throws {
     // Runs on the throwing path too, which is the whole point: a failed check must not leave a
     // staged copy behind for the next run to adopt. `Session.init` creates `home` itself.
     defer { try? FileManager.default.removeItem(at: root) }
-    try await body(workspace)
+    try await SessionLifetime.withScope { try await body(workspace) }
 }
 
 // MARK: - the runner
@@ -1817,6 +1817,7 @@ public func openAndDescribe(
     path: String, sheet: String? = nil, rows: Int = 10, home: String? = nil,
     nullPadding: Bool = false, skipPreamble: Bool = true, allowExtensionDownload: Bool = false
 ) async throws -> FileOverview {
+    return try await SessionLifetime.withScope {
     let started = DispatchTime.now()
     let session = try Session(home: home)
     if allowExtensionDownload, let request = try await session.requiredExtension(for: path) {
@@ -1858,6 +1859,7 @@ public func openAndDescribe(
         preview: page.rows,
         milliseconds: millisecondsSince(started)
     )
+    }
 }
 
 /// Poll until this open's background pipeline has landed, and hand back the settled `Table`.

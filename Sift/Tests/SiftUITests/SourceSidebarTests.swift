@@ -42,19 +42,19 @@ private let fortyOnePointTwoMB = 43_201_331
 
 // MARK: - sourceSubtitle
 
-@Test func aStagedCSVReadsAsFormatSizeRowsAndStaged() {
+@Test(.engineLifetime) func aStagedCSVReadsAsFormatSizeRowsAndStaged() {
     let t = fixture(size: fortyOnePointTwoMB, rowCount: 2_412_338, staged: true)
     #expect(sourceSubtitle(t) == "csv · 41.2 MB · 2,412,338 rows · staged")
 }
 
-@Test func anUnstagedSourceDropsTheStagedSegmentAndNothingElse() {
+@Test(.engineLifetime) func anUnstagedSourceDropsTheStagedSegmentAndNothingElse() {
     let t = fixture(size: fortyOnePointTwoMB, rowCount: 2_412_338)
     #expect(sourceSubtitle(t) == "csv · 41.2 MB · 2,412,338 rows")
 }
 
 /// 🔴 A folder of parquet is a FOLDER, and `glob_parquet` said in the sidebar is engine vocabulary
 /// leaking into the window. `web/index.html:967` replaces the prefix with `▤ `.
-@Test func aFolderSourceReadsAsTheFolderGlyphAndNotGlobParquet() {
+@Test(.engineLifetime) func aFolderSourceReadsAsTheFolderGlyphAndNotGlobParquet() {
     let t = fixture(
         name: "sales", fmt: .globParquet, path: "/data/sales", size: 12 * 1024 * 1024,
         rowCount: 900)
@@ -67,7 +67,7 @@ private let fortyOnePointTwoMB = 43_201_331
 
 /// A merge view is a view over two open tables: `merge`'s `SourceKey` is `("merge://a+b", 0, 0)`,
 /// and a size segment reading `0 B` would be a claim about a file that does not exist.
-@Test func aMergeViewReadsAsMergedAndCarriesNoSize() {
+@Test(.engineLifetime) func aMergeViewReadsAsMergedAndCarriesNoSize() {
     let t = fixture(
         name: "a_b", fmt: .merge, path: "merge://a+b", size: 0, rowCount: 1_204)
     #expect(sourceSubtitle(t) == "merged · 1,204 rows")
@@ -75,7 +75,7 @@ private let fortyOnePointTwoMB = 43_201_331
 
 /// The count comes from `displayRows`, so a big CSV says how big it is from the moment it opens
 /// rather than after the background count lands.
-@Test func aTableWithOnlyAnEstimateStillCarriesItsRowsSegment() {
+@Test(.engineLifetime) func aTableWithOnlyAnEstimateStillCarriesItsRowsSegment() {
     let estimate = RowEstimate(rows: 2_400_000, confidence: .low, basis: "3x256KiB sample")
     let t = fixture(size: fortyOnePointTwoMB, estimate: estimate)
     #expect(sourceSubtitle(t) == "csv · 41.2 MB · 2,400,000 rows")
@@ -86,7 +86,7 @@ private let fortyOnePointTwoMB = 43_201_331
 
 // MARK: - rowText
 
-@Test func aCountingTableSaysSo() {
+@Test(.engineLifetime) func aCountingTableSaysSo() {
     #expect(rowText(fixture(rowCount: 2_412_338, counting: true)) == "counting…")
     // …and so does one with nothing to say yet: no exact count and no estimate.
     #expect(rowText(fixture()) == "counting…")
@@ -100,7 +100,7 @@ private let fortyOnePointTwoMB = 43_201_331
 /// `KeyNavTests` asserts the same branch through `rowSummaryText`. That is not a duplicate — since
 /// `rowSummaryText` now calls `rowText`, it is the seam check that keeps the toolbar and the sidebar
 /// saying the same thing about the same table.
-@Test func theSidebarsRowPhraseMarksAnEstimateAsApproximate() {
+@Test(.engineLifetime) func theSidebarsRowPhraseMarksAnEstimateAsApproximate() {
     let estimate = RowEstimate(rows: 2_400_000, confidence: .low, basis: "3x256KiB sample")
     let t = fixture(estimate: estimate)
     #expect(t.displayRows == 2_400_000, "the estimate fallback is what makes the ≈ branch reachable")
@@ -108,13 +108,13 @@ private let fortyOnePointTwoMB = 43_201_331
     #expect(rowText(t) == "≈ 2,400,000 rows")
 }
 
-@Test func anExactCountCarriesNoApproximationMark() {
+@Test(.engineLifetime) func anExactCountCarriesNoApproximationMark() {
     let t = fixture(rowCount: 2_412_338)
     #expect(rowText(t) == "2,412,338 rows")
     #expect(!rowText(t).contains("≈"))
 }
 
-@Test func aFilteredTableSaysBothNumbers() {
+@Test(.engineLifetime) func aFilteredTableSaysBothNumbers() {
     let t = fixture(
         rowCount: 2_412_338, filteredCount: 1_204,
         filters: [Filter(col: "region", op: .eq, values: [.text("West")])])
@@ -123,7 +123,7 @@ private let fortyOnePointTwoMB = 43_201_331
 
 /// Dropped rows come off the denominator, because they are rows the grid cannot reach — the same
 /// `gridRows` the scroll extent is sized from.
-@Test func droppedRowsComeOffTheUnfilteredTotal() {
+@Test(.engineLifetime) func droppedRowsComeOffTheUnfilteredTotal() {
     let t = fixture(
         rowCount: 1_000, filteredCount: 10, filters: [Filter(col: "c", op: .notNull)], badRows: 4)
     #expect(rowText(t) == "10 of 996 rows")
@@ -131,7 +131,7 @@ private let fortyOnePointTwoMB = 43_201_331
 
 // MARK: - the chip
 
-@Test func everyFormatGetsItsOwnChip() {
+@Test(.engineLifetime) func everyFormatGetsItsOwnChip() {
     #expect(formatBadge(.parquet) == ("square.stack.3d.up.fill", .purple))
     #expect(formatBadge(.globParquet) == ("square.stack.3d.up.fill", .purple))
     #expect(formatBadge(.delta) == ("clock.arrow.circlepath", .orange))
@@ -151,7 +151,7 @@ private let fortyOnePointTwoMB = 43_201_331
 /// The menu item's applicability, not the engine's decision — `Session.stageNow` still owns whether
 /// a copy actually happens. Parquet, a parquet folder and Delta are never staged; a merge view has
 /// no file to copy.
-@Test func stagingIsOfferedForExactlyTheFormatsTheShellOfferedIt() {
+@Test(.engineLifetime) func stagingIsOfferedForExactlyTheFormatsTheShellOfferedIt() {
     #expect(stageableFormat(.csv))
     #expect(stageableFormat(.globCsv))
     #expect(stageableFormat(.xlsx))
@@ -165,7 +165,7 @@ private let fortyOnePointTwoMB = 43_201_331
 
 // MARK: - the tooltip
 
-@Test func theTooltipCarriesThePathTheSubtitleAndTheDroppedRows() {
+@Test(.engineLifetime) func theTooltipCarriesThePathTheSubtitleAndTheDroppedRows() {
     let clean = fixture(size: fortyOnePointTwoMB, rowCount: 2_412_338)
     #expect(sourceTooltip(clean) == "/data/orders.csv\ncsv · 41.2 MB · 2,412,338 rows")
 
@@ -198,7 +198,7 @@ private func remoteRef(
 
 /// 🔴 The row's three missing facts, all three of them. `spec.remote` is non-nil for exactly the
 /// sources that came from a URL, which is why `offersRefresh` asks it and never a string.
-@Test func aRemoteRowSaysItCameOverTheNetworkAndWhenTheBytesArrived() throws {
+@Test(.engineLifetime) func aRemoteRowSaysItCameOverTheNetworkAndWhenTheBytesArrived() throws {
     let url = "https://acct.blob.core.windows.net/c/sales.csv"
     let remote = fixture(
         name: "sales", path: url, size: fortyOnePointTwoMB, rowCount: 900, remote: remoteRef(url))
@@ -226,7 +226,7 @@ private func remoteRef(
 /// `uptimeNanoseconds`, because the value is compared on a later launch — so it can be rendered at
 /// all. Getting the scale wrong is the failure this pins: a `/ 1_000` divisor puts the fetch a
 /// million years out and the row states it with total confidence.
-@Test func theFetchTimeIsTheEpochInNanosecondsAndIsBuiltWithoutAFormatter() throws {
+@Test(.engineLifetime) func theFetchTimeIsTheEpochInNanosecondsAndIsBuiltWithoutAFormatter() throws {
     let seconds = 1_755_180_720.0
     let t = fixture(remote: remoteRef(fetchedAtNs: Int(seconds * 1_000_000_000)))
     let rendered = try #require(remoteFetchedAt(t))
@@ -246,7 +246,7 @@ private func remoteRef(
 /// 🔴 The outcome is RENDERED, never inferred. `.unchanged` and `.refetched` leave the same grid,
 /// the same row count and the same everything — which is why `refreshRemote` returns the case at
 /// all, and why a UI that read a side effect would be right half the time and confident always.
-@Test func aRefreshSaysWhichOfTheTwoOutcomesTheEngineMeasured() {
+@Test(.engineLifetime) func aRefreshSaysWhichOfTheTwoOutcomesTheEngineMeasured() {
     let unchanged = refreshOutcomeText(table: "sales", .unchanged(since: "14:32"))
     let refetched = refreshOutcomeText(table: "sales", .refetched)
 
@@ -269,7 +269,7 @@ private func remoteRef(
 /// The pair is the point. A refusal that fires on every remote source would pass an "it refuses a
 /// signed one" assertion just as happily, and would break the ordinary pasted-URL workbook — which
 /// is the common case this whole phase was designed around.
-@Test func onlyASignedSourceIsRefusedAReopenFromTheUrlSiftKept() throws {
+@Test(.engineLifetime) func onlyASignedSourceIsRefusedAReopenFromTheUrlSiftKept() throws {
     let url = "https://acct.blob.core.windows.net/c/sales.csv"
     let signed = fixture(name: "sales", path: url, remote: remoteRef(url, signed: true))
     let unsigned = fixture(name: "sales", path: url, remote: remoteRef(url))
@@ -290,7 +290,7 @@ private func remoteRef(
 /// `theToolbarsSymbolsAllResolve` exists for, one view over: this Mac carries a newer SDK than the
 /// macos-15 runner, and the macOS 14 deployment floor is lower than both.
 @MainActor
-@Test func theSidebarsSymbolsAllResolve() {
+@Test(.engineLifetime) func theSidebarsSymbolsAllResolve() {
     for name in SidebarSymbol.all {
         #expect(
             NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil,
@@ -303,7 +303,7 @@ private func remoteRef(
 
 /// Which rows offer the other sheets of their workbook, and — the part that matters — what decides
 /// it. `spec.sheets` was read off the real OOXML by the engine; `NSString.pathExtension` was not.
-@Test func onlyAMultiSheetWorkbookOffersItsOtherSheets() {
+@Test(.engineLifetime) func onlyAMultiSheetWorkbookOffersItsOtherSheets() {
     let two = [SheetInfo(name: "Q1", rows: 40, cols: 3), SheetInfo(name: "Q2", rows: 9, cols: 3)]
     #expect(offersSheetChoice(fixture(fmt: .xlsx, path: "/data/book.xlsx", sheets: two)))
     #expect(!offersSheetChoice(fixture(fmt: .xlsx, path: "/data/book.xlsx", sheets: [two[0]])),
@@ -318,7 +318,7 @@ private func remoteRef(
 
 // MARK: - the path box
 
-@Test func aPastedAbsolutePathOpensByItselfAndATypedOneDoesNot() {
+@Test(.engineLifetime) func aPastedAbsolutePathOpensByItselfAndATypedOneDoesNot() {
     // A paste: many characters arrive in one change.
     #expect(autoOpenPath(from: "", to: "/Users/a/data/orders.csv") == "/Users/a/data/orders.csv")
     #expect(autoOpenPath(from: "/Users", to: "/Users/a/data/orders.csv") != nil)
@@ -345,7 +345,7 @@ private func remoteRef(
 /// two of the four spellings DuckDB's own azure secret scopes to. `classifyRemote`'s `nil` means
 /// *local path* — so a scheme decided wrong here is not "unsupported", it is a URL handed silently
 /// to the local-file flow to come back as a missing file.
-@Test func aPastedURLOpensAndClassifyRemoteIsWhatDecidesWhichOnesDo() {
+@Test(.engineLifetime) func aPastedURLOpensAndClassifyRemoteIsWhatDecidesWhichOnesDo() {
     // Every spelling that reaches DuckDB, pasted whole.
     for url in [
         "https://acct.blob.core.windows.net/c/sales.csv",
@@ -390,7 +390,7 @@ private func remoteRef(
 /// The teeth are the last pair: `lastPathComponent` of a signed URL **is** the signature, and the
 /// pre-open picker titles itself with exactly that. Delete `needsSheetPicker`'s `classifyRemote`
 /// guard and a SAS token is drawn 15 pt tall at the top of a modal sheet.
-@Test func nothingTheSidebarDrawsCanCarryASASSignature() throws {
+@Test(.engineLifetime) func nothingTheSidebarDrawsCanCarryASASSignature() throws {
     let sig = "SUPERSECRETSIGNATURE"
     let signed = "https://acct.blob.core.windows.net/c/sales.xlsx?sv=2024-11-04&sig=\(sig)"
     let u = try #require(classifyRemote(signed))
@@ -453,7 +453,7 @@ private func remoteRef(
 
 // MARK: - the armed close
 
-@Test func theCloseNeedsTwoPressesAndForgetsTheFirstAfterTwoAndAHalfSeconds() {
+@Test(.engineLifetime) func theCloseNeedsTwoPressesAndForgetsTheFirstAfterTwoAndAHalfSeconds() {
     let now = Date()
     #expect(!closeConfirmed(armedAt: nil, now: now), "a first press must never close a table")
     #expect(closeConfirmed(armedAt: now.addingTimeInterval(-1), now: now))
@@ -478,7 +478,7 @@ private func fileProvider(_ path: String) -> NSItemProvider {
 }
 
 @MainActor
-@Test func aDropResolvesEveryFileURLItWasHandedInTheOrderItArrived() async {
+@Test(.engineLifetime) func aDropResolvesEveryFileURLItWasHandedInTheOrderItArrived() async {
     let paths = await droppedPaths(from: [fileProvider("/data/a.csv"), fileProvider("/data/b.parquet")])
     #expect(paths == ["/data/a.csv", "/data/b.parquet"])
 }
@@ -487,7 +487,7 @@ private func fileProvider(_ path: String) -> NSItemProvider {
 /// `URL(dataRepresentation:)` was handed whatever bytes arrived — and a drag of plain text would
 /// have gone to the engine as a path, which comes back as "No such file or folder: <the text>".
 @MainActor
-@Test func aDropOfSomethingThatIsNotAFileResolvesToNothing() async {
+@Test(.engineLifetime) func aDropOfSomethingThatIsNotAFileResolvesToNothing() async {
     let text = NSItemProvider(
         item: "just some text" as NSString, typeIdentifier: UTType.plainText.identifier)
     #expect(await droppedPaths(from: [text]).isEmpty)
@@ -596,7 +596,7 @@ private func writePNG(_ image: CGImage, _ name: String) throws -> String {
 /// fails both halves; a row that draws every chip in one colour fails one of them whichever colour
 /// it picked.
 @MainActor
-@Test func aSourceRowDrawsItsOwnFormatsChipAndNotJustChrome() async throws {
+@Test(.engineLifetime) func aSourceRowDrawsItsOwnFormatsChipAndNotJustChrome() async throws {
     let state = AppState(session: try Session(home: tempHome()))
     let csv = fixture(size: fortyOnePointTwoMB, rowCount: 2_412_338)
     let parquet = fixture(
@@ -626,7 +626,7 @@ private func writePNG(_ image: CGImage, _ name: String) throws -> String {
 /// The subtitle is the row's whole payload — the format, the size, the count and whether a copy is
 /// on disk. Two rows that differ only there must not render the same.
 @MainActor
-@Test func aSourceRowDrawsItsSubtitleAndTurnsItOrangeWhenRowsWereDropped() async throws {
+@Test(.engineLifetime) func aSourceRowDrawsItsSubtitleAndTurnsItOrangeWhenRowsWereDropped() async throws {
     let state = AppState(session: try Session(home: tempHome()))
     let plain = fixture(size: fortyOnePointTwoMB, rowCount: 2_412_338)
     var staged = plain
@@ -662,7 +662,7 @@ private func writePNG(_ image: CGImage, _ name: String) throws -> String {
 /// `aRemoteRowSaysItCameOverTheNetworkAndWhenTheBytesArrived` pins that their subtitles are equal.
 /// So the difference in the bitmap can only be the network glyph.
 @MainActor
-@Test func aRemoteRowDrawsSomethingALocalRowDoesNot() async throws {
+@Test(.engineLifetime) func aRemoteRowDrawsSomethingALocalRowDoesNot() async throws {
     let state = AppState(session: try Session(home: tempHome()))
     let url = "https://acct.blob.core.windows.net/c/sales.csv"
     let local = fixture(
@@ -683,7 +683,7 @@ private func writePNG(_ image: CGImage, _ name: String) throws -> String {
 
 /// The empty rail is its own state and its own sentence, not a zero-row list.
 @MainActor
-@Test func anEmptySidebarStillDrawsTheDropzoneAndItsNote() async throws {
+@Test(.engineLifetime) func anEmptySidebarStillDrawsTheDropzoneAndItsNote() async throws {
     let state = AppState(session: try Session(home: tempHome()))
     let cold = try render(
         SourceSidebar(state: state).environment(\.sourceDragHot, false), 260, 420)
@@ -711,7 +711,7 @@ private func writePNG(_ image: CGImage, _ name: String) throws -> String {
 /// Pinned against a REAL session, so the line carries the version this build is actually linked
 /// against rather than one anybody typed. Mutating the function to drop the version, or to name a
 /// different engine, goes red here.
-@Test func theSidebarFootNamesTheEngineThisSessionIsActuallyUsing() throws {
+@Test(.engineLifetime) func theSidebarFootNamesTheEngineThisSessionIsActuallyUsing() throws {
     let engine = try Session(home: tempHome()).engineInfo()
     let line = engineFooterText(engine)
 

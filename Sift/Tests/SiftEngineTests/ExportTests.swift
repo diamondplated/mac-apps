@@ -64,7 +64,7 @@ private func makeTinyCSV(dir: String, name: String = "tiny.csv") throws -> Strin
 
 // MARK: - the formats round-trip
 
-@Test func everyExportFormatWritesAFileThatReadsBackWithTheSameRowCount() async throws {
+@Test(.engineLifetime) func everyExportFormatWritesAFileThatReadsBackWithTheSameRowCount() async throws {
     let dir = try newOutputDir()
     let session = try newSession()
     let t = try await session.openPath(try makeTinyCSV(dir: dir))
@@ -99,7 +99,7 @@ private func makeTinyCSV(dir: String, name: String = "tiny.csv") throws -> Strin
     #expect(try compressionOf(out(dir, "round-trip.parquet")) == ["ZSTD"])
 }
 
-@Test func exportIsNotCappedAtOnePageOfRows() async throws {
+@Test(.engineLifetime) func exportIsNotCappedAtOnePageOfRows() async throws {
     // `pageSQL` always emits `LIMIT ? OFFSET ?`, so "all of it" has to be spelled as a number
     // larger than any table. Getting that wrong would silently truncate every export of a table
     // bigger than one screen — the quietest data-loss bug in the product.
@@ -111,7 +111,7 @@ private func makeTinyCSV(dir: String, name: String = "tiny.csv") throws -> Strin
     #expect(try rowsIn(dest, reader: "read_parquet") == 1000)
 }
 
-@Test func exportedFormatKeysAreCaseInsensitiveAndKeepTheirMenuOrder() async throws {
+@Test(.engineLifetime) func exportedFormatKeysAreCaseInsensitiveAndKeepTheirMenuOrder() async throws {
     // Python's dict is insertion-ordered and both UI menus list these six in this order; a
     // dictionary here would have thrown that away silently.
     #expect(exportFormats.map(\.key) == ["parquet", "csv", "tsv", "json", "ndjson", "xlsx"])
@@ -120,7 +120,7 @@ private func makeTinyCSV(dir: String, name: String = "tiny.csv") throws -> Strin
     #expect(exportFormat(named: "parqet") == nil)
 }
 
-@Test func exportCarriesTheTablesFiltersAndSortIntoTheFile() async throws {
+@Test(.engineLifetime) func exportCarriesTheTablesFiltersAndSortIntoTheFile() async throws {
     let dir = try newOutputDir()
     let session = try newSession()
     let t = try await session.openPath(try makeTinyCSV(dir: dir))
@@ -137,7 +137,7 @@ private func makeTinyCSV(dir: String, name: String = "tiny.csv") throws -> Strin
     #expect(try String(contentsOfFile: dest, encoding: .utf8) == "id,region\n3,West\n1,West\n")
 }
 
-@Test func exportOfASQLModeTableWritesTheQueryResultNotTheWholeTable() async throws {
+@Test(.engineLifetime) func exportOfASQLModeTableWritesTheQueryResultNotTheWholeTable() async throws {
     let dir = try newOutputDir()
     let session = try newSession()
     let t = try await session.openPath(try makeTinyCSV(dir: dir))
@@ -150,7 +150,7 @@ private func makeTinyCSV(dir: String, name: String = "tiny.csv") throws -> Strin
     #expect(try String(contentsOfFile: dest, encoding: .utf8) == "id\n2\n")
 }
 
-@Test func exportMaterializesAMergeView() async throws {
+@Test(.engineLifetime) func exportMaterializesAMergeView() async throws {
     // The brief's reason `merge` is allowed to stay a view: exporting it is how you get a copy.
     let dir = try newOutputDir()
     let session = try newSession()
@@ -168,7 +168,7 @@ private func makeTinyCSV(dir: String, name: String = "tiny.csv") throws -> Strin
     #expect(try rowsIn(dest, reader: "read_parquet") == 2)
 }
 
-@Test func exportCreatesMissingParentDirectories() async throws {
+@Test(.engineLifetime) func exportCreatesMissingParentDirectories() async throws {
     let dir = try newOutputDir()
     let session = try newSession()
     let t = try await session.openPath(try makeTinyCSV(dir: dir))
@@ -178,7 +178,7 @@ private func makeTinyCSV(dir: String, name: String = "tiny.csv") throws -> Strin
     #expect(exists(dest))
 }
 
-@Test func exportResolvesTildeDotSegmentsAndRelativePaths() async throws {
+@Test(.engineLifetime) func exportResolvesTildeDotSegmentsAndRelativePaths() async throws {
     // `os.path.abspath(os.path.expanduser(...))`. The relative case is the one that separates
     // this from `NSString.standardizingPath`, which would leave it relative — and a relative
     // `dest` names no particular file once it has been handed back to the caller.
@@ -199,7 +199,7 @@ private func makeTinyCSV(dir: String, name: String = "tiny.csv") throws -> Strin
 
 // MARK: - overwrite refusal
 
-@Test func exportRefusesToReplaceAnExistingFileAndLeavesItByteForByteIntact() async throws {
+@Test(.engineLifetime) func exportRefusesToReplaceAnExistingFileAndLeavesItByteForByteIntact() async throws {
     let dir = try newOutputDir()
     let session = try newSession()
     let t = try await session.openPath(try makeTinyCSV(dir: dir))
@@ -224,7 +224,7 @@ private func makeTinyCSV(dir: String, name: String = "tiny.csv") throws -> Strin
     #expect(try String(contentsOfFile: dest, encoding: .utf8) == "id,region\n2,South\n")
 }
 
-@Test func exportRefusesWhenTheDestinationIsAnExistingDirectory() async throws {
+@Test(.engineLifetime) func exportRefusesWhenTheDestinationIsAnExistingDirectory() async throws {
     let dir = try newOutputDir()
     let session = try newSession()
     let t = try await session.openPath(try makeTinyCSV(dir: dir))
@@ -236,7 +236,7 @@ private func makeTinyCSV(dir: String, name: String = "tiny.csv") throws -> Strin
     }
 }
 
-@Test func aFailedExportLeavesNoPlaceholderBehind() async throws {
+@Test(.engineLifetime) func aFailedExportLeavesNoPlaceholderBehind() async throws {
     let dir = try newOutputDir()
     let session = try newSession()
     let t = try await session.openPath(try makeTinyCSV(dir: dir))
@@ -261,7 +261,7 @@ private func makeTinyCSV(dir: String, name: String = "tiny.csv") throws -> Strin
 
 // MARK: - the trust boundary
 
-@Test func exportRejectsAnUnknownFormatCleanlyAndBeforeTouchingTheDisk() async throws {
+@Test(.engineLifetime) func exportRejectsAnUnknownFormatCleanlyAndBeforeTouchingTheDisk() async throws {
     let dir = try newOutputDir()
     let session = try newSession()
     let t = try await session.openPath(try makeTinyCSV(dir: dir))
@@ -275,7 +275,7 @@ private func makeTinyCSV(dir: String, name: String = "tiny.csv") throws -> Strin
     #expect(!exists(out(dir, "never")))
 }
 
-@Test func aFormatThatTriesToCloseTheCopyStatementIsJustAnUnknownFormat() async throws {
+@Test(.engineLifetime) func aFormatThatTriesToCloseTheCopyStatementIsJustAnUnknownFormat() async throws {
     let dir = try newOutputDir()
     let session = try newSession()
     let t = try await session.openPath(try makeTinyCSV(dir: dir))
@@ -288,7 +288,7 @@ private func makeTinyCSV(dir: String, name: String = "tiny.csv") throws -> Strin
     #expect(!exists(out(dir, "ok.csv")))
 }
 
-@Test func aDestinationThatTriesToStartASecondStatementBecomesOneLiteralFilename() async throws {
+@Test(.engineLifetime) func aDestinationThatTriesToStartASecondStatementBecomesOneLiteralFilename() async throws {
     let dir = try newOutputDir()
     let session = try newSession()
     let t = try await session.openPath(try makeTinyCSV(dir: dir))
@@ -306,7 +306,7 @@ private func makeTinyCSV(dir: String, name: String = "tiny.csv") throws -> Strin
     #expect(!exists(out(FileManager.default.currentDirectoryPath, "pwned.csv")))
 }
 
-@Test func exportSurvivesATableNameCarryingADoubleQuote() async throws {
+@Test(.engineLifetime) func exportSurvivesATableNameCarryingADoubleQuote() async throws {
     let dir = try newOutputDir()
     let session = try newSession()
     // `openPath(_:name:)` takes a caller-supplied name verbatim — it does NOT sanitize one that
@@ -320,7 +320,7 @@ private func makeTinyCSV(dir: String, name: String = "tiny.csv") throws -> Strin
     #expect(try String(contentsOfFile: dest, encoding: .utf8) == "id,region\n1,West\n2,South\n3,West\n")
 }
 
-@Test func exportReRunsTheSelectOnlyGateOnStoredSQLTextBeforeWrappingIt() async throws {
+@Test(.engineLifetime) func exportReRunsTheSelectOnlyGateOnStoredSQLTextBeforeWrappingIt() async throws {
     let dir = try newOutputDir()
     let session = try newSession()
     let t = try await session.openPath(try makeTinyCSV(dir: dir))
@@ -347,7 +347,7 @@ private func makeTinyCSV(dir: String, name: String = "tiny.csv") throws -> Strin
     #expect(!exists(out(dir, "two.csv")))
 }
 
-@Test func exportRefusesATableThatIsNotOpen() async throws {
+@Test(.engineLifetime) func exportRefusesATableThatIsNotOpen() async throws {
     let dir = try newOutputDir()
     let session = try newSession()
     await #expect(throws: SessionError("No open table named 'nope'.")) {

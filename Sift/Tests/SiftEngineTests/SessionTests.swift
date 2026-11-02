@@ -56,7 +56,7 @@ private func orderID(_ row: [Cell]) -> Int {
 
 // MARK: - open -> page contiguity
 
-@Test func openThenPageCoversEveryRowExactlyOnce() async throws {
+@Test(.engineLifetime) func openThenPageCoversEveryRowExactlyOnce() async throws {
     let session = try newSession()
     let t = try await session.openPath(sharedData.cleanCSV)
     #expect(t.name == "clean")
@@ -75,7 +75,7 @@ private func orderID(_ row: [Cell]) -> Int {
 
 // MARK: - sorted-page stability (the reason `_sorted_relation` exists)
 
-@Test func sortedPagesNeverDuplicateOrDropARowAcrossOffsets() async throws {
+@Test(.engineLifetime) func sortedPagesNeverDuplicateOrDropARowAcrossOffsets() async throws {
     let session = try newSession()
     let t = try await session.openPath(sharedData.cleanCSV)
     // "region" is deliberately non-unique (4 values over 1000 rows): a fresh ORDER BY per page
@@ -116,7 +116,7 @@ private func gzip(_ sourcePath: String, to destPath: String) throws {
     }
 }
 
-@Test func gridRowsExcludesBadRowsOnACompressedDirtyCSV() async throws {
+@Test(.engineLifetime) func gridRowsExcludesBadRowsOnACompressedDirtyCSV() async throws {
     // The corpus's plain `dirtyCSV` (1000 rows, one bad "amount" cell) cannot demonstrate this
     // end to end: under `fullSniffMaxBytes` (50MB) Sift's sniffer scans the WHOLE file, and
     // correctly widens "amount" to VARCHAR the instant it sees one value that cannot be a
@@ -143,7 +143,7 @@ private func gzip(_ sourcePath: String, to destPath: String) throws {
 
 // MARK: - visibleRows: filtered vs unfiltered
 
-@Test func visibleRowsIsTheFilteredCountOnlyWhileAFilterIsActive() {
+@Test(.engineLifetime) func visibleRowsIsTheFilteredCountOnlyWhileAFilterIsActive() {
     let key = SourceKey(path: "/tmp/x.csv", mtimeNs: 0, size: 1000)
     let spec = SourceSpec(
         key: key, fmt: .csv, readFn: "read_csv", columns: [Column(name: "id", type: "BIGINT")]
@@ -160,7 +160,7 @@ private func gzip(_ sourcePath: String, to destPath: String) throws {
     #expect(t.visibleRows == 42)    // filter active and counted
 }
 
-@Test func pageCountsTheFilteredRelationOncePerSpecChangeNotPerPage() async throws {
+@Test(.engineLifetime) func pageCountsTheFilteredRelationOncePerSpecChangeNotPerPage() async throws {
     let session = try newSession()
     let t = try await session.openPath(sharedData.cleanCSV)
     await session.replaceQuerySpec(
@@ -188,7 +188,7 @@ private func gzip(_ sourcePath: String, to destPath: String) throws {
 
 // MARK: - ~/.sift permissions (§11 frozen contract)
 
-@Test func siftHomeEndsUpAt0700EvenIfItAlreadyExistedLooser() throws {
+@Test(.engineLifetime) func siftHomeEndsUpAt0700EvenIfItAlreadyExistedLooser() throws {
     let home = newSessionHome()
     try FileManager.default.createDirectory(
         atPath: home, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o755]
@@ -204,7 +204,7 @@ private func gzip(_ sourcePath: String, to destPath: String) throws {
 
 // MARK: - table-name collisions
 
-@Test func reopeningTheSameFileGetsA_2Suffix() async throws {
+@Test(.engineLifetime) func reopeningTheSameFileGetsA_2Suffix() async throws {
     let session = try newSession()
     let first = try await session.openPath(sharedData.cleanCSV)
     let second = try await session.openPath(sharedData.cleanCSV)
@@ -226,7 +226,7 @@ private func gzip(_ sourcePath: String, to destPath: String) throws {
 /// (an explicit `skip=0` is the sniffer's own answer handed back, and restores the collapse), so
 /// asking for both silently gets neither — a user following a note that told them how to recover
 /// their columns would get the same broken read back with no indication why.
-@Test func openPathRefusesBothEscapeHatchesAtOnceRatherThanHonouringNeither() async throws {
+@Test(.engineLifetime) func openPathRefusesBothEscapeHatchesAtOnceRatherThanHonouringNeither() async throws {
     let session = try newSession()
     do {
         _ = try await session.openPath(sharedData.cleanCSV, nullPadding: true, skipPreamble: false)
@@ -255,7 +255,7 @@ private func gzip(_ sourcePath: String, to destPath: String) throws {
 /// specifically warns that a test here must assert on the message: `hardened` is a dictionary this
 /// engine writes about itself, and a test that only reads it would survive DuckDB renaming a
 /// setting out from under the whole layer.
-@Test func aSessionHardensTheDatabaseItHandsEveryQuery() async throws {
+@Test(.engineLifetime) func aSessionHardensTheDatabaseItHandsEveryQuery() async throws {
     let session = try newSession()
 
     // 1. Every setting `harden()` names actually applied. A `false` here means DuckDB renamed one
@@ -312,7 +312,7 @@ private func gzip(_ sourcePath: String, to destPath: String) throws {
 /// `openedAt` is the fix and it already existed: a monotonic per-open counter, never reused, that
 /// `merge` also stamps. Eight tables, a close, and two more opens — so a sort that merely happened
 /// to agree with insertion order cannot pass, and neither can one keyed on the name.
-@Test func stateListsTablesInTheOrderTheyWereOpened() async throws {
+@Test(.engineLifetime) func stateListsTablesInTheOrderTheyWereOpened() async throws {
     let session = try newSession()
     let names = ["alpha", "bravo", "charlie", "delta_x", "echo", "foxtrot", "golf", "hotel"]
     for name in names { _ = try await session.openPath(sharedData.cleanCSV, name: name) }
@@ -342,7 +342,7 @@ private func gzip(_ sourcePath: String, to destPath: String) throws {
 
 // MARK: - a fresh session's engine info
 
-@Test func aFreshSessionOwnsTheSharedStore() throws {
+@Test(.engineLifetime) func aFreshSessionOwnsTheSharedStore() throws {
     let session = try newSession()
     let info = session.engineInfo()
     #expect(info.sharedStore == true)
@@ -361,7 +361,7 @@ private func gzip(_ sourcePath: String, to destPath: String) throws {
 // sessions), for what is almost certainly the identical reason. `sweepPrivateStores` — the part
 // that does not need a second real process — is fully covered below.
 
-@Test func sweepPrivateStoresKeepsALiveOwnersStoreAndRemovesADeadOnes() throws {
+@Test(.engineLifetime) func sweepPrivateStoresKeepsALiveOwnersStoreAndRemovesADeadOnes() throws {
     let home = newSessionHome()
     try FileManager.default.createDirectory(atPath: home, withIntermediateDirectories: true)
 
@@ -406,7 +406,7 @@ private func gzip(_ sourcePath: String, to destPath: String) throws {
 // sorted table more than once and would fail the same way if this regressed; this test isolates
 // the mechanism (three page() calls, the smallest number that proves "more than once") rather
 // than relying on that test's stability assertion to catch it as a side effect.
-@Test func sortedRelationSurvivesAcrossMultiplePageCalls() async throws {
+@Test(.engineLifetime) func sortedRelationSurvivesAcrossMultiplePageCalls() async throws {
     let session = try newSession()
     let t = try await session.openPath(sharedData.cleanCSV)
     await session.replaceQuerySpec(
@@ -421,7 +421,7 @@ private func gzip(_ sourcePath: String, to destPath: String) throws {
 
 // MARK: - preserve_insertion_order (Minor 1): sortedRelation's correctness rests on this default
 
-@Test func preserveInsertionOrderDefaultsOn() throws {
+@Test(.engineLifetime) func preserveInsertionOrderDefaultsOn() throws {
     // sortedRelation's whole correctness rests on a materialized table's physical scan order
     // matching its `CREATE TABLE AS SELECT ... ORDER BY` order. MEASURED with the setting
     // explicitly forced off, at a scale where ties are common enough to matter (500k rows,
@@ -445,7 +445,7 @@ private func gzip(_ sourcePath: String, to destPath: String) throws {
 
 // MARK: - a closed-and-reopened table must not inherit a stale background result (review C1)
 
-@Test func closeAndReopenRejectsAStaleBackgroundResult() async throws {
+@Test(.engineLifetime) func closeAndReopenRejectsAStaleBackgroundResult() async throws {
     // Reproduces the scenario from review: open a table, close it, reopen a DIFFERENT table
     // under the SAME name, then simulate the closed table's background scan finishing late and
     // trying to write its result. `runAfterOpen`'s `apply*` calls are keyed by name only, so

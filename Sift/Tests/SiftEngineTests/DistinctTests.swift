@@ -1,3 +1,4 @@
+import TestSupport
 import Testing
 import Foundation
 import DuckDBKit
@@ -59,7 +60,7 @@ private func label(_ cell: Cell) -> String {
 
 // MARK: - NULL vs empty: the headline distinction
 
-@Test func nullAndEmptyAreSeparateRows() throws {
+@Test(.engineLifetime) func nullAndEmptyAreSeparateRows() throws {
     // Merging them, or dropping either, would hide the actual problem — design spec §9.
     let con = try newConnection()
     let (_, cols) = try view(con, sharedData.nullsCSV, "d1")
@@ -84,7 +85,7 @@ private func label(_ cell: Cell) -> String {
 
 // MARK: - counts and fractions come from one pass
 
-@Test func fractionsSumToOneAndComeFromTheSamePass() throws {
+@Test(.engineLifetime) func fractionsSumToOneAndComeFromTheSamePass() throws {
     let con = try newConnection()
     let (_, cols) = try view(con, sharedData.cleanCSV, "d2")
 
@@ -95,7 +96,7 @@ private func label(_ cell: Cell) -> String {
     #expect(rows.count == 4)
 }
 
-@Test func aFilterOnAnotherColumnNarrowsTheDenominator() throws {
+@Test(.engineLifetime) func aFilterOnAnotherColumnNarrowsTheDenominator() throws {
     let con = try newConnection()
     let (_, cols) = try view(con, sharedData.cleanCSV, "d3")
     let filters = [Filter(col: "order_id", op: .lt, values: [.int(500)])]
@@ -109,7 +110,7 @@ private func label(_ cell: Cell) -> String {
 
 // MARK: - search
 
-@Test func searchNarrowsTheValues() throws {
+@Test(.engineLifetime) func searchNarrowsTheValues() throws {
     let con = try newConnection()
     let (_, cols) = try view(con, sharedData.cleanCSV, "d4")
 
@@ -125,7 +126,7 @@ private func label(_ cell: Cell) -> String {
 
 // MARK: - the tail
 
-@Test func otherNAccountsForTheTail() throws {
+@Test(.engineLifetime) func otherNAccountsForTheTail() throws {
     let con = try newConnection()
     let (_, cols) = try view(con, sharedData.cleanCSV, "d5")
 
@@ -140,7 +141,7 @@ private func label(_ cell: Cell) -> String {
     #expect(cellInt(stats["n_rows"] ?? .null) - shown > 0, "a top-5 of 1000 distinct notes must leave a tail")
 }
 
-@Test func exactDistinctMatchesReality() throws {
+@Test(.engineLifetime) func exactDistinctMatchesReality() throws {
     let con = try newConnection()
     let (_, cols) = try view(con, sharedData.cleanCSV, "d6")
 
@@ -156,7 +157,7 @@ private func label(_ cell: Cell) -> String {
 
 // MARK: - histograms
 
-@Test func histogramBucketsCoverEveryRow() throws {
+@Test(.engineLifetime) func histogramBucketsCoverEveryRow() throws {
     let con = try newConnection()
     let (_, cols) = try view(con, sharedData.cleanCSV, "d7")
     let (lo, hi) = (0.0, 1000.0)
@@ -169,7 +170,7 @@ private func label(_ cell: Cell) -> String {
     #expect(rows.allSatisfy { (0..<10).contains(cellInt($0[0])) }, "bucket index must stay in range")
 }
 
-@Test func histogramClampsTheTopValueIntoTheLastBucket() throws {
+@Test(.engineLifetime) func histogramClampsTheTopValueIntoTheLastBucket() throws {
     // `least(bins - 1, ...)` exists so max(value) does not land in a phantom bucket N.
     let con = try newConnection()
     let (_, cols) = try view(con, sharedData.cleanCSV, "d8")
@@ -190,7 +191,7 @@ private func label(_ cell: Cell) -> String {
     #expect(edgeRows.reduce(0) { $0 + cellInt($1[1]) } == 1000)
 }
 
-@Test func temporalHistogramRuns() throws {
+@Test(.engineLifetime) func temporalHistogramRuns() throws {
     let con = try newConnection()
     try con.execute(
         "CREATE OR REPLACE VIEW d9 AS SELECT TIMESTAMP '2026-01-01' "

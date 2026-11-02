@@ -58,7 +58,7 @@ private func newHome() -> String { TestTemp.path("verification-tests") }
 
 // MARK: - 1. the runner
 
-@Test func runChecksReportsEveryFailureNotJustTheFirst() async throws {
+@Test(.engineLifetime) func runChecksReportsEveryFailureNotJustTheFirst() async throws {
     let report = await runChecks([
         failing("first", "one broke"),
         passing("middle"),
@@ -73,7 +73,7 @@ private func newHome() -> String { TestTemp.path("verification-tests") }
     #expect(report.exitCode == 1)
 }
 
-@Test func aSkippedCheckIsNeitherAPassNorAFailureAndLeavesTheRunGreen() async throws {
+@Test(.engineLifetime) func aSkippedCheckIsNeitherAPassNorAFailureAndLeavesTheRunGreen() async throws {
     let report = await runChecks([
         passing("ran"),
         skipping("needs delta", "the DuckDB delta extension is not installed"),
@@ -87,7 +87,7 @@ private func newHome() -> String { TestTemp.path("verification-tests") }
     #expect(report.exitCode == 0)
 }
 
-@Test func anErrorTheCheckDidNotExpectIsAFailureNotASkip() async throws {
+@Test(.engineLifetime) func anErrorTheCheckDidNotExpectIsAFailureNotASkip() async throws {
     let report = await runChecks([
         VerificationCheck(name: "engine threw", run: { _ in throw SessionError("no such table 'x'") })
     ])
@@ -98,7 +98,7 @@ private func newHome() -> String { TestTemp.path("verification-tests") }
     #expect(report.exitCode == 1)
 }
 
-@Test func onResultFiresOncePerCheckInOrder() async throws {
+@Test(.engineLifetime) func onResultFiresOncePerCheckInOrder() async throws {
     let collector = Collector()
     let report = await runChecks(
         [passing("a"), failing("b", "nope"), skipping("c", "not here")],
@@ -109,7 +109,7 @@ private func newHome() -> String { TestTemp.path("verification-tests") }
     #expect(collector.all.map(\.outcome) == report.results.map(\.outcome))
 }
 
-@Test func everyCheckGetsItsOwnWorkspaceAndItIsDeletedAfterwards() async throws {
+@Test(.engineLifetime) func everyCheckGetsItsOwnWorkspaceAndItIsDeletedAfterwards() async throws {
     let seen = Box<Workspace>()
     func recording(_ name: String) -> VerificationCheck {
         VerificationCheck(name: name, run: { ws in
@@ -137,7 +137,7 @@ private func newHome() -> String { TestTemp.path("verification-tests") }
     }
 }
 
-@Test func theWorkspaceIsRemovedEvenWhenTheCheckThrows() async throws {
+@Test(.engineLifetime) func theWorkspaceIsRemovedEvenWhenTheCheckThrows() async throws {
     let seen = Box<Workspace>()
     let report = await runChecks([
         VerificationCheck(name: "throws", run: { ws in
@@ -153,7 +153,7 @@ private func newHome() -> String { TestTemp.path("verification-tests") }
     #expect(!FileManager.default.fileExists(atPath: ws.home))
 }
 
-@Test func theCheckListStillCoversEverySurfaceTheBriefNames() {
+@Test(.engineLifetime) func theCheckListStillCoversEverySurfaceTheBriefNames() {
     let names = Set(verificationChecks.map(\.name))
     for required in [
         "open csv", "open parquet", "open json", "open ndjson", "open xlsx", "open delta",
@@ -171,7 +171,7 @@ private func newHome() -> String { TestTemp.path("verification-tests") }
 
 // MARK: - 2a. rendering a run
 
-@Test func renderCheckResultLabelsEachOutcomeAndIndentsItsSentence() {
+@Test(.engineLifetime) func renderCheckResultLabelsEachOutcomeAndIndentsItsSentence() {
     let ok = renderCheckResult(CheckResult(name: "merge", outcome: .passed, milliseconds: 12.34))
     #expect(ok.hasPrefix("ok    merge"))
     #expect(ok.contains("12.3 ms"))
@@ -190,7 +190,7 @@ private func newHome() -> String { TestTemp.path("verification-tests") }
     #expect(skipped.contains("\n        no delta extension"))
 }
 
-@Test func renderSummaryCountsEachOutcomeAndRestatesEveryFailure() {
+@Test(.engineLifetime) func renderSummaryCountsEachOutcomeAndRestatesEveryFailure() {
     let summary = renderSummary(VerificationReport(results: [
         CheckResult(name: "a", outcome: .passed, milliseconds: 1),
         CheckResult(name: "b", outcome: .failed("b broke"), milliseconds: 1),
@@ -206,7 +206,7 @@ private func newHome() -> String { TestTemp.path("verification-tests") }
 
 // MARK: - 2b. rendering a file
 
-@Test func renderGridKeepsADecimalsDeclaredScaleAndRightAlignsNumbers() {
+@Test(.engineLifetime) func renderGridKeepsADecimalsDeclaredScaleAndRightAlignsNumbers() {
     let lines = renderGrid(
         columns: [column("amount", "DECIMAL(10,2)"), column("region", "VARCHAR")],
         rows: [
@@ -227,7 +227,7 @@ private func newHome() -> String { TestTemp.path("verification-tests") }
     #expect(lines[1].hasSuffix("West"))
 }
 
-@Test func renderGridKeepsNullAndTheEmptyStringApartTheWayTheWebGridDoes() {
+@Test(.engineLifetime) func renderGridKeepsNullAndTheEmptyStringApartTheWayTheWebGridDoes() {
     let lines = renderGrid(
         columns: [column("id", "BIGINT"), column("note", "VARCHAR")],
         rows: [[.int(1), .null], [.int(2), .text("")]],
@@ -240,7 +240,7 @@ private func newHome() -> String { TestTemp.path("verification-tests") }
     #expect(lines[2] == "   2  ''")
 }
 
-@Test func renderGridClipsLongCellsAndDropsColumnsThatDoNotFitTheWidth() {
+@Test(.engineLifetime) func renderGridClipsLongCellsAndDropsColumnsThatDoNotFitTheWidth() {
     let long = String(repeating: "x", count: 80)
     let columns = (0..<4).map { column("c\($0)", "VARCHAR") }
     let lines = renderGrid(columns: columns, rows: [[.text(long), .text(long), .text(long), .text(long)]], width: 60)
@@ -253,7 +253,7 @@ private func newHome() -> String { TestTemp.path("verification-tests") }
     #expect(lines.last == "  \u{2026} and 2 more column(s)")
 }
 
-@Test func renderGridKeepsAtLeastOneColumnHoweverNarrowTheTerminal() {
+@Test(.engineLifetime) func renderGridKeepsAtLeastOneColumnHoweverNarrowTheTerminal() {
     let lines = renderGrid(
         columns: [column("a_rather_long_column_name", "VARCHAR"), column("b", "VARCHAR")],
         rows: [[.text("value"), .text("other")]],
@@ -263,7 +263,7 @@ private func newHome() -> String { TestTemp.path("verification-tests") }
     #expect(lines.last == "  \u{2026} and 1 more column(s)")
 }
 
-@Test func renderGridFlattensAQuotedNewlineSoItCannotTearTheGridApart() {
+@Test(.engineLifetime) func renderGridFlattensAQuotedNewlineSoItCannotTearTheGridApart() {
     let lines = renderGrid(
         columns: [column("id", "BIGINT"), column("note", "VARCHAR")],
         rows: [[.int(1), .text("line one\nline two")], [.int(2), .text("after")]],
@@ -273,7 +273,7 @@ private func newHome() -> String { TestTemp.path("verification-tests") }
     #expect(lines[1].contains("line one line two"))
 }
 
-@Test func renderOverviewMarksAnEstimateAsApproximateAndSaysWhy() {
+@Test(.engineLifetime) func renderOverviewMarksAnEstimateAsApproximateAndSaysWhy() {
     let columns = [column("id", "BIGINT")]
     let exact = renderOverview(FileOverview(
         path: "/tmp/a.csv", table: "a", format: "csv", rows: 1200, rowsExact: true,
@@ -307,7 +307,7 @@ private func newHome() -> String { TestTemp.path("verification-tests") }
 /// The dropped-row line is printed on EVERY open, including the clean case, and a scan that did
 /// not finish must not be reported as a clean one. Before this, a file that lost 12 rows showed
 /// the survivors and said nothing — the product's headline claim going silent.
-@Test func everyOverviewSaysWhetherRowsWereDropped() {
+@Test(.engineLifetime) func everyOverviewSaysWhetherRowsWereDropped() {
     func overview(_ dropped: Int?, _ cells: Int) -> String {
         renderOverview(FileOverview(
             path: "/tmp/a.csv", table: "a", format: "csv", rows: 1200, rowsExact: true,
@@ -326,14 +326,14 @@ private func newHome() -> String { TestTemp.path("verification-tests") }
     #expect(!unknown.contains("no rows dropped"))
 }
 
-@Test func renderSchemaListsNameTypeAndKindPerColumn() {
+@Test(.engineLifetime) func renderSchemaListsNameTypeAndKindPerColumn() {
     let lines = renderSchema([column("id", "BIGINT"), column("payload", "JSON")])
     #expect(lines == ["  id       BIGINT  number", "  payload  JSON    nested"])
 }
 
 // MARK: - 2c. argument parsing
 
-@Test func parseArgumentsReadsAPathAndItsOptionsInBothSpellings() {
+@Test(.engineLifetime) func parseArgumentsReadsAPathAndItsOptionsInBothSpellings() {
     #expect(parseArguments(["data.csv"]) == .open(path: "data.csv", sheet: nil, rows: 10, width: 100, nullPadding: false, skipPreamble: true))
     #expect(
         parseArguments(["--rows", "3", "data.csv", "--sheet", "Q1 2024", "--width", "60"])
@@ -352,7 +352,7 @@ private func newHome() -> String { TestTemp.path("verification-tests") }
 
 /// The two escape hatches the sniffer notes tell the user to reach for. Each note names one, so
 /// a flag that parsed and did nothing would be the same defect the note exists to report.
-@Test func parseArgumentsCarriesTheTwoWaysBackFromABadSniff() {
+@Test(.engineLifetime) func parseArgumentsCarriesTheTwoWaysBackFromABadSniff() {
     #expect(
         parseArguments(["ragged.csv", "--null-padding"])
             == .open(
@@ -379,14 +379,14 @@ private func newHome() -> String { TestTemp.path("verification-tests") }
     }
 }
 
-@Test func parseArgumentsRecognisesHelpAndVerify() {
+@Test(.engineLifetime) func parseArgumentsRecognisesHelpAndVerify() {
     #expect(parseArguments(["--help"]) == .help)
     #expect(parseArguments(["-h"]) == .help)
     #expect(parseArguments(["data.csv", "--help"]) == .help)
     #expect(parseArguments(["--verify"]) == .verify)
 }
 
-@Test func parseArgumentsRefusesWhatItCannotHonour() {
+@Test(.engineLifetime) func parseArgumentsRefusesWhatItCannotHonour() {
     func isUsageError(_ args: [String]) -> Bool {
         if case .usageError = parseArguments(args) { return true }
         return false
@@ -410,7 +410,7 @@ private func newHome() -> String { TestTemp.path("verification-tests") }
 // A fixture that quietly stops carrying the property it was built for turns its check into a
 // no-op that still reports `ok`. These are the guards against that.
 
-@Test func writeSalesCSVWritesTheHeaderAndExactlyTheRowsAsked() throws {
+@Test(.engineLifetime) func writeSalesCSVWritesTheHeaderAndExactlyTheRowsAsked() throws {
     let home = newHome()
     try FileManager.default.createDirectory(atPath: home, withIntermediateDirectories: true)
     let path = (home as NSString).appendingPathComponent("sales.csv")
@@ -426,7 +426,7 @@ private func newHome() -> String { TestTemp.path("verification-tests") }
     #expect(regions == ["West", "Midwest", "South", "Northeast"])
 }
 
-@Test func theParquetFixtureReallyCarriesADecimalColumn() throws {
+@Test(.engineLifetime) func theParquetFixtureReallyCarriesADecimalColumn() throws {
     let home = newHome()
     try FileManager.default.createDirectory(atPath: home, withIntermediateDirectories: true)
     let path = (home as NSString).appendingPathComponent("t.parquet")
@@ -440,7 +440,7 @@ private func newHome() -> String { TestTemp.path("verification-tests") }
     #expect(types["order_id"] == "BIGINT")
 }
 
-@Test func theDeltaFixtureTombstonesAFileThatIsStillPhysicallyPresent() throws {
+@Test(.engineLifetime) func theDeltaFixtureTombstonesAFileThatIsStillPhysicallyPresent() throws {
     let home = newHome()
     try FileManager.default.createDirectory(atPath: home, withIntermediateDirectories: true)
     let root = (home as NSString).appendingPathComponent("dtable")
@@ -470,7 +470,7 @@ private func newHome() -> String { TestTemp.path("verification-tests") }
 
 // MARK: - 2e. `sift <path>`
 
-@Test func openAndDescribeReportsTheSchemaAndTheFirstRows() async throws {
+@Test(.engineLifetime) func openAndDescribeReportsTheSchemaAndTheFirstRows() async throws {
     let home = newHome()
     let scratch = newHome()
     try FileManager.default.createDirectory(atPath: scratch, withIntermediateDirectories: true)
@@ -513,7 +513,7 @@ private func newHome() -> String { TestTemp.path("verification-tests") }
 ///
 /// Written to FAIL before the fix. Goes through `openAndDescribe` and `renderOverview`, i.e. the
 /// exact bytes `sift <path>` puts on a terminal.
-@Test func aFileWhosePreambleAteItSaysSo() async throws {
+@Test(.engineLifetime) func aFileWhosePreambleAteItSaysSo() async throws {
     let home = newHome()
     let scratch = newHome()
     try FileManager.default.createDirectory(atPath: scratch, withIntermediateDirectories: true)
@@ -534,7 +534,7 @@ private func newHome() -> String { TestTemp.path("verification-tests") }
     #expect(rendered.contains("(no rows)"))
 }
 
-@Test func aRaggedFileSaysOutLoudThatItCollapsedIntoOneColumn() async throws {
+@Test(.engineLifetime) func aRaggedFileSaysOutLoudThatItCollapsedIntoOneColumn() async throws {
     let home = newHome()
     let scratch = newHome()
     try FileManager.default.createDirectory(atPath: scratch, withIntermediateDirectories: true)
@@ -557,7 +557,7 @@ private func newHome() -> String { TestTemp.path("verification-tests") }
     #expect(rendered.contains("no rows dropped"))
 }
 
-@Test func openAndDescribeCountsAShortFileExactlyEvenBeforeTheBackgroundScanLands() async throws {
+@Test(.engineLifetime) func openAndDescribeCountsAShortFileExactlyEvenBeforeTheBackgroundScanLands() async throws {
     let home = newHome()
     let scratch = newHome()
     let folder = (scratch as NSString).appendingPathComponent("daily")
@@ -585,7 +585,7 @@ private func newHome() -> String { TestTemp.path("verification-tests") }
 
 // MARK: - 2f. waiting
 
-@Test func waitForStagingGivesUpRatherThanHangingOnAJobThatNeverEnds() async throws {
+@Test(.engineLifetime) func waitForStagingGivesUpRatherThanHangingOnAJobThatNeverEnds() async throws {
     let home = newHome()
     let scratch = newHome()
     try FileManager.default.createDirectory(atPath: scratch, withIntermediateDirectories: true)
@@ -610,49 +610,49 @@ private func newHome() -> String { TestTemp.path("verification-tests") }
 // prove the ENGINE works. `withWorkspace` gives each one the same private home and scratch
 // directory the CLI would.
 
-@Test func csvOpensAndPagesContiguously() async throws { try await withWorkspace(checkOpenCSV) }
-@Test func parquetOpensWithItsFooterCountAndDecimalScale() async throws {
+@Test(.engineLifetime) func csvOpensAndPagesContiguously() async throws { try await withWorkspace(checkOpenCSV) }
+@Test(.engineLifetime) func parquetOpensWithItsFooterCountAndDecimalScale() async throws {
     try await withWorkspace(checkOpenParquet)
 }
-@Test func jsonOpens() async throws { try await withWorkspace(checkOpenJSON) }
-@Test func ndjsonOpensAndClassifiesNestedColumns() async throws {
+@Test(.engineLifetime) func jsonOpens() async throws { try await withWorkspace(checkOpenJSON) }
+@Test(.engineLifetime) func ndjsonOpensAndClassifiesNestedColumns() async throws {
     try await withWorkspace(checkOpenNDJSON)
 }
-@Test(.enabled(if: extensionIsAvailable("excel"), "duckdb excel extension not installed"))
+@Test(.engineLifetime, .enabled(if: extensionIsAvailable("excel"), "duckdb excel extension not installed"))
 func xlsxOpensThroughTheSheetPicker() async throws { try await withWorkspace(checkOpenXLSX) }
-@Test(.enabled(if: extensionIsAvailable("delta"), "duckdb delta extension not installed"))
+@Test(.engineLifetime, .enabled(if: extensionIsAvailable("delta"), "duckdb delta extension not installed"))
 func deltaOpensAndHonoursTombstones() async throws { try await withWorkspace(checkOpenDelta) }
-@Test func aFolderOpensAsOneTableWithFilenameProvenance() async throws {
+@Test(.engineLifetime) func aFolderOpensAsOneTableWithFilenameProvenance() async throws {
     try await withWorkspace(checkOpenFolder)
 }
-@Test func aFileThatIsNotWhatItsNameSaysGetsASentence() async throws {
+@Test(.engineLifetime) func aFileThatIsNotWhatItsNameSaysGetsASentence() async throws {
     try await withWorkspace(checkMalformedFile)
 }
-@Test func profilingProducesOneProfilePerColumnInFileOrder() async throws {
+@Test(.engineLifetime) func profilingProducesOneProfilePerColumnInFileOrder() async throws {
     try await withWorkspace(checkProfile)
 }
-@Test func theDistinctPanelCountsAndFacets() async throws {
+@Test(.engineLifetime) func theDistinctPanelCountsAndFacets() async throws {
     try await withWorkspace(checkDistinctPanel)
 }
-@Test func theHistogramPanelCoversEveryRowAndNamesTheDegenerateCase() async throws {
+@Test(.engineLifetime) func theHistogramPanelCoversEveryRowAndNamesTheDegenerateCase() async throws {
     try await withWorkspace(checkHistogramPanel)
 }
-@Test func theSampleAndLengthPanelsReportRealValues() async throws {
+@Test(.engineLifetime) func theSampleAndLengthPanelsReportRealValues() async throws {
     try await withWorkspace(checkSmallPanels)
 }
-@Test func droppedRowsAreCountedAndSaidOutLoud() async throws {
+@Test(.engineLifetime) func droppedRowsAreCountedAndSaidOutLoud() async throws {
     try await withWorkspace(checkDroppedRows)
 }
-@Test func aCollapsedRaggedFileSaysSoAndNullPaddingGetsTheColumnsBack() async throws {
+@Test(.engineLifetime) func aCollapsedRaggedFileSaysSoAndNullPaddingGetsTheColumnsBack() async throws {
     try await withWorkspace(checkRaggedCollapse)
 }
-@Test func aFileEatenByItsPreambleSaysSoAndKeepingItGetsTheRowsBack() async throws {
+@Test(.engineLifetime) func aFileEatenByItsPreambleSaysSoAndKeepingItGetsTheRowsBack() async throws {
     try await withWorkspace(checkPreambleAteTheFile)
 }
-@Test func theRenderedSQLAndEverySnippetDialectAreProduced() async throws {
+@Test(.engineLifetime) func theRenderedSQLAndEverySnippetDialectAreProduced() async throws {
     try await withWorkspace(checkSnippetAndRenderedSQL)
 }
-@Test func theSelectOnlyGateRefusesEverythingItShould() async throws {
+@Test(.engineLifetime) func theSelectOnlyGateRefusesEverythingItShould() async throws {
     try await withWorkspace(checkSelectOnlyGate)
 }
 
@@ -663,26 +663,26 @@ func deltaOpensAndHonoursTombstones() async throws { try await withWorkspace(che
 // `extensionIsAvailable`) are LOAD-only. Explicit cold installs belong to the gated
 // remoteFact canaries; the default suite never installs a missing extension.
 
-@Test func aStrictSessionRefusesAUrlAndReachesNothing() async throws {
+@Test(.engineLifetime) func aStrictSessionRefusesAUrlAndReachesNothing() async throws {
     try await withWorkspace(checkRemotePosture)
 }
-@Test(.enabled(if: extensionIsInstalled("httpfs"), "duckdb httpfs extension not installed"))
+@Test(.engineLifetime, .enabled(if: extensionIsInstalled("httpfs"), "duckdb httpfs extension not installed"))
 func aPermissiveSessionReadsARemoteParquetThroughTheSqlBox() async throws {
     try await withWorkspace(checkRemoteConnection)
 }
-@Test(.enabled(if: extensionIsInstalled("httpfs"), "duckdb httpfs extension not installed"))
+@Test(.engineLifetime, .enabled(if: extensionIsInstalled("httpfs"), "duckdb httpfs extension not installed"))
 func aServedCsvIsDownloadedOnceAndEverythingAfterThatReadsTheCopy() async throws {
     try await withWorkspace(checkRemoteCSVDownload)
 }
-@Test(.enabled(if: extensionIsInstalled("httpfs"), "duckdb httpfs extension not installed"))
+@Test(.engineLifetime, .enabled(if: extensionIsInstalled("httpfs"), "duckdb httpfs extension not installed"))
 func aServedParquetRangeReadsInPlaceAndLeavesNoCacheFile() async throws {
     try await withWorkspace(checkRemoteParquetRanges)
 }
-@Test(.enabled(if: extensionIsInstalled("httpfs"), "duckdb httpfs extension not installed"))
+@Test(.engineLifetime, .enabled(if: extensionIsInstalled("httpfs"), "duckdb httpfs extension not installed"))
 func aSignedUrlsQueryStringReachesNothingPersistedOrRendered() async throws {
     try await withWorkspace(checkRemoteCredential)
 }
-@Test func theCacheSweepCollectsOrphansAndAgedCopiesAndNothingOutsideItsDirectory() async throws {
+@Test(.engineLifetime) func theCacheSweepCollectsOrphansAndAgedCopiesAndNothingOutsideItsDirectory() async throws {
     try await withWorkspace(checkRemoteCacheSweep)
 }
 
@@ -691,7 +691,7 @@ func aSignedUrlsQueryStringReachesNothingPersistedOrRendered() async throws {
 /// `autoinstall_known_extensions=false`, so this can only ever answer from what is already on disk.
 /// Swap it for `loadExtensions` and the answer is identical on this machine while `swift test`
 /// silently gains an outbound install on an unprepared one.
-@Test func theHttpfsProbeAgreesWithABareLoadAndNeverInstalls() throws {
+@Test(.engineLifetime) func theHttpfsProbeAgreesWithABareLoadAndNeverInstalls() throws {
     let db = try scratchDatabase()
     #expect(extensionIsInstalled("httpfs") == ((try? db.connect().execute("LOAD httpfs")) != nil))
     // The two settings that make the probe offline, asserted rather than assumed: without them a
@@ -705,10 +705,10 @@ func aSignedUrlsQueryStringReachesNothingPersistedOrRendered() async throws {
     // `loadedExtensions` above cannot tell a probe that installs from one that does not. This can.
     #expect(db.networkInstalls.isEmpty)
 }
-@Test func stagingAndUnstagingRoundTripsWithoutChangingTheRows() async throws {
+@Test(.engineLifetime) func stagingAndUnstagingRoundTripsWithoutChangingTheRows() async throws {
     try await withWorkspace(checkStagingRoundTrip)
 }
-@Test func joinProbeAndMergeAgreeOnTheOverlap() async throws { try await withWorkspace(checkMerge) }
-@Test func everyExportFormatWritesAFileThatReadsBack() async throws {
+@Test(.engineLifetime) func joinProbeAndMergeAgreeOnTheOverlap() async throws { try await withWorkspace(checkMerge) }
+@Test(.engineLifetime) func everyExportFormatWritesAFileThatReadsBack() async throws {
     try await withWorkspace(checkExport)
 }

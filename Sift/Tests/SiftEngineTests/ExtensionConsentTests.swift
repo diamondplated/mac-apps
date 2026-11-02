@@ -30,7 +30,7 @@ private func consentSource(_ name: String) throws -> String {
     return dir
 }
 
-@Test(arguments: ["excel", "delta"])
+@Test(.engineLifetime, arguments: ["excel", "delta"])
 func extensionConsentEngineColdStartupAndFirstUseNeverInstall(_ name: String) async throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
@@ -52,7 +52,7 @@ func extensionConsentEngineColdStartupAndFirstUseNeverInstall(_ name: String) as
     #expect(await session.state().tables.isEmpty)
 }
 
-@Test(.enabled(if: consentRemoteFacts))
+@Test(.engineLifetime, .enabled(if: consentRemoteFacts))
 func remoteFactConsentFailedApprovedDownloadIsOneSentence() async throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
@@ -70,7 +70,7 @@ func remoteFactConsentFailedApprovedDownloadIsOneSentence() async throws {
     #expect(!session.allowRemoteAtLaunch)
 }
 
-@Test func extensionConsentEngineChangedSourceCannotAuthorizeDifferentExtension() async throws {
+@Test(.engineLifetime) func extensionConsentEngineChangedSourceCannotAuthorizeDifferentExtension() async throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
     let session = try coldConsentSession(repository: server.baseURL)
@@ -87,14 +87,14 @@ func remoteFactConsentFailedApprovedDownloadIsOneSentence() async throws {
     #expect(server.requestLog.isEmpty)
 }
 
-@Test func extensionConsentEngineCLIRequiresExplicitFlagAndRejectsVerifyCombination() {
+@Test(.engineLifetime) func extensionConsentEngineCLIRequiresExplicitFlagAndRejectsVerifyCombination() {
     #expect(parseArguments(["book.xlsx"]) == .open(path: "book.xlsx", sheet: nil, rows: 10, width: 100, nullPadding: false, skipPreamble: true))
     #expect(parseArguments(["book.xlsx", "--allow-extension-download"]) == .open(path: "book.xlsx", sheet: nil, rows: 10, width: 100, nullPadding: false, skipPreamble: true, allowExtensionDownload: true))
     #expect(parseArguments(["--verify", "--allow-extension-download"]) == .usageError("--verify takes no other arguments"))
     #expect(parseArguments(["book.xlsx", "--allow-extension-download=false"]) == .usageError("--allow-extension-download takes no value"))
 }
 
-@Test func extensionConsentEngineAuditSnapshotsAreSafeDuringConcurrentLoads() async throws {
+@Test(.engineLifetime) func extensionConsentEngineAuditSnapshotsAreSafeDuringConcurrentLoads() async throws {
     let db = try Database.inMemory()
     db.harden()
     await withTaskGroup(of: Void.self) { group in
@@ -114,7 +114,7 @@ func remoteFactConsentFailedApprovedDownloadIsOneSentence() async throws {
     #expect(db.networkInstalls.isEmpty)
 }
 
-@Test(.enabled(if: consentRemoteFacts))
+@Test(.engineLifetime, .enabled(if: consentRemoteFacts))
 func remoteFactConsentExplicitApprovalInstallsOnlyTheRequiredExtensionAndOpens() async throws {
     let session = try coldConsentSession(repository: nil)
     #expect(session.database.networkInstalls.isEmpty)
@@ -133,7 +133,7 @@ func remoteFactConsentExplicitApprovalInstallsOnlyTheRequiredExtensionAndOpens()
     #expect(session.database.networkInstalls == ["excel"], "An already available extension needs no second download")
 }
 
-@Test func extensionConsentEngineDatabaseDefaultsToLoadOnly() throws {
+@Test(.engineLifetime) func extensionConsentEngineDatabaseDefaultsToLoadOnly() throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
     let session = try coldConsentSession(repository: server.baseURL)

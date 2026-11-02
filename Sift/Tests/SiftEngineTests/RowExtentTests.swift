@@ -32,7 +32,7 @@ private func syntheticTable(
     return t
 }
 
-@Test func aLargeCSVSizesItsGridFromTheEstimateBeforeTheExactCountLands() {
+@Test(.engineLifetime) func aLargeCSVSizesItsGridFromTheEstimateBeforeTheExactCountLands() {
     let t = syntheticTable(rowCount: nil, estimate: 2_400_000)
     #expect(t.displayRows == 2_400_000)
     #expect(t.rowsAreExact == false)
@@ -40,38 +40,38 @@ private func syntheticTable(
     #expect(t.scrollableRows == 2_400_000)
 }
 
-@Test func aFileWithNeitherACountNorAnEstimateReportsNothingRatherThanZero() {
+@Test(.engineLifetime) func aFileWithNeitherACountNorAnEstimateReportsNothingRatherThanZero() {
     let t = syntheticTable(rowCount: nil, estimate: nil)
     #expect(t.displayRows == nil)
     #expect(t.rowsBasis == .pending)
 }
 
-@Test func theExactCountWinsOverTheEstimateOnceItLands() {
+@Test(.engineLifetime) func theExactCountWinsOverTheEstimateOnceItLands() {
     let t = syntheticTable(rowCount: 2_412_338, estimate: 2_400_000)
     #expect(t.displayRows == 2_412_338)
     #expect(t.rowsAreExact)
     #expect(t.rowsBasis == .counted)
 }
 
-@Test func anUnsortedTableScrollsThroughEveryRow() {
+@Test(.engineLifetime) func anUnsortedTableScrollsThroughEveryRow() {
     let t = syntheticTable(rowCount: 100_000_000)
     #expect(t.scrollableRows == 100_000_000)
     #expect(t.sortTruncated == false)
 }
 
-@Test func aSortedTableCannotScrollPastWhatSortedRelationMaterializes() {
+@Test(.engineLifetime) func aSortedTableCannotScrollPastWhatSortedRelationMaterializes() {
     let t = syntheticTable(rowCount: 100_000_000, sorted: true)
     #expect(t.scrollableRows == sortMaterializeMax)
     #expect(t.sortTruncated)
 }
 
-@Test func aSortedTableIsCappedOnItsEstimateToo() {
+@Test(.engineLifetime) func aSortedTableIsCappedOnItsEstimateToo() {
     let t = syntheticTable(rowCount: nil, estimate: 100_000_000, sorted: true)
     #expect(t.scrollableRows == sortMaterializeMax)
     #expect(t.sortTruncated)
 }
 
-@Test func aSortedTableUnderTheCapIsNotTruncated() {
+@Test(.engineLifetime) func aSortedTableUnderTheCapIsNotTruncated() {
     let t = syntheticTable(rowCount: 1_000, sorted: true)
     #expect(t.scrollableRows == 1_000)
     #expect(t.sortTruncated == false)
@@ -82,7 +82,7 @@ private func syntheticTable(
 /// The cap must be inert on every table anyone actually opens. A synthetic 100M-row `Table` proves
 /// the branch; this proves the branch is not in the way of the ordinary case — a real sorted table
 /// reaches its last row.
-@Test func anOrdinarySortedTableCanStillScrollToItsLastRow() async throws {
+@Test(.engineLifetime) func anOrdinarySortedTableCanStillScrollToItsLastRow() async throws {
     let session = try Session(home: TestTemp.path("rowextent-home"))
     let path = try makeCSV(dir: TestTemp.dir("rowextent"), name: "sorted.csv", rows: 1_000)
     let opened = try await session.openPath(path)
@@ -103,7 +103,7 @@ private func syntheticTable(
 /// The premise of the whole `displayRows` fallback, on a real file rather than a hand-built spec:
 /// a CSV over `exactCountMaxBytes` opens with NO exact count, and only the estimate stands between
 /// the user and an empty grid.
-@Test func aCSVOverTheExactCountThresholdOpensWithAnEstimateAndNoCount() async throws {
+@Test(.engineLifetime) func aCSVOverTheExactCountThresholdOpensWithAnEstimateAndNoCount() async throws {
     let dir = TestTemp.dir("rowextent-big")
     let path = URL(fileURLWithPath: dir).appendingPathComponent("big.csv").path
     // ~73 MB, past the 64 MB `exactCountMaxBytes`. Wide rows rather than many of them, and one

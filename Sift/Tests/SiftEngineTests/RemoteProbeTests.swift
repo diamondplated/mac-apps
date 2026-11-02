@@ -78,7 +78,7 @@ private func remoteConnection() throws -> Connection {
 
 // MARK: - identity
 
-@Test
+@Test(.engineLifetime)
 func remoteIdentityReadsEtagDateLengthAndRangeSupportOffOneHead() async throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
@@ -101,7 +101,7 @@ func remoteIdentityReadsEtagDateLengthAndRangeSupportOffOneHead() async throws {
     #expect(log.allSatisfy { $0.bytesSent == 0 }, "a HEAD must not move the object: \(log)")
 }
 
-@Test
+@Test(.engineLifetime)
 func aServerWithNoEtagStillYieldsALastModifiedAndALength() async throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
@@ -121,7 +121,7 @@ func aServerWithNoEtagStillYieldsALastModifiedAndALength() async throws {
     ) == "v3|remote|u|lm=784111777000|len=5")
 }
 
-@Test
+@Test(.engineLifetime)
 func acceptsRangesFollowsTheHeaderRatherThanHope() async throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
@@ -137,7 +137,7 @@ func acceptsRangesFollowsTheHeaderRatherThanHope() async throws {
     #expect(yes.acceptsRanges)
 }
 
-@Test
+@Test(.engineLifetime)
 func anUnparseableLastModifiedIsNoLastModifiedRatherThanAGuess() async throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
@@ -154,7 +154,7 @@ func anUnparseableLastModifiedIsNoLastModifiedRatherThanAGuess() async throws {
     #expect(httpDateMs("Wed, 21 Oct 2026 07:28 GMT") == nil)
 }
 
-@Test
+@Test(.engineLifetime)
 func aServerThatNeverAnswersTimesOutIntoNilRatherThanHanging() async throws {
     // The one personality `LoopbackHTTPServer` deliberately does not have: a socket that accepts
     // the connection and then says nothing at all, which is what a black-holed host looks like.
@@ -188,7 +188,7 @@ func aServerThatNeverAnswersTimesOutIntoNilRatherThanHanging() async throws {
     #expect(elapsed < 90, "the identity probe hung for \(elapsed)s")
 }
 
-@Test
+@Test(.engineLifetime)
 func theDeadlineIsSiftsOwnClockAndNotTheHostOperatingSystems() async throws {
     // 🔴 The ONLY test that can tell a raced probe from an unraced one on this machine, and the
     // reason `withDeadline` is a function rather than four lines inlined into `remoteIdentity`.
@@ -221,7 +221,7 @@ func theDeadlineIsSiftsOwnClockAndNotTheHostOperatingSystems() async throws {
 }
 
 
-@Test
+@Test(.engineLifetime)
 func remoteIdentityIsNilForEveryUrlUrlSessionCouldNotSign() async throws {
     // Not a gap being papered over: the credential for these lives in a DuckDB secret, inside the
     // engine. A HEAD sent from here would be anonymous, and a 403's headers are an identity for an
@@ -234,7 +234,7 @@ func remoteIdentityIsNilForEveryUrlUrlSessionCouldNotSign() async throws {
     }
 }
 
-@Test
+@Test(.engineLifetime)
 func aRefusedHeadIsNoIdentityRatherThanAnEmptyOne() async throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
@@ -247,7 +247,7 @@ func aRefusedHeadIsNoIdentityRatherThanAnEmptyOne() async throws {
 
 // MARK: - format: the extension table
 
-@Test
+@Test(.engineLifetime)
 func theRemoteExtensionTableHolds() throws {
     let con = try offlineConnection()
     let table: [(String, Fmt)] = [
@@ -271,7 +271,7 @@ func theRemoteExtensionTableHolds() throws {
     }
 }
 
-@Test
+@Test(.engineLifetime)
 func aQueryStringNeverDecidesTheFormat() throws {
     let con = try offlineConnection()
     // 🔴 The shipped defect `RemoteURL.effectiveExt` exists for: `NSString.pathExtension` answers
@@ -284,7 +284,7 @@ func aQueryStringNeverDecidesTheFormat() throws {
     #expect(error?.message.contains("no file extension") == true, "\(error?.message ?? "")")
 }
 
-@Test
+@Test(.engineLifetime)
 func aRemoteXlsIsRefusedTheWayALocalOneIs() throws {
     let con = try offlineConnection()
     let error = #expect(throws: LegacyXls.self) {
@@ -295,7 +295,7 @@ func aRemoteXlsIsRefusedTheWayALocalOneIs() throws {
 
 // MARK: - format: the refusals
 
-@Test
+@Test(.engineLifetime)
 func aRemoteGlobIsRefusedWithoutTouchingTheNetwork() throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
@@ -313,7 +313,7 @@ func aRemoteGlobIsRefusedWithoutTouchingTheNetwork() throws {
     #expect(server.requestLog.isEmpty, "a glob refusal must be local: \(server.requestLog)")
 }
 
-@Test
+@Test(.engineLifetime)
 func aRemoteDeltaTableIsRefusedWithASentenceThatSaysToDownloadIt() throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
@@ -337,7 +337,7 @@ func aRemoteDeltaTableIsRefusedWithASentenceThatSaysToDownloadIt() throws {
 
 // MARK: - format: the DESCRIBE fallback
 
-@Test(.enabled(if: remoteFacts))
+@Test(.engineLifetime, .enabled(if: remoteFacts))
 func remoteFactProbe_anExtensionlessParquetIsFoundByRangingNotByDownloading() throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
@@ -352,7 +352,7 @@ func remoteFactProbe_anExtensionlessParquetIsFoundByRangingNotByDownloading() th
             "the parquet probe downloaded \(moved) of \(body.count) B — it must range-read")
 }
 
-@Test(.enabled(if: remoteFacts))
+@Test(.engineLifetime, .enabled(if: remoteFacts))
 func remoteFactProbe_jsonIsProbedBeforeCsvBecauseReadCsvAcceptsJson() throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
@@ -365,7 +365,7 @@ func remoteFactProbe_jsonIsProbedBeforeCsvBecauseReadCsvAcceptsJson() throws {
     #expect(try remoteFormat(try remote("\(server.baseURL)/noext"), con: con) == .json)
 }
 
-@Test(.enabled(if: remoteFacts))
+@Test(.engineLifetime, .enabled(if: remoteFacts))
 func remoteFactProbe_anExtensionlessUrlThatIsNothingSiftReadsGetsOneSentence() throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
@@ -384,7 +384,7 @@ func remoteFactProbe_anExtensionlessUrlThatIsNothingSiftReadsGetsOneSentence() t
 
 // MARK: - downloading
 
-@Test(.enabled(if: remoteFacts))
+@Test(.engineLifetime, .enabled(if: remoteFacts))
 func remoteFactProbe_theDownloadIsByteExactWrittenAt0600AndFetchedExactlyOnce() throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
@@ -415,7 +415,7 @@ func remoteFactProbe_theDownloadIsByteExactWrittenAt0600AndFetchedExactlyOnce() 
     #expect(server.requestLog.reduce(0) { $0 + $1.bytesSent } == body.count, "\(server.requestLog)")
 }
 
-@Test(.enabled(if: remoteFacts))
+@Test(.engineLifetime, .enabled(if: remoteFacts))
 func remoteFactProbe_theCapRefusesBeforeAnyBodyByteWhenTheServerSaysTooBig() throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
@@ -439,7 +439,7 @@ func remoteFactProbe_theCapRefusesBeforeAnyBodyByteWhenTheServerSaysTooBig() thr
     #expect(!FileManager.default.fileExists(atPath: path))
 }
 
-@Test(.enabled(if: remoteFacts))
+@Test(.engineLifetime, .enabled(if: remoteFacts))
 func remoteFactProbe_theCapStillRefusesWhenTheServerLiedAboutTheLength() throws {
     // The claim and the download are two separate HTTP transactions, so the object can change (or
     // the server can simply be wrong) in between. This server tells one lie — its FIRST HEAD says
@@ -462,7 +462,7 @@ func remoteFactProbe_theCapStillRefusesWhenTheServerLiedAboutTheLength() throws 
     #expect(!FileManager.default.fileExists(atPath: path), "a refused download must leave no file")
 }
 
-@Test(.enabled(if: remoteFacts))
+@Test(.engineLifetime, .enabled(if: remoteFacts))
 func remoteFactProbe_aFailedDownloadLeavesNoFileAndNoSasToken() throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
@@ -484,7 +484,7 @@ func remoteFactProbe_aFailedDownloadLeavesNoFileAndNoSasToken() throws {
 
 // MARK: - the spec
 
-@Test
+@Test(.engineLifetime)
 func aCachedRemoteSourceIsKeyedByItsUrlAndReadFromItsLocalCopy() throws {
     let con = try offlineConnection()
     let cache = TestTemp.path("remote-cache", ".csv")
@@ -513,7 +513,7 @@ func aCachedRemoteSourceIsKeyedByItsUrlAndReadFromItsLocalCopy() throws {
         == "v3|remote|https://acct.blob.core.windows.net/c/sales.csv|etag=\"abc\"")
 }
 
-@Test
+@Test(.engineLifetime)
 func withoutAnIdentityTheKeyFallsBackToTheFetchClockAndTheCopyIsNeverAdoptedAgain() throws {
     let con = try offlineConnection()
     let cache = TestTemp.path("remote-cache", ".csv")
@@ -532,7 +532,7 @@ func withoutAnIdentityTheKeyFallsBackToTheFetchClockAndTheCopyIsNeverAdoptedAgai
             "a source with no server identity must never match a copy of itself")
 }
 
-@Test
+@Test(.engineLifetime)
 func theCachedBytesDecideTheFormat_notTheUrlsExtension() throws {
     let con = try offlineConnection()
     // A parquet file behind a `.csv` URL — the "a .csv that is really something else" case that
@@ -549,7 +549,7 @@ func theCachedBytesDecideTheFormat_notTheUrlsExtension() throws {
     #expect(spec.rowCount == 25)
 }
 
-@Test
+@Test(.engineLifetime)
 func aLocalSourceIsCompletelyUnchangedByTheRemoteFieldExisting() throws {
     let con = try offlineConnection()
     let path = TestTemp.path("local", ".csv")
@@ -560,7 +560,7 @@ func aLocalSourceIsCompletelyUnchangedByTheRemoteFieldExisting() throws {
     #expect(spec.target == spec.key.path, "`target` must be untouched for every local source")
 }
 
-@Test(.enabled(if: remoteFacts))
+@Test(.engineLifetime, .enabled(if: remoteFacts))
 func remoteFactProbe_remoteParquetIsSpecdToReadInPlace() throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }

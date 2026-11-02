@@ -25,7 +25,7 @@ private func newConnection(extensions: [String] = []) throws -> Connection {
 
 // MARK: - sniff_csv
 
-@Test func sniffNormalizesTheEmptySentinel() throws {
+@Test(.engineLifetime) func sniffNormalizesTheEmptySentinel() throws {
     // sniff_csv reports an absent quote/escape as the literal string "(empty)". Feeding that
     // back into read_csv fails with "cannot exceed a size of 1 byte", so it must be normalized
     // to "" — the bug that would otherwise break every unquoted CSV.
@@ -38,12 +38,12 @@ private func newConnection(extensions: [String] = []) throws -> Connection {
     #expect(sn.header == true)
 }
 
-@Test func sniffFindsASemicolonDelimiter() throws {
+@Test(.engineLifetime) func sniffFindsASemicolonDelimiter() throws {
     let con = try newConnection()
     #expect(try sniffCSV(con, path: sharedData.semiCSV).delim == ";")
 }
 
-@Test func sniffSkipsAJunkPreamble() throws {
+@Test(.engineLifetime) func sniffSkipsAJunkPreamble() throws {
     let con = try newConnection()
     let sn = try sniffCSV(con, path: sharedData.weirdCSV)
     #expect(sn.skip == 3)
@@ -52,7 +52,7 @@ private func newConnection(extensions: [String] = []) throws -> Connection {
 
 // MARK: - build_source: CSV
 
-@Test func buildSourceCSVBakesExplicitOptions() throws {
+@Test(.engineLifetime) func buildSourceCSVBakesExplicitOptions() throws {
     let con = try newConnection()
     let spec = try buildSource(con, path: sharedData.cleanCSV)
     #expect(spec.fmt == .csv)
@@ -68,21 +68,21 @@ private func newConnection(extensions: [String] = []) throws -> Connection {
     #expect(n == .int(1000))
 }
 
-@Test func buildSourceGivesSmallCSVsAnExactCount() throws {
+@Test(.engineLifetime) func buildSourceGivesSmallCSVsAnExactCount() throws {
     let con = try newConnection()
     let spec = try buildSource(con, path: sharedData.cleanCSV)
     #expect(spec.rowCount == 1000)
     #expect(spec.rowEstimate == nil)   // no need to guess at this size
 }
 
-@Test func quotedNewlinesDoNotInflateTheCount() throws {
+@Test(.engineLifetime) func quotedNewlinesDoNotInflateTheCount() throws {
     // Line counting overshoots when a quoted field contains a newline; an exact count must not.
     let con = try newConnection()
     let spec = try buildSource(con, path: sharedData.quotedNLCSV)
     #expect(spec.rowCount == 400)
 }
 
-@Test func compressedCSVGetsNeitherCountNorEstimate() throws {
+@Test(.engineLifetime) func compressedCSVGetsNeitherCountNorEstimate() throws {
     // Compressed bytes say nothing about row count, so the UI shows "counting…" rather than a
     // fabricated number.
     let con = try newConnection()
@@ -94,7 +94,7 @@ private func newConnection(extensions: [String] = []) throws -> Connection {
     #expect(n == .int(500))
 }
 
-@Test func allVarcharRelationDropsTheColumnTypes() throws {
+@Test(.engineLifetime) func allVarcharRelationDropsTheColumnTypes() throws {
     let con = try newConnection()
     let spec = try buildSource(con, path: sharedData.dirtyCSV)
     let raw = readExpr(spec: spec, allVarchar: true)
@@ -107,7 +107,7 @@ private func newConnection(extensions: [String] = []) throws -> Connection {
     #expect(Set(types) == ["VARCHAR"])
 }
 
-@Test func exactCountUsesThePhysicalRelation() throws {
+@Test(.engineLifetime) func exactCountUsesThePhysicalRelation() throws {
     // count(*) on the typed relation is answered by projection pushdown without parsing
     // anything. With an uncastable value present that makes it disagree with what SELECT *
     // returns, so exact_count must go through the all-varchar relation.
@@ -118,14 +118,14 @@ private func newConnection(extensions: [String] = []) throws -> Connection {
 
 // MARK: - build_source: parquet
 
-@Test func parquetRowCountIsFreeAndExact() throws {
+@Test(.engineLifetime) func parquetRowCountIsFreeAndExact() throws {
     let con = try newConnection()
     let spec = try buildSource(con, path: sharedData.parquet)
     #expect(spec.rowCount == 1000)
     #expect(spec.fmt == .parquet)
 }
 
-@Test func supportsAllVarcharOnlyForTextFormats() throws {
+@Test(.engineLifetime) func supportsAllVarcharOnlyForTextFormats() throws {
     let con = try newConnection()
     #expect(supportsAllVarchar(try buildSource(con, path: sharedData.cleanCSV)))
     // Parquet carries real types, so there is no sniffing to get wrong and no reject count to
@@ -135,7 +135,7 @@ private func newConnection(extensions: [String] = []) throws -> Connection {
 
 // MARK: - build_source: hive glob
 
-@Test func buildSourceHiveSetsPartitioningAndProvenance() throws {
+@Test(.engineLifetime) func buildSourceHiveSetsPartitioningAndProvenance() throws {
     let con = try newConnection()
     let spec = try buildSource(con, path: sharedData.hive)
     #expect(spec.fmt == .globParquet)
@@ -148,7 +148,7 @@ private func newConnection(extensions: [String] = []) throws -> Connection {
 
 // MARK: - header_byte_offset
 
-@Test func headerByteOffsetCountsPreambleAndHeader() throws {
+@Test(.engineLifetime) func headerByteOffsetCountsPreambleAndHeader() throws {
     let con = try newConnection()
     let sn = try sniffCSV(con, path: sharedData.weirdCSV)
     let off = try headerByteOffset(path: sharedData.weirdCSV, sniff: SniffHints(skip: sn.skip, header: sn.header))
@@ -159,7 +159,7 @@ private func newConnection(extensions: [String] = []) throws -> Connection {
 
 // MARK: - build_source: xlsx (test_sheets.py)
 
-@Test(.enabled(if: extensionIsAvailable("excel"), "duckdb excel extension not installed"))
+@Test(.engineLifetime, .enabled(if: extensionIsAvailable("excel"), "duckdb excel extension not installed"))
 func defaultSheetIsTheFirstNonEmpty() throws {
     let con = try newConnection(extensions: ["excel"])
     let spec = try buildSource(con, path: siftCoreTestsFixture("book.xlsx"))
@@ -168,7 +168,7 @@ func defaultSheetIsTheFirstNonEmpty() throws {
     #expect(spec.sheets.count == 3)
 }
 
-@Test(.enabled(if: extensionIsAvailable("excel"), "duckdb excel extension not installed"))
+@Test(.engineLifetime, .enabled(if: extensionIsAvailable("excel"), "duckdb excel extension not installed"))
 func aNamedSheetCanBeOpened() throws {
     let con = try newConnection(extensions: ["excel"])
     let spec = try buildSource(con, path: siftCoreTestsFixture("book.xlsx"), sheet: "By Store")
@@ -178,7 +178,7 @@ func aNamedSheetCanBeOpened() throws {
     #expect(n == .int(50))   // 51 rows minus the header
 }
 
-@Test(.enabled(if: extensionIsAvailable("excel"), "duckdb excel extension not installed"))
+@Test(.engineLifetime, .enabled(if: extensionIsAvailable("excel"), "duckdb excel extension not installed"))
 func sheetNamesWithQuotesDoNotBreakTheExpression() throws {
     // Python's original generates a workbook on the fly with openpyxl (unavailable here); the
     // committed odd.xlsx fixture is exactly that shape — one sheet named `it's a sheet`, 2 rows
@@ -195,7 +195,7 @@ func sheetNamesWithQuotesDoNotBreakTheExpression() throws {
 // live connection (test_source.py's ndjson coverage stops at detect_format). Added per the
 // "leave one runnable check" rule: the branch is real code with a real cast/count path.
 
-@Test func buildSourceNdjsonGetsAnExactCount() throws {
+@Test(.engineLifetime) func buildSourceNdjsonGetsAnExactCount() throws {
     let con = try newConnection()
     let spec = try buildSource(con, path: sharedData.ndjson)
     #expect(spec.fmt == .ndjson)
@@ -233,7 +233,7 @@ private let raggedCSVText = """
 
     """
 
-@Test func buildSourceNoticesWhenARaggedFileCollapsedIntoOneColumn() throws {
+@Test(.engineLifetime) func buildSourceNoticesWhenARaggedFileCollapsedIntoOneColumn() throws {
     let con = try newConnection()
     let spec = try buildSource(con, path: try writeCSVFixture("ragged.csv", raggedCSVText))
 
@@ -246,7 +246,7 @@ private let raggedCSVText = """
     #expect(raggedCollapseNote(spec)?.contains("to see all 5") == true)
 }
 
-@Test func buildSourceNoticesTheCollapseWhateverTheRealDelimiterWas() throws {
+@Test(.engineLifetime) func buildSourceNoticesTheCollapseWhateverTheRealDelimiterWas() throws {
     let con = try newConnection()
     // Semicolon, tab and pipe files all sniff as `,` when ragged (measured) — the opposite
     // fallback from the comma case above, and the reason the rule looks at what is left inside the
@@ -260,7 +260,7 @@ private let raggedCSVText = """
     }
 }
 
-@Test func buildSourceStaysQuietOnEveryLegitimateSingleColumnFile() throws {
+@Test(.engineLifetime) func buildSourceStaysQuietOnEveryLegitimateSingleColumnFile() throws {
     let con = try newConnection()
     let healthy: [(String, String)] = [
         // Prose full of commas, quoted the way any real writer emits it.
@@ -294,7 +294,7 @@ private let raggedCSVText = """
     #expect(try buildSource(con, path: sharedData.cleanCSV).raggedColumns == nil)
 }
 
-@Test func nullPaddingIsTheWayOutAndItReallyRecoversTheColumns() throws {
+@Test(.engineLifetime) func nullPaddingIsTheWayOutAndItReallyRecoversTheColumns() throws {
     let con = try newConnection()
     let path = try writeCSVFixture("ragged.csv", raggedCSVText)
     let spec = try buildSource(con, path: path, nullPadding: true)
@@ -330,7 +330,7 @@ private let raggedCSVText = """
     #expect(try describe(con, relationExpr: raw).count == 5)
 }
 
-@Test func nullPaddingLeavesAHealthyFileExactlyAsItWas() throws {
+@Test(.engineLifetime) func nullPaddingLeavesAHealthyFileExactlyAsItWas() throws {
     // The option is an escape hatch, not a mode: asking for it on a file that never needed it must
     // not quietly reshape the file either.
     let con = try newConnection()
@@ -341,7 +341,7 @@ private let raggedCSVText = """
     #expect(padded.rowCount == plain.rowCount)
 }
 
-@Test func aFolderOfRaggedCSVsIsCaughtTheSameWayASingleOneIs() throws {
+@Test(.engineLifetime) func aFolderOfRaggedCSVsIsCaughtTheSameWayASingleOneIs() throws {
     // The sibling path, found by pointing the shipped CLI at a folder: `glob_csv` never sniffs at
     // all (it DESCRIBEs one member), so the single-file detection could not see it — and a folder
     // of daily exports where one day came out ragged is exactly how this reaches a real user.
@@ -374,7 +374,7 @@ private let raggedCSVText = """
     #expect(rows[4].prefix(5).map(\.display) == ["5", "North", "50", "BOOM", ""])
 }
 
-@Test func aHealthyFolderIsNotReportedAsCollapsed() throws {
+@Test(.engineLifetime) func aHealthyFolderIsNotReportedAsCollapsed() throws {
     // The folder fixtures the rest of the suite uses are multi-column, so this builds the harder
     // case on purpose: a folder of legitimate ONE-column CSVs, which is the shape the new
     // single-column pre-filter waves through to the delimiter check.
@@ -399,7 +399,7 @@ private let raggedCSVText = """
 // which is the only way to know that the sniffer really does throw two of three lines away — and,
 // far more importantly, that the two files which look like this one and are NOT it stay silent.
 
-@Test func buildSourceNoticesWhenThePreambleAteTheWholeFile() throws {
+@Test(.engineLifetime) func buildSourceNoticesWhenThePreambleAteTheWholeFile() throws {
     let con = try newConnection()
     let path = try writeCSVFixture(
         "prose.csv", "notes\nthis is prose, with a comma\nanother line; semicolon too\n"
@@ -415,7 +415,7 @@ private let raggedCSVText = """
     #expect(preambleNote(spec)?.contains("The first 2 lines were") == true)
 }
 
-@Test func buildSourceStaysQuietOnEveryFileThatLegitimatelyHasNoRows() throws {
+@Test(.engineLifetime) func buildSourceStaysQuietOnEveryFileThatLegitimatelyHasNoRows() throws {
     let con = try newConnection()
     let quiet: [(String, String)] = [
         // The one that looks identical from the row count alone: a real header, no data under it.
@@ -436,7 +436,7 @@ private let raggedCSVText = """
     }
 }
 
-@Test func aRealPreambleInFrontOfRealDataStaysSilent() throws {
+@Test(.engineLifetime) func aRealPreambleInFrontOfRealDataStaysSilent() throws {
     // `skip` is a FEATURE — `makeCSV(preamble:)` exists for exactly this file, and the shared
     // corpus already carries one (`weirdCSV`: 3 junk lines, a BOM, CRLF and 300 real rows). A note
     // here would fire on every legitimately-preambled export in the world.
@@ -451,7 +451,7 @@ private let raggedCSVText = """
     #expect(preambleAteTheFile(try buildSource(con, path: sharedData.cleanCSV)) == nil)
 }
 
-@Test func notSkippingIsTheWayOutAndItReallyGetsTheRowsBack() throws {
+@Test(.engineLifetime) func notSkippingIsTheWayOutAndItReallyGetsTheRowsBack() throws {
     let con = try newConnection()
     let path = try writeCSVFixture(
         "prose.csv", "notes\nthis is prose, with a comma\nanother line; semicolon too\n"
@@ -472,7 +472,7 @@ private let raggedCSVText = """
     )
 }
 
-@Test func notSkippingLeavesAFileWithNothingToSkipExactlyAsItWas() throws {
+@Test(.engineLifetime) func notSkippingLeavesAFileWithNothingToSkipExactlyAsItWas() throws {
     // The option is an escape hatch, not a mode: asking for it on a file that never had a preamble
     // must not reshape it either.
     let con = try newConnection()

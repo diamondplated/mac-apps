@@ -5,7 +5,7 @@ import DuckDBKit
 @testable import SiftCore
 @testable import SiftEngine
 
-@Test func completionStrictHardeningFailureRefusesSessionAndReleasesHome() throws {
+@Test(.engineLifetime) func completionStrictHardeningFailureRefusesSessionAndReleasesHome() throws {
     let home = TestTemp.path("hardening-refusal")
     #expect(throws: SessionError.self) {
         _ = try Session(home: home, keychainService: "test-unused", hardening: { db, _ in
@@ -20,7 +20,7 @@ import DuckDBKit
     #expect(session.sharedStore)
 }
 
-@Test func completionTempTableProbePropagatesQueryErrors() async throws {
+@Test(.engineLifetime) func completionTempTableProbePropagatesQueryErrors() async throws {
     let session = try Session(home: TestTemp.path("temp-probe"))
     do {
         _ = try await session.tempTableExistsForTest("absent", query: "SELECT * FROM missing_relation WHERE name = ?")
@@ -29,7 +29,7 @@ import DuckDBKit
     #expect(try await !session.tempTableExistsForTest("absent"))
 }
 
-@Test func completionOwnerSweepPreservesFallbackCache() throws {
+@Test(.engineLifetime) func completionOwnerSweepPreservesFallbackCache() throws {
     let home = TestTemp.dir("fallback-cache")
     let session = try Session(home: home)
     let url = try #require(classifyRemote("https://example.invalid/data.csv"))
@@ -42,7 +42,7 @@ import DuckDBKit
     #expect(try String(contentsOfFile: path, encoding: .utf8) == "a\n1\n")
 }
 
-@Test(arguments: [false, true])
+@Test(.engineLifetime, arguments: [false, true])
 func completionStagingMetadataFailureKeepsOriginalView(recordFailure: Bool) async throws {
     let home = TestTemp.dir("stage-metadata")
     let source = try makeCSV(dir: home, rows: 10)
@@ -66,7 +66,7 @@ func completionStagingMetadataFailureKeepsOriginalView(recordFailure: Bool) asyn
     #expect(try await session.stagedEntries().isEmpty)
 }
 
-@Test func completionDeadPrivateStoreSweepRemovesOnlyItsOwnCache() throws {
+@Test(.engineLifetime) func completionDeadPrivateStoreSweepRemovesOnlyItsOwnCache() throws {
     let home = TestTemp.dir("dead-private-cache")
     let url = try #require(classifyRemote("https://example.invalid/data.csv"))
     let dead: Int32 = .max
@@ -83,7 +83,7 @@ func completionStagingMetadataFailureKeepsOriginalView(recordFailure: Bool) asyn
     #expect(FileManager.default.fileExists(atPath: (root as NSString).appendingPathComponent("stage-\(alive)")))
 }
 
-@Test func completionPrivateCacheCleanupDoesNotTraverseParentSymlink() throws {
+@Test(.engineLifetime) func completionPrivateCacheCleanupDoesNotTraverseParentSymlink() throws {
     let home = TestTemp.dir("private-cache-link")
     let outside = TestTemp.dir("outside-private-cache")
     let sentinel = (outside as NSString).appendingPathComponent("stage-123")
@@ -94,7 +94,7 @@ func completionStagingMetadataFailureKeepsOriginalView(recordFailure: Bool) asyn
     #expect(FileManager.default.fileExists(atPath: (sentinel as NSString).appendingPathComponent("photo")))
 }
 
-@Test func completionSuccessfulStagingRecordsPositiveBytes() async throws {
+@Test(.engineLifetime) func completionSuccessfulStagingRecordsPositiveBytes() async throws {
     let home = TestTemp.dir("stage-bytes")
     let source = try makeCSV(dir: home, rows: 1000)
     let session = try Session(home: (home as NSString).appendingPathComponent("store"))

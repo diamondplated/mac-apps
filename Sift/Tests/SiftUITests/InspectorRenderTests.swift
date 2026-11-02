@@ -108,7 +108,7 @@ private func azure(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> Bool {
 /// requiring the two bitmaps to differ is the assertion with teeth: it can only hold if the panel
 /// is drawing *this* column's data.
 @MainActor
-@Test func theColumnPanelDrawsTheColumnItWasHandedAndNotJustChrome() async throws {
+@Test(.engineLifetime) func theColumnPanelDrawsTheColumnItWasHandedAndNotJustChrome() async throws {
     let (state, model) = try await openedFixture(rows: 400)
     // The panel draws the view model's profile synchronously — `ImageRenderer` never runs a
     // `.task`, so its own `profileOf` fetch is unreachable here, and this is what fills the
@@ -136,7 +136,7 @@ private func azure(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> Bool {
 /// as their own rows. It is a separate view precisely so this check can reach it: the loaded state
 /// lives behind a `.task`, and `ImageRenderer` does not run one.
 @MainActor
-@Test func theValueListDrawsTheTwoSentinelRowsInTheirOwnColour() async throws {
+@Test(.engineLifetime) func theValueListDrawsTheTwoSentinelRowsInTheirOwnColour() async throws {
     let (state, model) = try await openedFixture(rows: 12)
     let panel = try await state.session.distinct(model.name, col: "note")
     #expect(panel.values.contains { $0.label == "␀ NULL" }, "the fixture's three states")
@@ -162,7 +162,7 @@ private func azure(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> Bool {
 /// segment, a NaN width, or a `clipShape` that swallows the lot all look identical from a property
 /// assertion, so this one reads the pixels.
 @MainActor
-@Test func theSchemaListDrawsTheMissingBarsSegmentsAndNotJustTheirText() async throws {
+@Test(.engineLifetime) func theSchemaListDrawsTheMissingBarsSegmentsAndNotJustTheirText() async throws {
     let (_, model) = try await openedFixture(rows: 12)
     await model.drainForTest()
     let note = try #require(model.profile.first { $0.name == "note" })
@@ -193,7 +193,7 @@ private func azure(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> Bool {
 
 // MARK: - the numbers
 
-@Test func theInspectorsNumbersMatchTheShippingWebBuildsFormatting() {
+@Test(.engineLifetime) func theInspectorsNumbersMatchTheShippingWebBuildsFormatting() {
     // `compact` (`web/index.html:632`) — one decimal below 10k, none above, then M.
     #expect(compactCount(0) == "0")
     #expect(compactCount(999) == "999")

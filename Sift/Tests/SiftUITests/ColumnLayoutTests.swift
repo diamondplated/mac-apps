@@ -1,3 +1,4 @@
+import TestSupport
 import AppKit
 import Foundation
 import SiftCore
@@ -41,7 +42,7 @@ private func profile(
 /// `computeWidths` (`web/index.html:576-583`), branch by branch. Every column here lands on a
 /// different one of the four answers on purpose — a formula with the wrong multiplier still returns
 /// 76 for any short column, so a fixture of short columns would pass on a broken implementation.
-@Test func everyBranchOfTheWebsWidthFormulaSurvivesThePort() {
+@Test(.engineLifetime) func everyBranchOfTheWebsWidthFormulaSurvivesThePort() {
     let cols = [
         col("id"), col("description"), col("a_very_long_column_name_here_x"), col("blob"),
     ]
@@ -76,7 +77,7 @@ private func profile(
 // MARK: - sort
 
 /// `cycleSort` (`web/index.html:870-874`): none → asc → desc → none.
-@Test func clickingAColumnCyclesItThroughAscendingDescendingAndOff() {
+@Test(.engineLifetime) func clickingAColumnCyclesItThroughAscendingDescendingAndOff() {
     let none: [QuerySpec.SortTerm] = []
     let asc = nextSort(for: "price", current: none)
     #expect(asc == [QuerySpec.SortTerm(column: "price", direction: .asc)])
@@ -90,7 +91,7 @@ private func profile(
 /// 🔴 The second column REPLACES the first rather than adding to it — the web's `cycleSort` builds a
 /// single-element list, and a sorted table is capped at what the engine materialized, so every extra
 /// key is another full pass over the file.
-@Test func sortingASecondColumnReplacesTheFirstRatherThanAddingToIt() {
+@Test(.engineLifetime) func sortingASecondColumnReplacesTheFirstRatherThanAddingToIt() {
     let byPrice = [QuerySpec.SortTerm(column: "price", direction: .desc)]
     let byName = nextSort(for: "name", current: byPrice)
     #expect(byName == [QuerySpec.SortTerm(column: "name", direction: .asc)])
@@ -104,7 +105,7 @@ private func profile(
 // MARK: - counts
 
 /// The web's `compact` (`web/index.html:630-633`).
-@Test func distinctCountsAreShortenedTheWayTheWebGridShortenedThem() {
+@Test(.engineLifetime) func distinctCountsAreShortenedTheWayTheWebGridShortenedThem() {
     #expect(compactCount(0) == "0")
     #expect(compactCount(999) == "999")
     #expect(compactCount(1_000) == "1.0k")
@@ -131,7 +132,7 @@ private func profile(
 
 // MARK: - the three decorations
 
-@Test func theCaretIsTheColumnsOwnSortDirectionAndNothingWhenItIsNotSorted() {
+@Test(.engineLifetime) func theCaretIsTheColumnsOwnSortDirectionAndNothingWhenItIsNotSorted() {
     let price = col("price", "DOUBLE")
     let asc = [QuerySpec.SortTerm(column: "price", direction: .asc)]
     let desc = [QuerySpec.SortTerm(column: "price", direction: .desc)]
@@ -147,7 +148,7 @@ private func profile(
 /// can be several percent out, and `SiftUITests`' own twelve-row `label` fixture already comes back
 /// one short. A header that spelled an estimate as a fact would be this tool lying in the one place
 /// it exists to be trusted, so the prefix is not decoration.
-@Test func anEstimatedDistinctCountIsMarkedAndAnExactOneIsNot() {
+@Test(.engineLifetime) func anEstimatedDistinctCountIsMarkedAndAnExactOneIsNot() {
     let c = col("region")
     let estimated = headerDecoration(
         c, profile: profile("region", n: 100, approx: 4_200), sort: [])
@@ -167,7 +168,7 @@ private func profile(
     #expect(headerDecoration(c, profile: nil, sort: []).distinctLabel == "")
 }
 
-@Test func theMissingBarCoversNullsEmptiesAndUncastablesTogether() {
+@Test(.engineLifetime) func theMissingBarCoversNullsEmptiesAndUncastablesTogether() {
     let c = col("note")
     func fraction(_ p: ColumnProfile?) -> Double {
         headerDecoration(c, profile: p, sort: []).missingFraction
@@ -190,7 +191,7 @@ private func profile(
 
 /// 🔴 The last line of the tooltip is the only place the app says how to sort. Plain click opens the
 /// column and SHIFT-click sorts (`web/index.html:617`), which nobody guesses.
-@Test func theHeaderTooltipCarriesTheCountsAndTheShiftClickAffordance() {
+@Test(.engineLifetime) func theHeaderTooltipCarriesTheCountsAndTheShiftClickAffordance() {
     let c = col("note", "VARCHAR")
     #expect(headerTooltip(c, profile: nil) == "note — VARCHAR\nclick: values · shift-click: sort")
 
@@ -355,7 +356,7 @@ private final class HeaderHarness {
 /// bitmap, and it is the only kind that catches a header whose numbers are all correct and whose
 /// second line is drawn on top of its first.
 @MainActor
-@Test func theHeaderPaintsBothOfItsLinesAndNothingInTheGutter() async throws {
+@Test(.engineLifetime) func theHeaderPaintsBothOfItsLinesAndNothingInTheGutter() async throws {
     appKitReady()
     let (_, model) = try await profiledHeaderFixture()
     let harness = try HeaderHarness(GridBridge(model: model))
@@ -406,7 +407,7 @@ private final class HeaderHarness {
 
 /// The bar is the one part of the header carrying a *quantity*, so its length is the assertion.
 @MainActor
-@Test func theMissingBarIsAsLongAsTheFractionItReports() async throws {
+@Test(.engineLifetime) func theMissingBarIsAsLongAsTheFractionItReports() async throws {
     appKitReady()
     let (_, model) = try await profiledHeaderFixture()
     let bridge = GridBridge(model: model)
@@ -437,7 +438,7 @@ private final class HeaderHarness {
 /// can say whether they arrived. Renders of the same cell, each adding one decoration, each of
 /// which has to add ink where that decoration lives.
 @MainActor
-@Test func theCaretAndTheDistinctCountAreActuallyPaintedAndNotJustComputed() async throws {
+@Test(.engineLifetime) func theCaretAndTheDistinctCountAreActuallyPaintedAndNotJustComputed() async throws {
     appKitReady()
     let (_, model) = try await profiledHeaderFixture()
     let harness = try HeaderHarness(GridBridge(model: model))
@@ -484,7 +485,7 @@ private final class HeaderHarness {
 /// rendered `BIG…` where the shipping web build renders `BIGINT`. The native app is not allowed to
 /// be the worse one.
 @MainActor
-@Test func theSortCaretTakesNoSpaceFromTheTypeLine() throws {
+@Test(.engineLifetime) func theSortCaretTakesNoSpaceFromTheTypeLine() throws {
     appKitReady()
     let cell = SiftHeaderCell(textCell: "id")
     cell.typeText = "BIGINT"
@@ -524,7 +525,7 @@ private final class HeaderHarness {
 /// clamp on a very long name, or a user dragging one in — and in both cases a caret drawn past the
 /// right edge is simply gone, and the column silently stops looking sorted.
 @MainActor
-@Test func aNameTooLongForItsColumnIsTruncatedBeforeItsCaretIs() async throws {
+@Test(.engineLifetime) func aNameTooLongForItsColumnIsTruncatedBeforeItsCaretIs() async throws {
     appKitReady()
     let (_, model) = try await profiledHeaderFixture()
     let harness = try HeaderHarness(GridBridge(model: model))
@@ -553,7 +554,7 @@ private final class HeaderHarness {
 
 /// The name line has to hold the name AND the caret it takes on when sorted.
 @MainActor
-@Test func theNameLineHoldsBothTheNameAndItsCaret() throws {
+@Test(.engineLifetime) func theNameLineHoldsBothTheNameAndItsCaret() throws {
     appKitReady()
     let cell = SiftHeaderCell(textCell: "")
     let caret = cell.measure("▲", font: .monospacedSystemFont(ofSize: 9, weight: .regular))
@@ -570,7 +571,7 @@ private final class HeaderHarness {
 /// from the name, so this is the cross-check that the multiplier it uses agrees with the font the
 /// header actually draws with.
 @MainActor
-@Test func everyColumnIsWideEnoughForItsOwnNameAndBothOfItsLines() async throws {
+@Test(.engineLifetime) func everyColumnIsWideEnoughForItsOwnNameAndBothOfItsLines() async throws {
     appKitReady()
     let names = [
         "id", "description", "a_very_long_column_name_here_x", "ORDER_ID", "amount_usd",
@@ -606,7 +607,7 @@ private final class HeaderHarness {
 /// (`web/index.html:624-628`). It is this way round because a sort of a 40 M-row file is expensive,
 /// and brushing a header on the way to the scrollbar must not start one.
 @MainActor
-@Test func aPlainHeaderClickSelectsTheColumnAndDoesNotSortIt() async throws {
+@Test(.engineLifetime) func aPlainHeaderClickSelectsTheColumnAndDoesNotSortIt() async throws {
     appKitReady()
     let (_, model) = try await profiledHeaderFixture()
     let bridge = GridBridge(model: model)
@@ -625,7 +626,7 @@ private final class HeaderHarness {
 /// The whole cycle, through the real engine, ending on the real header cell — which is what
 /// `syncHeaders` exists for and which the column stamp deliberately cannot see.
 @MainActor
-@Test func shiftClickingAHeaderCyclesTheSortAndMovesItsCaret() async throws {
+@Test(.engineLifetime) func shiftClickingAHeaderCyclesTheSortAndMovesItsCaret() async throws {
     appKitReady()
     let (_, model) = try await profiledHeaderFixture()
     let bridge = GridBridge(model: model)
@@ -665,7 +666,7 @@ private final class HeaderHarness {
 /// The header is built before there is a profile and has to pick the numbers up when one lands —
 /// the same second trigger the widths need, and the reason `syncHeaders` runs on every `sync`.
 @MainActor
-@Test func theDistinctCountAndMissingBarAppearWhenTheProfileLands() async throws {
+@Test(.engineLifetime) func theDistinctCountAndMissingBarAppearWhenTheProfileLands() async throws {
     appKitReady()
     // Deliberately NOT `profiledHeaderFixture`: this is the ordering the app actually has, where
     // the grid draws a header seconds before `kickProfile`'s answer arrives.

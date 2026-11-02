@@ -26,7 +26,7 @@ private func newConnection(extensions: [String] = []) throws -> Connection {
     return try db.connect()
 }
 
-@Test(.enabled(if: extensionIsAvailable("delta"), "duckdb delta extension not installed"))
+@Test(.engineLifetime, .enabled(if: extensionIsAvailable("delta"), "duckdb delta extension not installed"))
 func aDeltaDirResolvesToDeltaScanNotAGlob() throws {
     let con = try newConnection(extensions: ["delta"])
     let spec = try buildSource(con, path: sharedData.delta)
@@ -35,7 +35,7 @@ func aDeltaDirResolvesToDeltaScanNotAGlob() throws {
     #expect(readExpr(spec: spec).hasPrefix("delta_scan("))
 }
 
-@Test(.enabled(if: extensionIsAvailable("delta"), "duckdb delta extension not installed"))
+@Test(.engineLifetime, .enabled(if: extensionIsAvailable("delta"), "duckdb delta extension not installed"))
 func tombstonedRowsAreExcluded() throws {
     let con = try newConnection(extensions: ["delta"])
     let spec = try buildSource(con, path: sharedData.delta)
@@ -50,18 +50,18 @@ func tombstonedRowsAreExcluded() throws {
     #expect(globRows != deltaRows, "fixture has no tombstones — this test would pass even if delta support were broken")
 }
 
-@Test func aPlainParquetFolderStillGlobs() throws {
+@Test(.engineLifetime) func aPlainParquetFolderStillGlobs() throws {
     let con = try newConnection()
     let spec = try buildSource(con, path: sharedData.hive)
     #expect(spec.fmt == .globParquet)
     #expect(spec.readFn == "read_parquet")
 }
 
-@Test func versionIsReadFromTheLog() throws {
+@Test(.engineLifetime) func versionIsReadFromTheLog() throws {
     #expect(deltaVersion(sharedData.delta) == 1)
 }
 
-@Test(.enabled(if: extensionIsAvailable("delta"), "duckdb delta extension not installed"))
+@Test(.engineLifetime, .enabled(if: extensionIsAvailable("delta"), "duckdb delta extension not installed"))
 func timeTravelUsesTheVersionArgument() throws {
     // `version => n` works; the SQL-standard `AT (VERSION => n)` does not parse on 1.5.5.
     let con = try newConnection(extensions: ["delta"])
@@ -72,7 +72,7 @@ func timeTravelUsesTheVersionArgument() throws {
     #expect(n == .int(150))   // before the delete
 }
 
-@Test func readExprAtRefusesNonDelta() throws {
+@Test(.engineLifetime) func readExprAtRefusesNonDelta() throws {
     let con = try newConnection()
     let spec = try buildSource(con, path: sharedData.parquet)
     #expect(throws: TimeTravelUnsupported.self) { _ = try readExprAt(spec: spec, version: 0) }
@@ -92,7 +92,7 @@ func timeTravelUsesTheVersionArgument() throws {
 ///
 /// Needs no extension itself: `isDeltaDir` looks for `_delta_log`, and the refusal happens before
 /// anything tries to read the table.
-@Test func aDeltaTableIsRefusedRatherThanGloblledWhenTheExtensionIsMissing() async throws {
+@Test(.engineLifetime) func aDeltaTableIsRefusedRatherThanGloblledWhenTheExtensionIsMissing() async throws {
     let session = try Session(home: TestTemp.path("delta-refusal"))
     await session.setDeltaLoadedForTest(false)
 
@@ -119,7 +119,7 @@ func timeTravelUsesTheVersionArgument() throws {
     }
 }
 
-@Test func deltaIsNeverStaged() throws {
+@Test(.engineLifetime) func deltaIsNeverStaged() throws {
     // A flat copy of a Delta table silently pins it to one version, on top of being redundant.
     let d = shouldStage(fmt: .delta, sizeBytes: 50 * GB, freeBytes: 500 * GB)
     #expect(d.stage == false)

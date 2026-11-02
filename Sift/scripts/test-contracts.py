@@ -25,4 +25,10 @@ with tempfile.TemporaryDirectory(prefix='sift-contracts-') as directory:
     file = root / entry['path']
     file.write_text(file.read_text() + '\n' + entry['code'] + '\n')
     assert any('unreviewed try?' in e for e in contracts.validate(root))
-print('Contract mutations detected: formatter, new try?, duplicated allowed try?.')
+    test = root / 'Tests/SiftEngineTests/ContractMutant.swift'
+    test.parent.mkdir(parents=True)
+    test.write_text('@Test func mutant() {}\n')
+    assert any('needs .engineLifetime' in e for e in contracts.validate(root))
+    test.write_text('@Test(.engineLifetime) func mutant() {}\n')
+    assert not any('needs .engineLifetime' in e for e in contracts.validate(root))
+print('Contract mutations detected: formatter, new try?, duplicated allowed try?, missing engine lifetime.')

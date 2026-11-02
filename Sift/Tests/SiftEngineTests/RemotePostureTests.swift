@@ -45,7 +45,7 @@ private func parquetBytes(rows: Int) throws -> Data {
 /// MEASURED (`docs/…/2026-08-16-duckdb-remote-facts.md` §2): the disabled set is per-`Database` and
 /// only ever grows, so these are two `Database`s and never a toggle. Both `LOAD httpfs` explicitly —
 /// `autoload_known_extensions=false` applies in both postures, and `allowRemote` does not touch it.
-@Test(.enabled(if: remoteFacts))
+@Test(.engineLifetime, .enabled(if: remoteFacts))
 func remoteFactHarden_allowRemoteDecidesWhetherALoadedHttpfsCanRead() throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
@@ -87,7 +87,7 @@ func remoteFactHarden_allowRemoteDecidesWhetherALoadedHttpfsCanRead() throws {
 /// switch here for Sift to get wrong, only an upstream default that this test exists to notice
 /// changing. It goes through `wrapUserSQL`, the wrap a console query actually passes, rather than a
 /// bare connection: the claim is about the shipped path, not about a DuckDB feature in isolation.
-@Test(.enabled(if: remoteFacts))
+@Test(.engineLifetime, .enabled(if: remoteFacts))
 func remoteFactSecrets_redactionSurvivesTheUserSQLWrap() throws {
     let key = "SUPERSECRETKEY123"
     let keyID = "AKIAEXAMPLEKEYID"

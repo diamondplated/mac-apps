@@ -35,7 +35,7 @@ private func appKitReady() { _ = NSApplication.shared }
 /// it restated `defaultBudgetBytes` while `SIFT_STAGE_BUDGET_GB` had moved the real limit, it
 /// would be confidently wrong about the one thing it exists to be right about — so the numbers
 /// come from the session, and SiftUI never reads those variables itself.
-@Test func stagePolicyReportsTheLimitsThisSessionIsEnforcing() throws {
+@Test(.engineLifetime) func stagePolicyReportsTheLimitsThisSessionIsEnforcing() throws {
     let session = try Session(home: tempHome())
     let policy = session.stagePolicy()
 
@@ -60,7 +60,7 @@ private func appKitReady() { _ = NSApplication.shared }
 /// only the first 20,480 rows however big it is, so a bad row placed past that window reproduces
 /// the real scenario — the sniffer keeps `amount` numeric, and the later row does not fit it.
 @MainActor
-@Test func theBadRowsPanelNamesTheColumnThatFailedAndNoOther() async throws {
+@Test(.engineLifetime) func theBadRowsPanelNamesTheColumnThatFailedAndNoOther() async throws {
     let (state, name) = try await dirtyFixture()
     let panel = try await state.session.badRows(name)
 
@@ -80,7 +80,7 @@ private func appKitReady() { _ = NSApplication.shared }
 /// and re-splitting breaks the instant a column name contains the separator — in the one product
 /// whose premise is not mangling data. A `.display`-and-split implementation returns
 /// `["a", "b", "qty"]` here; this returns two names.
-@Test func badColumnNamesReadsTheListAndNeverResplitsAJoinedString() {
+@Test(.engineLifetime) func badColumnNamesReadsTheListAndNeverResplitsAJoinedString() {
     let row: [Cell] = [.list([.text("a,b"), .text("qty")]), .text("x"), .int(3)]
     #expect(badColumnNames(in: row) == ["a,b", "qty"])
 
@@ -89,7 +89,7 @@ private func appKitReady() { _ = NSApplication.shared }
     #expect(badColumnNames(in: []).isEmpty)
 }
 
-@Test func theBadRowsHeadlineAndParagraphCountRowsAndCellsSeparately() {
+@Test(.engineLifetime) func theBadRowsHeadlineAndParagraphCountRowsAndCellsSeparately() {
     #expect(badRowsHeadline(rows: 2_120) == "2,120 rows dropped")
     #expect(badRowsHeadline(rows: 1) == "1 row dropped")
     #expect(badRowsHeadline(rows: 0) == "0 rows dropped")
@@ -105,7 +105,7 @@ private func appKitReady() { _ = NSApplication.shared }
 
 /// A sample cell is the shared engine glyph, capped at the web's 60 characters — never
 /// `Cell.display`, which renders NULL and `''` identically.
-@Test func aSampleCellIsTheEngineGlyphAndIsCappedAtSixtyCharacters() {
+@Test(.engineLifetime) func aSampleCellIsTheEngineGlyphAndIsCappedAtSixtyCharacters() {
     #expect(badCellText(.null, kind: .text) == SiftEngine.nullGlyph)
     #expect(badCellText(.text(""), kind: .text) == SiftEngine.emptyStringGlyph)
     #expect(badCellText(.int(1_234_567), kind: .number) == "1,234,567")
@@ -117,7 +117,7 @@ private func appKitReady() { _ = NSApplication.shared }
 /// carried the right flag and drew the same colour either way would satisfy every property
 /// assertion above and be exactly as useless as no highlight at all.
 @MainActor
-@Test func theOffendingCellIsPaintedRedAndItsNeighbourIsNot() throws {
+@Test(.engineLifetime) func theOffendingCellIsPaintedRedAndItsNeighbourIsNot() throws {
     appKitReady()
     let bad = try ink(BadCell(text: "N/A", bad: true))
     let plain = try ink(BadCell(text: "N/A", bad: false))
@@ -133,7 +133,7 @@ private func appKitReady() { _ = NSApplication.shared }
 /// The web's `human` (web/index.html:464-470), not `ByteCountFormatter` (locale- and
 /// unit-convention dependent) and not `SiftCore.human` (which groups its byte branch, so 1023
 /// reads `1,023 B` there).
-@Test func humanBytesIsTheWebsLadderExactly() {
+@Test(.engineLifetime) func humanBytesIsTheWebsLadderExactly() {
     #expect(humanBytes(0) == "0 B")
     #expect(humanBytes(1023) == "1023 B")
     #expect(humanBytes(1024) == "1.0 KB")
@@ -144,7 +144,7 @@ private func appKitReady() { _ = NSApplication.shared }
 
 /// 🔴 `20 GB`, not `20.0 GB`. The budget is always a whole number of GiB by construction, and
 /// running it through `humanBytes` would drift from the web's `${d.budget_gb} GB`.
-@Test func theStagePolicySentenceStatesWholeGigabytes() {
+@Test(.engineLifetime) func theStagePolicySentenceStatesWholeGigabytes() {
     let policy = StagePolicy(budgetBytes: 20 * 1_073_741_824, maxAgeDays: 14)
     #expect(stageBudgetGB(policy) == 20)
     #expect(
@@ -166,7 +166,7 @@ private func appKitReady() { _ = NSApplication.shared }
 /// file in `<SIFT_HOME>/remote-cache/` and no catalog row anywhere. Left unsaid, the panel whose
 /// entire job is "here is what Sift is holding" draws a total nothing on screen explains — and, with
 /// nothing staged at all, drew "Nothing staged." over it.
-@Test func downloadedCopiesGetTheirOwnLineBecauseNoRowInThePanelListsThem() throws {
+@Test(.engineLifetime) func downloadedCopiesGetTheirOwnLineBecauseNoRowInThePanelListsThem() throws {
     // Zero is `nil`, not "0 B": a machine that has never opened a URL is not told about the feature
     // in terms of the bytes it is not using.
     #expect(remoteCacheSentence(bytes: 0) == nil)
@@ -183,7 +183,7 @@ private func appKitReady() { _ = NSApplication.shared }
 
 /// 🔴 No `DateFormatter`. Built from `Calendar.current` components and zero-padded by hand, which
 /// is the `YYYY-MM-DD HH:MM` the web produced by slicing an ISO string to 16 characters.
-@Test func aStagedTimestampIsYearMonthDayHourMinuteWithNoFormatter() throws {
+@Test(.engineLifetime) func aStagedTimestampIsYearMonthDayHourMinuteWithNoFormatter() throws {
     var components = DateComponents()
     components.year = 2026
     components.month = 8
@@ -202,7 +202,7 @@ private func appKitReady() { _ = NSApplication.shared }
         == "2026-11-30 23:59")
 }
 
-@Test func aMissingOrChangedSourceIsMarkedAndAHealthyOneIsNot() {
+@Test(.engineLifetime) func aMissingOrChangedSourceIsMarkedAndAHealthyOneIsNot() {
     func entry(missing: Bool, changed: Bool) -> StagedSource {
         StagedSource(
             table: "sales", path: "/data/archive/sales.csv", fmt: "csv", stagedAt: Date(),
@@ -222,7 +222,7 @@ private func appKitReady() { _ = NSApplication.shared }
 /// 🔴 `SiftEngine.exportFormats` is the authority on the keys, the order and the extensions, and
 /// SiftUI adds only the labels. This is what keeps a seventh format from reaching a menu as a raw
 /// lowercase key — `exportLabel`'s `default` branch is unreachable exactly while this passes.
-@Test func everyFormatTheEngineOffersHasALabelAndTheOrderIsTheEngines() {
+@Test(.engineLifetime) func everyFormatTheEngineOffersHasALabelAndTheOrderIsTheEngines() {
     #expect(exportFormats.map(\.key) == ["parquet", "csv", "tsv", "json", "ndjson", "xlsx"])
     #expect(
         exportFormats.map { exportLabel(forKey: $0.key) }
@@ -232,7 +232,7 @@ private func appKitReady() { _ = NSApplication.shared }
     }
 }
 
-@Test func theDefaultDestinationSitsBesideTheSourceAsAParquet() {
+@Test(.engineLifetime) func theDefaultDestinationSitsBesideTheSourceAsAParquet() {
     #expect(
         defaultExportDestination(sourcePath: "/data/2026/orders.csv", table: "orders")
             == "/data/2026/orders_export.parquet")
@@ -240,7 +240,7 @@ private func appKitReady() { _ = NSApplication.shared }
 
 /// Choosing a format rewrites the destination's extension — the web's
 /// `replace(/\.[a-z0-9]+$/i, "." + ext)`, including its refusal to append one where there is none.
-@Test func theDestinationFollowsTheChosenFormatsExtension() {
+@Test(.engineLifetime) func theDestinationFollowsTheChosenFormatsExtension() {
     #expect(retargetExtension("/d/orders_export.parquet", to: "csv") == "/d/orders_export.csv")
     #expect(retargetExtension("/d/orders_export.CSV", to: "ndjson") == "/d/orders_export.ndjson")
     #expect(retargetExtension("/d/v1.2/orders_export.json", to: "tsv") == "/d/v1.2/orders_export.tsv")
@@ -250,7 +250,7 @@ private func appKitReady() { _ = NSApplication.shared }
     #expect(retargetExtension("", to: "csv") == "")
 }
 
-@Test func theExportToastSpellsBytesDestinationAndMilliseconds() {
+@Test(.engineLifetime) func theExportToastSpellsBytesDestinationAndMilliseconds() {
     let result = ExportResult(
         dest: "/data/orders_export.parquet", format: "parquet", bytes: 1_572_864,
         milliseconds: 12.34)
@@ -262,7 +262,7 @@ private func appKitReady() { _ = NSApplication.shared }
 /// 🔴 The one number that prevents more bad analyses than anything else in the app, against a real
 /// probe over two real tables. Also the test that pins `joinProbe`'s argument labels — both table
 /// arguments are `_`, and a wrong label reads at the call site as a missing method.
-@Test func theOverlapSentenceIsTheOneNumberThatStopsABadJoin() async throws {
+@Test(.engineLifetime) func theOverlapSentenceIsTheOneNumberThatStopsABadJoin() async throws {
     let (session, _, _) = try await joinFixture()
     let probe = try await session.joinProbe("orders", "returns", on: ["order_id"])
 
@@ -282,7 +282,7 @@ private func appKitReady() { _ = NSApplication.shared }
 
 /// A real-but-tiny overlap keeps two decimals so it cannot round to a flat `0.0%` and read as "no
 /// match at all" — the web's `f < 0.01 && f > 0` branch.
-@Test func aTinyRealOverlapKeepsTwoDecimalsAndAZeroKeepsOne() {
+@Test(.engineLifetime) func aTinyRealOverlapKeepsTwoDecimalsAndAZeroKeepsOne() {
     #expect(joinPercent(0.914) == "91.4%")
     #expect(joinPercent(1.0) == "100.0%")
     #expect(joinPercent(0.005) == "0.50%")
@@ -291,13 +291,13 @@ private func appKitReady() { _ = NSApplication.shared }
     #expect(joinPercent(0.01) == "1.0%", "the boundary is exclusive")
 }
 
-@Test func aPerfectJoinHasNoUnmatchedLine() {
+@Test(.engineLifetime) func aPerfectJoinHasNoUnmatchedLine() {
     let probe = JoinProbe(
         left: "a", right: "b", on: ["k"], leftDistinct: 9, matched: 9, unmatched: 0, pct: 1.0)
     #expect(unmatchedSentence(probe) == nil)
 }
 
-@Test func theKeyPromptSaysWhichOfTheThreeSituationsThisIs() {
+@Test(.engineLifetime) func theKeyPromptSaysWhichOfTheThreeSituationsThisIs() {
     let candidate = JoinCandidate(
         col: "order_id", leftType: "BIGINT", rightType: "BIGINT", compatible: true)
     #expect(mergeKeyPrompt(left: "a", right: "a", candidates: [candidate]) == .sameTable)
@@ -313,7 +313,7 @@ private func appKitReady() { _ = NSApplication.shared }
 
 /// The candidate list carries both types and the compatibility flag the row is disabled on — from
 /// the engine, in the file's own column order.
-@Test func theCandidateKeysComeBackWithBothTypesAndTheirCompatibility() async throws {
+@Test(.engineLifetime) func theCandidateKeysComeBackWithBothTypesAndTheirCompatibility() async throws {
     let (session, _, _) = try await joinFixture()
     let candidates = try await session.joinCandidates("orders", "returns")
     #expect(candidates.map(\.col) == ["order_id"])
@@ -321,7 +321,7 @@ private func appKitReady() { _ = NSApplication.shared }
     #expect(candidates[0].leftType == candidates[0].rightType)
 }
 
-@Test func mergeToastCountsTheRowsTheNewViewActuallyHas() async throws {
+@Test(.engineLifetime) func mergeToastCountsTheRowsTheNewViewActuallyHas() async throws {
     let (session, _, _) = try await joinFixture()
     let merged = try await session.merge("orders", "returns", on: ["order_id"])
     #expect(merged.name == "orders_returns")
@@ -332,7 +332,7 @@ private func appKitReady() { _ = NSApplication.shared }
 /// dependents so the fix is one click away. This sheet creates that dependency, so this is the
 /// behaviour it is on the hook for surfacing — it must not invent a cascade and must not swallow
 /// the sentence.
-@Test func closingASourceUnderALiveMergeIsRefusedWithASentenceNamingIt() async throws {
+@Test(.engineLifetime) func closingASourceUnderALiveMergeIsRefusedWithASentenceNamingIt() async throws {
     let (session, _, _) = try await joinFixture()
     _ = try await session.merge("orders", "returns", on: ["order_id"])
 
@@ -358,12 +358,12 @@ private func appKitReady() { _ = NSApplication.shared }
 /// A single-sheet workbook still gets the picker — parity with `siftOpenPaths`, which routes every
 /// workbook through it unconditionally. Shortcutting one sheet straight to open is a visible
 /// behaviour change, not an implementation detail.
-@Test func aSingleSheetWorkbookStillGetsThePickerAndItsPluralSubtitle() {
+@Test(.engineLifetime) func aSingleSheetWorkbookStillGetsThePickerAndItsPluralSubtitle() {
     #expect(sheetPickerSubtitle(count: 1) == "1 sheets — pick what to open.")
     #expect(sheetPickerSubtitle(count: 3) == "3 sheets — pick what to open.")
 }
 
-@Test func everyNonEmptySheetIsTickedAndAnEmptyOneIsListedButNot() {
+@Test(.engineLifetime) func everyNonEmptySheetIsTickedAndAnEmptyOneIsListedButNot() {
     let sheets = [
         SheetInfo(name: "Summary", rows: 2, cols: 2),
         SheetInfo(name: "By Store", rows: 1_204, cols: 7),
@@ -504,7 +504,7 @@ private func redFraction(_ colours: [NSColor]) -> Double {
 /// half (nothing open, and a clean file); this is the half that needs a file which really dropped a
 /// row, which only `dirtyFixture` produces.
 @MainActor
-@Test func theRowPhraseIsAWayIntoTheBadRowsPanelOnlyWhenRowsWereDropped() async throws {
+@Test(.engineLifetime) func theRowPhraseIsAWayIntoTheBadRowsPanelOnlyWhenRowsWereDropped() async throws {
     let (state, _) = try await dirtyFixture()
     #expect((state.active?.badRows ?? 0) > 0, "the fixture stopped dropping a row")
     #expect(state.canShowBadRows)

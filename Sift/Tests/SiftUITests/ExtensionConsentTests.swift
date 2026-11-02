@@ -1,3 +1,4 @@
+import TestSupport
 import DuckDBKit
 import Foundation
 import Testing
@@ -11,7 +12,7 @@ private func requireDownload(_ name: String, path: String) -> SessionError {
 }
 
 @MainActor
-@Test func extensionConsentCancelNeverDownloadsOrOpens() async throws {
+@Test(.engineLifetime) func extensionConsentCancelNeverDownloadsOrOpens() async throws {
     let state = AppState(session: try Session(home: tempHome()))
     let path = try makeCSV(in: tempDir(), rows: 3)
     var downloads = 0
@@ -34,7 +35,7 @@ private func requireDownload(_ name: String, path: String) -> SessionError {
 }
 
 @MainActor
-@Test func extensionConsentApprovesOnlyThePresentedPromptAndRetriesGroupedOpens() async throws {
+@Test(.engineLifetime) func extensionConsentApprovesOnlyThePresentedPromptAndRetriesGroupedOpens() async throws {
     let state = AppState(session: try Session(home: tempHome()))
     let directory = tempDir()
     let first = try makeCSV(in: directory, name: "first.csv", rows: 3)
@@ -66,7 +67,7 @@ private func requireDownload(_ name: String, path: String) -> SessionError {
 }
 
 @MainActor
-@Test func extensionConsentDoesNotAuthorizeADifferentExtension() async throws {
+@Test(.engineLifetime) func extensionConsentDoesNotAuthorizeADifferentExtension() async throws {
     let state = AppState(session: try Session(home: tempHome()))
     let directory = tempDir()
     let first = try makeCSV(in: directory, name: "excel.csv", rows: 3)
@@ -95,7 +96,7 @@ private func requireDownload(_ name: String, path: String) -> SessionError {
 }
 
 @MainActor
-@Test func extensionConsentDownloadFailureReportsErrorWithoutOpening() async throws {
+@Test(.engineLifetime) func extensionConsentDownloadFailureReportsErrorWithoutOpening() async throws {
     let state = AppState(session: try Session(home: tempHome()))
     let path = try makeCSV(in: tempDir(), rows: 3)
     state.beforeOpenForTest = { path in throw requireDownload("excel", path: path) }
@@ -110,7 +111,7 @@ private func requireDownload(_ name: String, path: String) -> SessionError {
 }
 
 
-@Test func extensionConsentMissingOptionalReadersAreNotLaunchWarnings() {
+@Test(.engineLifetime) func extensionConsentMissingOptionalReadersAreNotLaunchWarnings() {
     let warnings = extensionsNeedingWarning([
         "excel": .unavailable("not installed"), "delta": .unavailable("not installed"),
         "httpfs": .unavailable("network failed"), "unexpected": .rejectedName,

@@ -84,7 +84,7 @@ private func sessionWithBothSides() async throws -> Session {
 
 // MARK: - join_probe
 
-@Test func joinProbeCountsDistinctKeysNotRowsAndNotPairings() async throws {
+@Test(.engineLifetime) func joinProbeCountsDistinctKeysNotRowsAndNotPairings() async throws {
     let session = try await sessionWithBothSides()
     let probe = try await session.joinProbe("lhs", "rhs", on: ["k"])
 
@@ -106,7 +106,7 @@ private func sessionWithBothSides() async throws -> Session {
     #expect(probe.left == "lhs" && probe.right == "rhs" && probe.on == ["k"])
 }
 
-@Test func joinProbeCountsANullKeyTowardTheDenominatorAndNeverTowardMatched() async throws {
+@Test(.engineLifetime) func joinProbeCountsANullKeyTowardTheDenominatorAndNeverTowardMatched() async throws {
     let session = try await sessionWithBothSides()
     let probe = try await session.joinProbe("lhs", "rhs", on: ["k"])
     // The left's four distinct keys include NULL, and the right has no NULL key at all — but
@@ -127,7 +127,7 @@ private func sessionWithBothSides() async throws -> Session {
 /// single and composite disagree on all three numbers. That direction of error matters: dropping
 /// key columns reports a HIGHER match rate than reality — the exact lie `joinProbe` exists to
 /// prevent, on the composite keys (`customer_id + order_date`) where nobody can eyeball it.
-@Test func joinProbeCountsEveryKeyColumnNotJustTheFirst() async throws {
+@Test(.engineLifetime) func joinProbeCountsEveryKeyColumnNotJustTheFirst() async throws {
     let session = try await sessionWithBothSides()
     let single = try await session.joinProbe("lhs", "rhs", on: ["k"])
     let composite = try await session.joinProbe("lhs", "rhs", on: ["k", "zz"])
@@ -144,7 +144,7 @@ private func sessionWithBothSides() async throws -> Session {
     #expect(single.leftDistinct == 4 && single.matched == 2 && single.pct == 0.5)
 }
 
-@Test func unmatchedKeysCountsEveryKeyColumnNotJustTheFirst() async throws {
+@Test(.engineLifetime) func unmatchedKeysCountsEveryKeyColumnNotJustTheFirst() async throws {
     let session = try await sessionWithBothSides()
     let composite = try await session.unmatchedKeys("lhs", "rhs", on: ["k", "zz"])
     #expect(composite.columns.map(\.name) == ["k", "zz"])
@@ -154,7 +154,7 @@ private func sessionWithBothSides() async throws -> Session {
         == ["2|beta", "3|gamma", "|delta", "1|epsilon"])
 }
 
-@Test func joinProbeRejectsAKeyMissingFromEitherSide() async throws {
+@Test(.engineLifetime) func joinProbeRejectsAKeyMissingFromEitherSide() async throws {
     let session = try await sessionWithBothSides()
     await #expect(throws: SessionError("No column 'extra' in rhs.")) {
         try await session.joinProbe("lhs", "rhs", on: ["extra"])
@@ -169,7 +169,7 @@ private func sessionWithBothSides() async throws -> Session {
 
 /// DIVERGENCE from Python, which interpolates an empty key list into `SELECT DISTINCT  FROM x`
 /// and hands the user a parser dump. Only `merge` refuses cleanly there; all three do here.
-@Test func joinProbeAndUnmatchedKeysRefuseAnEmptyKeyListInsteadOfEmittingBrokenSQL() async throws {
+@Test(.engineLifetime) func joinProbeAndUnmatchedKeysRefuseAnEmptyKeyListInsteadOfEmittingBrokenSQL() async throws {
     let session = try await sessionWithBothSides()
     let expected = SessionError("Pick at least one key column to join on.")
     await #expect(throws: expected) { try await session.joinProbe("lhs", "rhs", on: []) }
@@ -183,7 +183,7 @@ private func sessionWithBothSides() async throws -> Session {
 /// contracts for one sentence. Same class as the empty-key case above: original Task 7 behaviour
 /// that the port inherited, not a regression, and missed by both the implementer and the reviewer
 /// in round 1.
-@Test func allThreeRefuseATableMergedWithItselfInsteadOfLeakingABinderDump() async throws {
+@Test(.engineLifetime) func allThreeRefuseATableMergedWithItselfInsteadOfLeakingABinderDump() async throws {
     let session = try await sessionWithBothSides()
     let expected = SessionError("Pick two different tables to merge — lhs is on both sides.")
     await #expect(throws: expected) { try await session.joinProbe("lhs", "lhs", on: ["k"]) }
@@ -193,7 +193,7 @@ private func sessionWithBothSides() async throws -> Session {
 
 // MARK: - unmatched_keys
 
-@Test func unmatchedKeysListsExactlyTheKeysJoinProbeCounted() async throws {
+@Test(.engineLifetime) func unmatchedKeysListsExactlyTheKeysJoinProbeCounted() async throws {
     let session = try await sessionWithBothSides()
     let unmatched = try await session.unmatchedKeys("lhs", "rhs", on: ["k"])
 
@@ -205,7 +205,7 @@ private func sessionWithBothSides() async throws -> Session {
     #expect(values == ["3", ""])   // "" is the NULL key's display
 }
 
-@Test func unmatchedKeysHonorsItsLimit() async throws {
+@Test(.engineLifetime) func unmatchedKeysHonorsItsLimit() async throws {
     let session = try await sessionWithBothSides()
     let capped = try await session.unmatchedKeys("lhs", "rhs", on: ["k"], limit: 1)
     #expect(capped.rows.count == 1)
@@ -214,7 +214,7 @@ private func sessionWithBothSides() async throws -> Session {
 /// DIVERGENCE from Python, reported: `unmatched_keys` there never resolves the tables and never
 /// checks the keys, so this exact call escapes as a raw binder exception instead of the one
 /// clean sentence every other session method contracts for.
-@Test func unmatchedKeysRejectsATypoInsteadOfLeakingABinderError() async throws {
+@Test(.engineLifetime) func unmatchedKeysRejectsATypoInsteadOfLeakingABinderError() async throws {
     let session = try await sessionWithBothSides()
     await #expect(throws: SessionError("No column 'kk' in lhs.")) {
         try await session.unmatchedKeys("lhs", "rhs", on: ["kk"])
@@ -226,7 +226,7 @@ private func sessionWithBothSides() async throws -> Session {
 
 // MARK: - join_candidates
 
-@Test func joinCandidatesFollowEachSidesOwnFileColumnOrder() async throws {
+@Test(.engineLifetime) func joinCandidatesFollowEachSidesOwnFileColumnOrder() async throws {
     let session = try await sessionWithBothSides()
 
     // The two files share five columns in DIFFERENT orders. Each direction must report ITS
@@ -237,14 +237,14 @@ private func sessionWithBothSides() async throws -> Session {
     #expect(try await session.joinCandidates("rhs", "lhs").map(\.col) == ["k", "v", "zz", "aaa", "big"])
 }
 
-@Test func joinCandidatesOmitColumnsTheOtherSideDoesNotHave() async throws {
+@Test(.engineLifetime) func joinCandidatesOmitColumnsTheOtherSideDoesNotHave() async throws {
     let session = try await sessionWithBothSides()
     let cols = try await session.joinCandidates("lhs", "rhs").map(\.col)
     #expect(!cols.contains("extra"))    // lhs-only
     #expect(!cols.contains("rextra"))   // rhs-only
 }
 
-@Test func joinCandidateCompatibilityIsByKindNotByTypeString() async throws {
+@Test(.engineLifetime) func joinCandidateCompatibilityIsByKindNotByTypeString() async throws {
     let session = try await sessionWithBothSides()
     let byName = Dictionary(
         uniqueKeysWithValues: try await session.joinCandidates("lhs", "rhs").map { ($0.col, $0) }
@@ -269,7 +269,7 @@ private func sessionWithBothSides() async throws -> Session {
 
 // MARK: - merge
 
-@Test func mergeCreatesAViewNotACopy() async throws {
+@Test(.engineLifetime) func mergeCreatesAViewNotACopy() async throws {
     let session = try await sessionWithBothSides()
     let merged = try await session.merge("lhs", "rhs", on: ["k"])
 
@@ -296,7 +296,7 @@ private func sessionWithBothSides() async throws -> Session {
     #expect(asTable.rows[0][0] == .int(0))
 }
 
-@Test func mergeKeepsOneCopyOfTheKeyAndSuffixesEveryOtherClash() async throws {
+@Test(.engineLifetime) func mergeKeepsOneCopyOfTheKeyAndSuffixesEveryOtherClash() async throws {
     let session = try await sessionWithBothSides()
     let merged = try await session.merge("lhs", "rhs", on: ["k"])
 
@@ -318,7 +318,7 @@ private func sessionWithBothSides() async throws -> Session {
     #expect(page.columns.map(\.name) == merged.spec.columns.map(\.name))
 }
 
-@Test func mergeDropsEveryKeyColumnFromTheRightSideNotJustTheFirst() async throws {
+@Test(.engineLifetime) func mergeDropsEveryKeyColumnFromTheRightSideNotJustTheFirst() async throws {
     let session = try await sessionWithBothSides()
     let merged = try await session.merge("lhs", "rhs", on: ["k", "zz"])
 
@@ -334,7 +334,7 @@ private func sessionWithBothSides() async throws -> Session {
     #expect(merged.notes.contains { $0.contains("on k, zz") })
 }
 
-@Test func mergeRowCountsAndItsNoteFollowTheJoinType() async throws {
+@Test(.engineLifetime) func mergeRowCountsAndItsNoteFollowTheJoinType() async throws {
     // inner: key 1 pairs 2x2, key 2 pairs 2x1 -> 6.
     // left:  + the two left rows whose key (3, NULL) has no partner -> 8.
     // right: + the one right row whose key (9) has no partner -> 7.
@@ -354,7 +354,7 @@ private func sessionWithBothSides() async throws -> Session {
     }
 }
 
-@Test func mergedTableIsProfiledEagerlyAndPageable() async throws {
+@Test(.engineLifetime) func mergedTableIsProfiledEagerlyAndPageable() async throws {
     let session = try await sessionWithBothSides()
     let merged = try await session.merge("lhs", "rhs", on: ["k"])
 
@@ -366,7 +366,7 @@ private func sessionWithBothSides() async throws -> Session {
     #expect(try await session.table(merged.name).profile != nil)
 }
 
-@Test func mergeNamesCollideIntoASuffixAndAnExplicitNameIsHonored() async throws {
+@Test(.engineLifetime) func mergeNamesCollideIntoASuffixAndAnExplicitNameIsHonored() async throws {
     let session = try await sessionWithBothSides()
     let first = try await session.merge("lhs", "rhs", on: ["k"])
     let second = try await session.merge("lhs", "rhs", on: ["k"])
@@ -377,7 +377,7 @@ private func sessionWithBothSides() async throws -> Session {
     #expect(named.name == "my_merge")
 }
 
-@Test func mergeGetsItsOwnOpenGenerationSoBackgroundWorkCannotCrossOverIntoIt() async throws {
+@Test(.engineLifetime) func mergeGetsItsOwnOpenGenerationSoBackgroundWorkCannotCrossOverIntoIt() async throws {
     let session = try await sessionWithBothSides()
     let lhs = try await session.table("lhs")
     let rhs = try await session.table("rhs")
@@ -393,7 +393,7 @@ private func sessionWithBothSides() async throws -> Session {
     #expect(generations.allSatisfy { $0 > 0 })
 }
 
-@Test func mergeRejectsAKeyMissingFromEitherSide() async throws {
+@Test(.engineLifetime) func mergeRejectsAKeyMissingFromEitherSide() async throws {
     let session = try await sessionWithBothSides()
     await #expect(throws: SessionError("No column 'rextra' in lhs.")) {
         try await session.merge("lhs", "rhs", on: ["rextra"])
@@ -403,7 +403,7 @@ private func sessionWithBothSides() async throws -> Session {
     }
 }
 
-@Test func closingAMergedTableRemovesItsViewAndFreesTheName() async throws {
+@Test(.engineLifetime) func closingAMergedTableRemovesItsViewAndFreesTheName() async throws {
     let session = try await sessionWithBothSides()
     let merged = try await session.merge("lhs", "rhs", on: ["k"])
     try await session.closeTable(merged.name)
@@ -419,7 +419,7 @@ private func sessionWithBothSides() async throws -> Session {
 /// `closeTable` drops a non-staged table's view — so closing either source used to leave the
 /// merge in the catalog, in `state()`, looking healthy, and throwing
 /// `Catalog Error: Table with name lhs does not exist!` on every page and every export.
-@Test func closingASourceUnderALiveMergeIsRefusedUntilTheMergeIsClosed() async throws {
+@Test(.engineLifetime) func closingASourceUnderALiveMergeIsRefusedUntilTheMergeIsClosed() async throws {
     let session = try await sessionWithBothSides()
     let merged = try await session.merge("lhs", "rhs", on: ["k"])
 
@@ -443,7 +443,7 @@ private func sessionWithBothSides() async throws -> Session {
     }
 }
 
-@Test func theRefusalNamesEveryMergeBuiltOnTheTable() async throws {
+@Test(.engineLifetime) func theRefusalNamesEveryMergeBuiltOnTheTable() async throws {
     let session = try await sessionWithBothSides()
     _ = try await session.merge("lhs", "rhs", on: ["k"])
     _ = try await session.merge("lhs", "rhs", on: ["k"])   // lhs_rhs_2

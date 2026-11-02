@@ -247,6 +247,11 @@ public actor Session {
     /// removed by whichever of `applyStaged`/`finishStage` ends it, so "not in this dictionary"
     /// means "not running" — which is exactly what `cancel` reports as `false`.
     var stageJobs: [String: StageJob] = [:]
+    let ownedWork = SessionWork()
+    var isClosing = false
+    var stageBarrierForTest: (@Sendable () async -> Void)?
+    func setStageBarrierForTest(_ barrier: (@Sendable () async -> Void)?) { stageBarrierForTest = barrier }
+    private var shutdownComplete = false
     /// Python's `_job_seq`. Monotonic, never reused.
     var stageJobSeq = 0
     /// Python's `STAGE_DWELL_SECONDS`: how long `maybeStageAfterDwell` waits for a sign the user
@@ -275,6 +280,9 @@ public actor Session {
     /// Internal fault-injection seam: production uses Database.harden and its measured outcomes.
     init(home: String?, keychainService: String, identityBudget: TimeInterval = 5,
          hardening: ((Database, Bool) -> [String: Bool])? = nil) throws {
+        let lifetime = SessionLifetime.current
+        try lifetime?.beginInitialization()
+        defer { lifetime?.finishInitialization() }
         let resolvedHome = Self.resolveHome(home)
         // Read once into a local: the failure path below needs it while `self` is still only
         // partly initialized, and it must be the SAME value `deinit` will release with.
@@ -402,6 +410,7 @@ public actor Session {
                 self.secretIssues = Self.issueSecrets(con, config: config, service: keychainService)
             }
             self.pagingConnection = con
+            SessionLifetime.current?.register(self)
         } catch {
             Self.openHomes.release(resolvedHome, token: token)
             throw error
@@ -562,7 +571,12 @@ public actor Session {
 
     // MARK: - relations
 
+    func requireOpen() throws {
+        guard !isClosing else { throw SessionError("This session is closing.") }
+    }
+
     public func table(_ name: String) throws -> Table {
+        try requireOpen()
         guard var t = tables[name] else {
             throw SessionError("No open table named '\(name)'.")
         }
@@ -751,6 +765,9 @@ public actor Session {
         _ path: String, name: String? = nil, sheet: String? = nil,
         nullPadding: Bool = false, skipPreamble: Bool = true
     ) async throws -> Table {
+        try requireOpen()
+        ownedWork.begin()
+        defer { ownedWork.finish() }
         guard !(nullPadding && !skipPreamble) else {
             throw SessionError(
                 "Null padding and skipping no preamble cannot be combined — pinning the skip is "
@@ -806,6 +823,7 @@ public actor Session {
 
     /// A local decision only: asking never installs or reaches the network.
     public func requiredExtension(for path: String) throws -> ExtensionDownloadRequest? {
+        try requireOpen()
         guard let name = try fileExtensionName(for: path) else { return nil }
         let loaded = name == "delta" ? (deltaLoadedForTest ?? (database.loadedExtensions[name] == .loaded))
             : database.loadedExtensions[name] == .loaded
@@ -846,6 +864,7 @@ public actor Session {
 
     /// Call only after the user approves this specific request; no other extension is installed.
     public func downloadExtension(_ request: ExtensionDownloadRequest) throws {
+        try requireOpen()
         guard try fileExtensionName(for: request.sourcePath) == request.extensionName,
               sessionExtensions.contains(request.extensionName) else {
             throw SessionError("The file no longer needs the approved extension; open it again to review the download request.")
@@ -882,6 +901,7 @@ public actor Session {
         spec: SourceSpec, requestedName: String?, displayName: String, extraNotes: [String] = [],
         replacing existing: Table? = nil
     ) throws -> Table {
+        try requireOpen()
         let tname: String
         let generation: Int
         if let existing {
@@ -952,10 +972,13 @@ public actor Session {
         tables[tname] = t
 
         let snapshot = t
+        let interrupt = StageJob()
+        ownedWork.begin(interrupt: interrupt)
         Task.detached { [self] in
+            defer { ownedWork.finish() }
             await runAfterOpen(
                 name: tname, spec: snapshot.spec, initialRowCount: snapshot.rowCount,
-                openedAt: snapshot.openedAt
+                openedAt: snapshot.openedAt, interrupt: interrupt
             )
         }
 
@@ -1167,12 +1190,17 @@ public actor Session {
         let cacheOwner = self.sharedStore ? nil : ProcessInfo.processInfo.processIdentifier
         let identityBudget = self.identityBudget
         let fetchedAtNs = fetchClockNs()
+        try requireOpen()
+        let interrupt = StageJob()
+        ownedWork.begin(interrupt: interrupt)
         do {
-            return try await Task.detached {
-                try await buildRemoteOpen(
+            return try await Task.detached { [ownedWork] in
+                defer { interrupt.closeInterruptWindow(); ownedWork.finish() }
+                return try await buildRemoteOpen(
                     database: database, home: home, url: url, fetchedAtNs: fetchedAtNs,
                     sheet: sheet, nullPadding: nullPadding, skipPreamble: skipPreamble,
-                    knownToken: knownToken, identityBudget: identityBudget, cacheOwner: cacheOwner
+                    knownToken: knownToken, identityBudget: identityBudget, cacheOwner: cacheOwner,
+                    interrupt: interrupt
                 )
             }.value
         } catch let error as UnsupportedSource {
@@ -1219,6 +1247,9 @@ public actor Session {
     /// orphan at the next launch.
     @discardableResult
     public func refreshRemote(_ name: String) async throws -> RefreshOutcome {
+        try requireOpen()
+        ownedWork.begin()
+        defer { ownedWork.finish() }
         let t = try table(name)
         guard let ref = t.spec.remote else {
             throw SessionError(
@@ -1348,9 +1379,11 @@ public actor Session {
     /// stopped it. `openedAt` is that stop: `Table.init` sets it once, fresh, per open, so a stale
     /// callback's `openedAt` can never match a reopened table's.
     nonisolated private func runAfterOpen(
-        name: String, spec: SourceSpec, initialRowCount: Int?, openedAt: Int
+        name: String, spec: SourceSpec, initialRowCount: Int?, openedAt: Int, interrupt: StageJob
     ) async {
+        defer { interrupt.closeInterruptWindow() }
         guard let connection = try? database.connect() else { return }
+        interrupt.attach(connection)
 
         // 🔴 **The remote adaptation is that there is none, and that is the design working rather
         // than a gap.** A remote text source has already been downloaded once (`buildRemoteOpen`),
@@ -1436,6 +1469,9 @@ public actor Session {
     /// Given the choice between reintroducing that risk and leaving this cliff documented, this
     /// keeps the simpler, provably-safe design and accepts the cliff.
     public func page(_ name: String, offset: Int, limit: Int = pageRows) async throws -> TablePage {
+        try requireOpen()
+        ownedWork.begin()
+        defer { ownedWork.finish() }
         var t = try table(name)
         // Persists whatever `t` ends up mutated to (filteredCount, sortKey) on every exit path —
         // success or a thrown error — matching Python, where `t` IS the dictionary's own object,
@@ -1551,6 +1587,9 @@ public actor Session {
     /// one thing standing between a stale profile and a reopened table would stop being reachable
     /// — and stop being testable — while the SUMMARIZE kept running anyway.
     public func closeTable(_ name: String) async throws {
+        try requireOpen()
+        ownedWork.begin()
+        defer { ownedWork.finish() }
         let t = try table(name)
         // Before the `defer` below registers, so a refused close removes nothing: a merge view is
         // built over this table's NAME, and dropping the view underneath one leaves it in the
@@ -1588,10 +1627,19 @@ public actor Session {
         // waiting: the job's own `.stale` repair drops whatever it finds under the name.
     }
 
-    /// Hands the home back before anything else: after this call another `Session` may legitimately
-    /// open it, and this one's later `deinit` must not take it away again (`release` compares the
-    /// token, so it cannot).
-    public func shutdown() {
+    /// Close admission and join owned work before handing the home back or removing private
+    /// files. Another session may reopen it only after the old writers have actually stopped.
+    public func shutdown() async {
+        guard !shutdownComplete else { return }
+        // Close admission before suspending: an after-open/dwell callback cannot start another
+        // stage behind this drain. The actor hop also follows any synchronous query in flight.
+        isClosing = true
+        for job in stageJobs.values { job.requestCancel() }
+        for job in profileJobs.values { job.task.cancel() }
+        ownedWork.cancel()
+        await ownedWork.drain()
+        guard !shutdownComplete else { return }
+        shutdownComplete = true
         Self.openHomes.release(siftHome, token: claimToken)
         dropPrivateStore()
     }
@@ -1747,9 +1795,10 @@ let sasParquetNote =
 func buildRemoteOpen(
     database: Database, home: String, url: RemoteURL, fetchedAtNs: Int,
     sheet: String?, nullPadding: Bool, skipPreamble: Bool, knownToken: String? = nil,
-    identityBudget: TimeInterval = 5, cacheOwner: Int32? = nil
+    identityBudget: TimeInterval = 5, cacheOwner: Int32? = nil, interrupt: StageJob? = nil
 ) async throws -> RemoteOpen {
     let con = try database.connect()
+    interrupt?.attach(con)
     let fmt = try remoteFormat(url, con: con)
     let identity = await remoteIdentity(url, timeout: identityBudget)
     let token = remoteObjectToken(url, identity, fetchedAtNs: fetchedAtNs)

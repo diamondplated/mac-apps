@@ -1,3 +1,4 @@
+import TestSupport
 import DuckDBKit
 import Foundation
 import SiftCore
@@ -24,19 +25,19 @@ import Testing
 // argument labels and a `String` return, and importing both makes every call below an overload
 // puzzle for no gain.
 
-@Test func theThreeKindsOfMissingStayThreeDifferentGlyphs() {
+@Test(.engineLifetime) func theThreeKindsOfMissingStayThreeDifferentGlyphs() {
     #expect(glyph(for: .null, kind: .text) == .null)
     #expect(glyph(for: .text(""), kind: .text) == .empty)
     #expect(glyph(for: .text("N/A"), kind: .text) == .text("N/A"))
 }
 
-@Test func aDecimalKeepsItsDeclaredScale() {
+@Test(.engineLifetime) func aDecimalKeepsItsDeclaredScale() {
     #expect(
         glyph(for: .decimal(Decimal(string: "10.50")!, scale: 2), kind: .number)
             == .number("10.50"))
 }
 
-@Test func bigIntegersGroupWithoutGoingThroughDouble() {
+@Test(.engineLifetime) func bigIntegersGroupWithoutGoingThroughDouble() {
     #expect(
         glyph(for: .int(9_007_199_254_740_993), kind: .number)
             == .number("9,007,199,254,740,993"))
@@ -45,22 +46,22 @@ import Testing
             == .number("170,141,183,460,469,231,731,687,303,715,884,105,727"))
 }
 
-@Test func aListRendersBracketedAndKeepsItsCardinality() {
+@Test(.engineLifetime) func aListRendersBracketedAndKeepsItsCardinality() {
     #expect(glyph(for: .list([.text("a"), .null]), kind: .nested) == .text("[a, NULL]"))
     #expect(glyph(for: .list([]), kind: .nested) == .text("[]"))
 }
 
-@Test func aBlobKeepsTheEngineSpelling() {
+@Test(.engineLifetime) func aBlobKeepsTheEngineSpelling() {
     #expect(glyph(for: .blob(1234), kind: .blob) == .text("<blob 1,234 B>"))
 }
 
-@Test func aTimestampLosesItsTAndSubsecondsTheWayTheWebGridDid() {
+@Test(.engineLifetime) func aTimestampLosesItsTAndSubsecondsTheWayTheWebGridDid() {
     #expect(
         glyph(for: .text("2026-08-09T14:03:01.250"), kind: .temporal)
             == .text("2026-08-09 14:03:01"))
 }
 
-@Test func aBoolIsACaseNotAString() {
+@Test(.engineLifetime) func aBoolIsACaseNotAString() {
     #expect(glyph(for: .bool(true), kind: .bool) == .bool(true))
 }
 
@@ -68,7 +69,7 @@ import Testing
 // web grid rendered. The engine's renderer handles it (integral → grouped integer, fractional →
 // six fraction digits with trailing zeros dropped, large magnitude never in exponent form). This
 // test is the SEAM check: it fails if `SiftUI` stops routing DOUBLE through the engine.
-@Test func aDoubleRendersTheWayTheWebGridRenderedIt() {
+@Test(.engineLifetime) func aDoubleRendersTheWayTheWebGridRenderedIt() {
     #expect(glyph(for: .double(1.0), kind: .number) == .number("1"))
     #expect(glyph(for: .double(1.0 / 3.0), kind: .number) == .number("0.333333"))
     #expect(glyph(for: .double(1e16), kind: .number) == .number("10,000,000,000,000,000"))
@@ -83,7 +84,7 @@ import Testing
 /// The 300-character cap is the web's `.slice(0, 300)` — a 2 MB JSON blob in one cell must not
 /// become a 2 MB tooltip. `.text("null")` tooltipping as `"null"`, identical to a real NULL, is the
 /// web's behaviour too and is deliberately not "fixed" here.
-@Test func theTooltipNamesTheStateAndCapsTheValue() {
+@Test(.engineLifetime) func theTooltipNamesTheStateAndCapsTheValue() {
     #expect(tooltip(for: .null) == "null")
     #expect(tooltip(for: .text("")) == "empty string")
     #expect(tooltip(for: .text("''")) == "''")

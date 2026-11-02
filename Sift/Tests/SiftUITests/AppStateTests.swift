@@ -1,3 +1,4 @@
+import TestSupport
 import DuckDBKit
 import Foundation
 import SiftCore
@@ -16,7 +17,7 @@ import Testing
 /// button discarding it: the one answer the engine deliberately made observable, dropped on the
 /// floor. A job id that is not running is exactly what an already-finished job looks like, so it
 /// is the honest way to produce the `false` without racing a real CTAS.
-@Test func aCancelThatCannotLandTellsTheUserInsteadOfPretending() async throws {
+@Test(.engineLifetime) func aCancelThatCannotLandTellsTheUserInsteadOfPretending() async throws {
     let (state, _) = try await openedFixture(rows: 12)
     #expect(state.banner == nil)
 
@@ -25,7 +26,7 @@ import Testing
 }
 
 @MainActor
-@Test func openingACSVPutsItInTheCatalogAndReadsItsFirstPage() async throws {
+@Test(.engineLifetime) func openingACSVPutsItInTheCatalogAndReadsItsFirstPage() async throws {
     let (state, model) = try await openedFixture(rows: 12)
 
     #expect(state.banner == nil)
@@ -42,7 +43,7 @@ import Testing
 /// `Dictionary` order — measured different on every launch, so the tab bar shuffled). This pins
 /// that the mirror keeps that order rather than re-keying it through a dictionary of its own.
 @MainActor
-@Test func tablesFollowTheOrderTheUserOpenedThem() async throws {
+@Test(.engineLifetime) func tablesFollowTheOrderTheUserOpenedThem() async throws {
     let dir = tempDir()
     let state = AppState(session: try Session(home: tempHome()))
 
@@ -58,7 +59,7 @@ import Testing
 }
 
 @MainActor
-@Test func closingATableDropsItAndMovesTheSelection() async throws {
+@Test(.engineLifetime) func closingATableDropsItAndMovesTheSelection() async throws {
     let dir = tempDir()
     let state = AppState(session: try Session(home: tempHome()))
     await state.open(path: try makeCSV(in: dir, name: "first.csv", rows: 3))
@@ -85,7 +86,7 @@ import Testing
 /// notification. A failed open that left `banner` nil would be a silent failure — the user clicks
 /// Open, picks a file, and nothing at all happens.
 @MainActor
-@Test func openingAMissingFileBannersInsteadOfFailingSilently() async throws {
+@Test(.engineLifetime) func openingAMissingFileBannersInsteadOfFailingSilently() async throws {
     let state = AppState(session: try Session(home: tempHome()))
     await state.open(path: tempDir().appendingPathComponent("not-here.csv").path)
 
@@ -99,7 +100,7 @@ import Testing
 /// every tab switch and re-fetched (`resetGrid`). A fresh instance per call would silently restore
 /// that behaviour once Task 5 puts a page cache inside.
 @MainActor
-@Test func theSameTableKeepsTheSameViewModel() async throws {
+@Test(.engineLifetime) func theSameTableKeepsTheSameViewModel() async throws {
     let dir = tempDir()
     let state = AppState(session: try Session(home: tempHome()))
     await state.open(path: try makeCSV(in: dir, name: "a.csv", rows: 3))
@@ -118,7 +119,7 @@ import Testing
 /// DIFFERENT table (the engine says so — that is what `Table.openedAt` exists for), so serving it
 /// the old model would hand the user a cache of the previous file's rows under the new file's name.
 @MainActor
-@Test func closingATableThrowsAwayItsViewModel() async throws {
+@Test(.engineLifetime) func closingATableThrowsAwayItsViewModel() async throws {
     let dir = tempDir()
     let state = AppState(session: try Session(home: tempHome()))
     let path = try makeCSV(in: dir, name: "reopen.csv", rows: 3)
@@ -140,7 +141,7 @@ import Testing
 /// were never called — the model would have been *constructed* with the finished table. The
 /// sentinel is a value no real code path could produce, so only `apply` can clear it.
 @MainActor
-@Test func refreshPushesTheCatalogIntoEveryLiveViewModel() async throws {
+@Test(.engineLifetime) func refreshPushesTheCatalogIntoEveryLiveViewModel() async throws {
     let dir = tempDir()
     let state = AppState(session: try Session(home: tempHome()))
     await state.open(path: try makeCSV(in: dir, rows: 12))
@@ -163,7 +164,7 @@ import Testing
 /// first two — so this pins both halves: the page keeps the cases apart, and `SiftEngine.glyph`
 /// (the ONE renderer, shared with the CLI) turns them into three distinct strings.
 @MainActor
-@Test func nullEmptyAndNAStayThreeDifferentThings() async throws {
+@Test(.engineLifetime) func nullEmptyAndNAStayThreeDifferentThings() async throws {
     let (_, model) = try await openedFixture(rows: 12)
 
     let note = try #require(model.columns.firstIndex(where: { $0.name == "note" }))
@@ -222,7 +223,7 @@ private func write(_ text: String, _ name: String, in dir: URL) throws -> String
 }
 
 @MainActor
-@Test func theRaggedNotesButtonReallyRecoversTheColumns() async throws {
+@Test(.engineLifetime) func theRaggedNotesButtonReallyRecoversTheColumns() async throws {
     let state = AppState(session: try Session(home: tempHome()))
     await state.open(path: try write(raggedCSVText, "orders.csv", in: tempDir()))
 
@@ -244,7 +245,7 @@ private func write(_ text: String, _ name: String, in dir: URL) throws -> String
 }
 
 @MainActor
-@Test func thePreambleNotesButtonReallyGetsTheRowsBack() async throws {
+@Test(.engineLifetime) func thePreambleNotesButtonReallyGetsTheRowsBack() async throws {
     let state = AppState(session: try Session(home: tempHome()))
     await state.open(path: try write(preambleCSVText, "prose.csv", in: tempDir()))
 
@@ -272,7 +273,7 @@ private func write(_ text: String, _ name: String, in dir: URL) throws -> String
 /// re-open on a table whose spec never collapsed, and would stop firing silently the day the
 /// sentence is reworded.
 @MainActor
-@Test func onlyTheNoteThatNamesAFixOffersOne() async throws {
+@Test(.engineLifetime) func onlyTheNoteThatNamesAFixOffersOne() async throws {
     let dir = tempDir()
     let folder = dir.appendingPathComponent("parts")
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -300,7 +301,7 @@ private func write(_ text: String, _ name: String, in dir: URL) throws -> String
 /// engine's sentence sitting above it, which is the app doing something other than what the button
 /// said.
 @MainActor
-@Test func aReopenWhoseCloseIsRefusedDoesNotOpenASecondCopy() async throws {
+@Test(.engineLifetime) func aReopenWhoseCloseIsRefusedDoesNotOpenASecondCopy() async throws {
     let dir = tempDir()
     let state = AppState(session: try Session(home: tempHome()))
     let path = try write(raggedCSVText, "orders.csv", in: dir)
@@ -328,7 +329,7 @@ private func write(_ text: String, _ name: String, in dir: URL) throws -> String
 /// to have started when `startPolling()` returns, so an immediate assertion would be testing the
 /// scheduler, not the loop.
 @MainActor
-@Test func pollingPicksUpACatalogChangeMadeBehindAppStatesBack() async throws {
+@Test(.engineLifetime) func pollingPicksUpACatalogChangeMadeBehindAppStatesBack() async throws {
     let dir = tempDir()
     let path = try makeCSV(in: dir, rows: 3)
     let session = try Session(home: tempHome())
@@ -344,7 +345,7 @@ private func write(_ text: String, _ name: String, in dir: URL) throws -> String
 /// The other half: a stopped loop stays stopped. The wait is longer than the idle cadence (2 s),
 /// so a loop that was still running would have had at least one refresh in the window.
 @MainActor
-@Test func stopPollingActuallyStops() async throws {
+@Test(.engineLifetime) func stopPollingActuallyStops() async throws {
     let dir = tempDir()
     let path = try makeCSV(in: dir, rows: 3)
     let session = try Session(home: tempHome())
@@ -381,7 +382,7 @@ private func write(_ text: String, _ name: String, in dir: URL) throws -> String
 /// `closeDropsTheTableFromTheMirrorBeforeItAwaitsTheEngine` below, which is the mutation-sensitive
 /// one.
 @MainActor
-@Test func aTableTheEngineHasClosedIsNotHandedBackAsAViewModel() async throws {
+@Test(.engineLifetime) func aTableTheEngineHasClosedIsNotHandedBackAsAViewModel() async throws {
     let (state, _) = try await openedFixture(rows: 12)
     let name = try #require(state.activeName)
 
@@ -408,7 +409,7 @@ private func write(_ text: String, _ name: String, in dir: URL) throws -> String
 ///
 /// Mutation: move `tables.removeAll` back below the `await` and this goes red.
 @MainActor
-@Test func closeDropsTheTableFromTheMirrorBeforeItAwaitsTheEngine() async throws {
+@Test(.engineLifetime) func closeDropsTheTableFromTheMirrorBeforeItAwaitsTheEngine() async throws {
     let dir = tempDir()
     let state = AppState(session: try Session(home: tempHome()))
     await state.open(path: try makeCSV(in: dir, name: "going.csv", rows: 3))
@@ -437,7 +438,7 @@ private func write(_ text: String, _ name: String, in dir: URL) throws -> String
 /// the optimistic mirror drop above must not survive that — the row comes back through `refresh()`
 /// and the selection is put back in the `catch`.
 @MainActor
-@Test func aRefusedCloseLeavesTheCatalogAndTheSelectionExactlyWhereTheyWere() async throws {
+@Test(.engineLifetime) func aRefusedCloseLeavesTheCatalogAndTheSelectionExactlyWhereTheyWere() async throws {
     let dir = tempDir()
     let state = AppState(session: try Session(home: tempHome()))
     var orders = "order_id,amount\n"
@@ -475,7 +476,7 @@ private func write(_ text: String, _ name: String, in dir: URL) throws -> String
 ///
 /// Mutation: drop `dismissSheetWithoutASubject()` from `close(_:)` and the first assertion goes red.
 @MainActor
-@Test func closingTheTableUnderASheetTakesTheSheetWithIt() async throws {
+@Test(.engineLifetime) func closingTheTableUnderASheetTakesTheSheetWithIt() async throws {
     let dir = tempDir()
     let state = AppState(session: try Session(home: tempHome()))
     await state.open(path: try makeCSV(in: dir, name: "one.csv", rows: 3))
@@ -500,7 +501,7 @@ private func write(_ text: String, _ name: String, in dir: URL) throws -> String
 /// Mutation: replace `dismissSheetWithoutASubject`'s body with `modalSheet = nil` and both halves
 /// go red; make it compare against `activeName` instead of the catalog and the first half goes red.
 @MainActor
-@Test func aSheetAboutAnotherTableAndASheetAboutNoTableBothSurviveAClose() async throws {
+@Test(.engineLifetime) func aSheetAboutAnotherTableAndASheetAboutNoTableBothSurviveAClose() async throws {
     let dir = tempDir()
     let state = AppState(session: try Session(home: tempHome()))
     await state.open(path: try makeCSV(in: dir, name: "keep.csv", rows: 3))
@@ -528,7 +529,7 @@ private func write(_ text: String, _ name: String, in dir: URL) throws -> String
 ///
 /// Mutation: drop `dismissSheetWithoutASubject()` from `refresh()` and this goes red.
 @MainActor
-@Test func refreshAlsoDismissesASheetWhoseTableLeftTheCatalog() async throws {
+@Test(.engineLifetime) func refreshAlsoDismissesASheetWhoseTableLeftTheCatalog() async throws {
     let (state, _) = try await openedFixture(rows: 12)
     let name = try #require(state.activeName)
     state.presentExport()
@@ -555,7 +556,7 @@ private func write(_ text: String, _ name: String, in dir: URL) throws -> String
 /// open — and that is the silent mis-route `classifyRemote` is the single authority against. Two
 /// different code paths produce a banner; this asserts which one ran.
 @MainActor
-@Test func aPastedURLReachesTheEngineAsAURLAndNeverAsALocalPath() async throws {
+@Test(.engineLifetime) func aPastedURLReachesTheEngineAsAURLAndNeverAsALocalPath() async throws {
     let state = AppState(session: try Session(home: tempHome()))
     let url = "https://acct.blob.core.windows.net/c/sales.csv"
 
@@ -574,7 +575,7 @@ private func write(_ text: String, _ name: String, in dir: URL) throws -> String
 /// shells `/usr/bin/unzip` at the path it is handed, and titles itself with that path's last
 /// component — which for a signed blob URL is the SAS signature.
 @MainActor
-@Test func aPastedWorkbookURLOpensRatherThanRaisingThePickerThatCannotReadIt() async throws {
+@Test(.engineLifetime) func aPastedWorkbookURLOpensRatherThanRaisingThePickerThatCannotReadIt() async throws {
     let state = AppState(session: try Session(home: tempHome()))
 
     // 🔴 The **unsigned** shape is the one that carries the mutant: `pathExtension` answers `xlsx`
@@ -601,7 +602,7 @@ private func write(_ text: String, _ name: String, in dir: URL) throws -> String
 /// `presentSheets` is guarded on the same rule the row draws itself with, so a route that skips the
 /// row cannot put a picker up over a CSV.
 @MainActor
-@Test func theOpenAnotherSheetRouteRefusesEveryTableWithNoOtherSheet() async throws {
+@Test(.engineLifetime) func theOpenAnotherSheetRouteRefusesEveryTableWithNoOtherSheet() async throws {
     let (state, _) = try await openedFixture(rows: 12)
     let name = try #require(state.activeName)
 
@@ -615,7 +616,7 @@ private func write(_ text: String, _ name: String, in dir: URL) throws -> String
 /// in the catalog, so closing that table leaves a picker describing a source nothing can open. That
 /// is the blank-undismissable-sheet shape `dismissSheetWithoutASubject` exists for.
 @MainActor
-@Test func aSheetPickerOverAnOpenWorkbookIsDismissedWhenThatTableCloses() async throws {
+@Test(.engineLifetime) func aSheetPickerOverAnOpenWorkbookIsDismissedWhenThatTableCloses() async throws {
     let (state, _) = try await openedFixture(rows: 12)
     let name = try #require(state.activeName)
 
@@ -638,7 +639,7 @@ private func write(_ text: String, _ name: String, in dir: URL) throws -> String
 /// therefore a stronger claim than the `hasPrefix` this used to make: a re-added speculative tail
 /// fails the equality below.
 @MainActor
-@Test func refreshingALocalTableBannersTheEnginesOwnRefusalWholeAndAlone() async throws {
+@Test(.engineLifetime) func refreshingALocalTableBannersTheEnginesOwnRefusalWholeAndAlone() async throws {
     let (state, _) = try await openedFixture(rows: 12)
     let name = try #require(state.activeName)
     #expect(state.banner == nil)
@@ -684,7 +685,7 @@ private func wearingSignedRemote(_ t: SiftEngine.Table, url: String) -> SiftEngi
 /// posture refusal — so a bare `banner != nil` proves nothing. `tables.count == 1` can only be true
 /// if the close never ran.
 @MainActor
-@Test func theNotesReopenRefusesASignedSourceRatherThanClosingItAndFailing() async throws {
+@Test(.engineLifetime) func theNotesReopenRefusesASignedSourceRatherThanClosingItAndFailing() async throws {
     let (state, _) = try await openedFixture(rows: 12)
     let real = try #require(state.active)
     let signed = wearingSignedRemote(real, url: "https://acct.blob.core.windows.net/c/sales.xlsx")
@@ -705,7 +706,7 @@ private func wearingSignedRemote(_ t: SiftEngine.Table, url: String) -> SiftEngi
 /// guard the strict session's own posture refusal lands on the banner instead, which is a different
 /// sentence about a different problem.
 @MainActor
-@Test func openingASecondSheetOfASignedRemoteWorkbookIsRefusedBeforeTheRequest() async throws {
+@Test(.engineLifetime) func openingASecondSheetOfASignedRemoteWorkbookIsRefusedBeforeTheRequest() async throws {
     let (state, _) = try await openedFixture(rows: 12)
     let real = try #require(state.active)
     let signed = wearingSignedRemote(real, url: "https://acct.blob.core.windows.net/c/book.xlsx")
@@ -729,7 +730,7 @@ private func wearingSignedRemote(_ t: SiftEngine.Table, url: String) -> SiftEngi
 /// is that the call it makes puts the right sheet up and that nothing dismisses it out from under
 /// the user, which `ConnectionsSheetTests` pins from the other side.
 @MainActor
-@Test func theConnectionsRouteRaisesTheSheetAndSurvivesTheCatalogEmptying() async throws {
+@Test(.engineLifetime) func theConnectionsRouteRaisesTheSheetAndSurvivesTheCatalogEmptying() async throws {
     let (state, _) = try await openedFixture(rows: 12)
     let name = try #require(state.activeName)
 

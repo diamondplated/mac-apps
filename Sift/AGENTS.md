@@ -52,6 +52,11 @@ explicit approval downloads that extension and retries the queued open. Installe
 need no prompt. The CLI refuses by default; `--allow-extension-download` explicitly permits the
 required first-use download. `--verify` never accepts that permission and skips absent formats.
 Default test helpers also LOAD only; cold extension installs belong to gated `remoteFact` tests.
+Engine/UI tests carry `.engineLifetime`, a parallel `TestScoping` trait. It awaits scoped
+`Session.shutdown()` before the test reports, including on failure or cancellation. Never remove
+that scope: CI caught all tests passing while detached staging raced DuckDB's C++ static teardown.
+Shutdown closes admission, interrupts owned work, and joins it before releasing the home or store.
+`--verify` and the CLI use the same scope. Native quit awaits shutdown before allowing termination.
 **Never weaken a test to make a change pass.** If a test pins a symbol or an output string, that
 is a contract, not an accident. The suite runs fully **in parallel** and nothing is
 `.serialized`; a test that only passes serialized is a bug in the test.

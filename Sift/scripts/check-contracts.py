@@ -34,6 +34,14 @@ def inspect(root):
                 count = len(OPTIONAL_TRY.findall(line))
                 if count:
                     sites[(relative, line.strip())] += count
+    # Engine/UI tests own sessions until scoped shutdown completes, before process exit can
+    # destroy DuckDB's parser statics. Keep new tests from silently losing that ownership.
+    for target in ('SiftEngineTests', 'SiftUITests'):
+        for path in sorted((root / 'Tests' / target).rglob('*.swift')):
+            text = code(path.read_text())
+            for match in re.finditer(r'(?m)^[ \t]*@Test\b', text):
+                if not re.match(r'\(\.engineLifetime\s*[,)]', text[match.end():]):
+                    errors.append(f'{path.relative_to(root)}: test needs .engineLifetime scope')
     return sites, errors
 
 

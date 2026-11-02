@@ -20,8 +20,10 @@ import Foundation
 ///     `DuckDBKit.Database` exposes no `close()` — the handle is released by ARC, and the detached
 ///     post-open pipeline (`_after_open`) can outlive the test body that started it. A
 ///     `defer { removeItem(home) }` therefore deletes the store out from under a live engine. The
-///     root is removed once, after every test has reported, so the ordering question does not
-///     arise. `Session.shutdown()`/`dropPrivateStore()` stay what they always were — the private
+///     engine/UI tests therefore use `.engineLifetime`: the scope awaits every live session's
+///     shutdown before its test reports. Merely waiting for tests to report is insufficient:
+///     CI caught detached staging parsing SQL during C++ static destruction at process exit.
+///     The root is removed once, after those explicit scoped drains have completed. `Session.shutdown()`/`dropPrivateStore()` stay what they always were — the private
 ///     fallback store's own cleanup — and are unaffected by this.
 ///
 /// **Opt-out:** `SIFT_KEEP_TEST_TEMP=1` keeps the root and prints its path, for when you are

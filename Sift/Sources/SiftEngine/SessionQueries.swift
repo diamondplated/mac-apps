@@ -47,6 +47,9 @@ extension Session {
     /// where a non-SELECT cannot occupy a subquery position and dies in DuckDB's own parser (see
     /// GuardStatements.swift's header). Do not reorder these two calls.
     public func runSQL(_ name: String, sql: String, offset: Int, limit: Int) async throws -> TablePage {
+        try requireOpen()
+        ownedWork.begin()
+        defer { ownedWork.finish() }
         try assertSelectOnly(sql)
         var t = try table(name)
         t.sqlMode = true
@@ -133,6 +136,9 @@ extension Session {
     /// re-profile once, `openPath` bumps the generation once). Five is far past any real sequence
     /// of those, and an error beats spinning for a table someone is churning.
     public func computeProfile(_ name: String) async throws -> [ColumnProfile] {
+        try requireOpen()
+        ownedWork.begin()
+        defer { ownedWork.finish() }
         for _ in 0..<5 {
             let t = try table(name)
             if let profile = t.profile { return profile }
@@ -176,6 +182,9 @@ extension Session {
     /// leaves `profile_of`: a user clicking a column on a 30 GB file is asking.
     @discardableResult
     public func profileIfCheap(_ name: String) async throws -> Bool {
+        try requireOpen()
+        ownedWork.begin()
+        defer { ownedWork.finish() }
         let t = try table(name)
         guard shouldProfileEagerly(fmt: t.spec.fmt, sizeBytes: t.spec.key.size, staged: t.staged)
         else { return false }
@@ -190,6 +199,7 @@ extension Session {
     /// flag is already visible to every other caller and a second caller can only ever find the
     /// job — never a window where neither is true.
     private func profileJob(for snapshot: Table) -> Task<[ColumnProfile], Error> {
+        guard !isClosing else { return Task { throw SessionError("This session is closing.") } }
         if let existing = profileJobs[snapshot.name], existing.openedAt == snapshot.openedAt {
             return existing.task
         }
@@ -219,10 +229,14 @@ extension Session {
         // `Sendable` and is created inside the task, never handed to it — and emphatically not
         // `pagingConnection`, whose safety rests on every one of its users running to completion on
         // the actor without suspending (Session.swift's header, fact 3).
+        let interrupt = StageJob()
+        ownedWork.begin(interrupt: interrupt)
         let task = Task.detached { [self] in
+            defer { interrupt.closeInterruptWindow(); ownedWork.finish() }
             do {
                 await barrier?()
-                let profile = try runProfile(spec: spec, rel: rel, uncastable: uncastable)
+                try Task.checkCancellation()
+                let profile = try runProfile(spec: spec, rel: rel, uncastable: uncastable, interrupt: interrupt)
                 await applyProfile(name, profile, jobID: jobID, openedAt: openedAt)
                 return profile
             } catch {
@@ -238,10 +252,11 @@ extension Session {
     /// body `computeProfile` used to run inline; `nonisolated` and taking only `Sendable` values so
     /// the detached task can run it without an actor hop, matching `runAfterOpen`'s helpers.
     nonisolated func runProfile(
-        spec: SourceSpec, rel: String, uncastable: [String: Int]
+        spec: SourceSpec, rel: String, uncastable: [String: Int], interrupt: StageJob? = nil
     ) throws -> [ColumnProfile] {
         do {
             let con = try database.connect()
+            interrupt?.attach(con)
 
             let summRS = try con.query("SUMMARIZE \(rel)")
             let summRows = try summRS.allRows()
@@ -320,6 +335,9 @@ extension Session {
     /// buys them is that the wait is now a suspension rather than a held actor, so the grid keeps
     /// paging while a panel is loading.
     public func profileOf(_ name: String, col: String) async throws -> ColumnProfile {
+        try requireOpen()
+        ownedWork.begin()
+        defer { ownedWork.finish() }
         let profile = try await computeProfile(name)
         guard let match = profile.first(where: { $0.name == col }) else {
             throw SessionError("No column '\(col)' in \(name).")
@@ -340,6 +358,9 @@ extension Session {
     public func distinct(
         _ name: String, col: String, limit: Int = 200, search: String? = nil
     ) async throws -> DistinctPanel {
+        try requireOpen()
+        ownedWork.begin()
+        defer { ownedWork.finish() }
         // Set unconditionally, even if `col` turns out not to exist below — matches Python, which
         // mutates the live `Table` before the column check ever runs.
         var t = try table(name)
@@ -423,6 +444,9 @@ extension Session {
 
     /// Ported from Python's `histogram`.
     public func histogram(_ name: String, col: String, bins: Int = 40) async throws -> HistogramPanel {
+        try requireOpen()
+        ownedWork.begin()
+        defer { ownedWork.finish() }
         var t = try table(name)
         if t.firstAggregateAt == nil { t.firstAggregateAt = Date() }
         tables[name] = t
@@ -486,6 +510,9 @@ extension Session {
     /// path — but a missing table still throws, since Python's own `t = self.table(name)` runs
     /// outside that try.
     public func sampleValues(_ name: String, col: String, limit: Int = 20) async throws -> [Cell] {
+        try requireOpen()
+        ownedWork.begin()
+        defer { ownedWork.finish() }
         let t = try table(name)
         let rel = relation(t)
         guard let con = try? database.connect(),
@@ -497,6 +524,9 @@ extension Session {
 
     /// Ported from Python's `length_histogram`. Same error-swallowing contract as `sampleValues`.
     public func lengthHistogram(_ name: String, col: String, bins: Int = 24) async throws -> [LengthBucket] {
+        try requireOpen()
+        ownedWork.begin()
+        defer { ownedWork.finish() }
         let t = try table(name)
         let rel = relation(t)
         let sql = "SELECT length(CAST(\(q(col)) AS VARCHAR)) AS len, count(*) AS n "
@@ -524,6 +554,9 @@ extension Session {
     /// every other public method in this file already holds it. `UnsafeTypeName`/`UnknownColumn`
     /// from `badRowsSQL` still propagate as themselves — they are already `SiftError`s.
     public func badRows(_ name: String, limit: Int = 200) async throws -> BadRowsPanel {
+        try requireOpen()
+        ownedWork.begin()
+        defer { ownedWork.finish() }
         let t = try table(name)
         guard let raw = rawRelation(t), t.badCells > 0 else {
             return BadRowsPanel(cells: t.badCells, rows: t.badRows, columns: [], data: [])

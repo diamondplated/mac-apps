@@ -67,7 +67,7 @@ private func chainSpec(name: String = "acct") -> ConnectionSpec {
 /// therefore an EXIT for local data, and that SELECT-only still blocks every write. A reworded
 /// version that drops the middle clause describes a smaller permission than the switch actually
 /// grants, which is the euphemism this test exists to keep out.
-@Test func theRemoteSwitchSentenceSaysWhatTurningItOnActuallyAllows() {
+@Test(.engineLifetime) func theRemoteSwitchSentenceSaysWhatTurningItOnActuallyAllows() {
     #expect(
         allowRemoteExplanation == """
             With this on, a SELECT in the SQL box can read a URL — and a URL that DuckDB builds \
@@ -86,7 +86,7 @@ private func chainSpec(name: String = "acct") -> ConnectionSpec {
 ///
 /// Mutation: return the same string for both directions and the inequality goes red; drop the `on`
 /// parameter's branch entirely and the off-direction assertion goes red first.
-@Test func theSwitchSaysSomethingDifferentInEachDirectionAndBothSayRelaunch() {
+@Test(.engineLifetime) func theSwitchSaysSomethingDifferentInEachDirectionAndBothSayRelaunch() {
     let on = allowRemoteOutcome(on: true, .activeAfterRelaunch)
     let off = allowRemoteOutcome(on: false, .activeAfterRelaunch)
 
@@ -110,7 +110,7 @@ private func chainSpec(name: String = "acct") -> ConnectionSpec {
 /// 🔴 **`.active` says nothing about relaunching**, in either direction. The engine measures which
 /// case it is; a UI that appended "relaunch Sift" defensively would tell every user of a permissive
 /// session to restart an app that is already working.
-@Test func nothingTellsTheUserToRelaunchWhenTheEngineMeasuredActive() {
+@Test(.engineLifetime) func nothingTellsTheUserToRelaunchWhenTheEngineMeasuredActive() {
     #expect(allowRemoteOutcome(on: true, .active) == nil)
     #expect(allowRemoteOutcome(on: false, .active) == nil)
     #expect(addedConnectionOutcome(.active, turnedRemoteOn: false) == nil)
@@ -125,7 +125,7 @@ private func chainSpec(name: String = "acct") -> ConnectionSpec {
 ///
 /// Offline by construction: a strict launch loads no remote extension, and this session has no
 /// saved connection for `setAllowRemote` to issue a secret for.
-@Test func aRealStrictSessionProducesBothOutcomesAndTheCopyFollowsThem() async throws {
+@Test(.engineLifetime) func aRealStrictSessionProducesBothOutcomesAndTheCopyFollowsThem() async throws {
     let session = try plantedSession(allowRemote: false)
 
     let unchanged = try await session.setAllowRemote(false)
@@ -144,7 +144,7 @@ private func chainSpec(name: String = "acct") -> ConnectionSpec {
 /// Two independent clauses. Saving the first connection turns the master switch on in the file — a
 /// posture change the user did not ask for in as many words — and that is a separate fact from
 /// whether this session can act on it.
-@Test func aSaveSaysWhatItChangedBeyondAddingARow() {
+@Test(.engineLifetime) func aSaveSaysWhatItChangedBeyondAddingARow() {
     #expect(
         addedConnectionOutcome(.active, turnedRemoteOn: true)
             == "Saving your first connection turned Allow remote data on.")
@@ -165,7 +165,7 @@ private func chainSpec(name: String = "acct") -> ConnectionSpec {
 ///
 /// Mutation: drop the `nonBlank(name)` guard and the first assertion goes red; make the s3 branch
 /// require only the key id and the fourth goes red; require a region and the last goes red.
-@Test func saveIsBlockedExactlyWhereTheEngineCouldNotBuildASecret() {
+@Test(.engineLifetime) func saveIsBlockedExactlyWhereTheEngineCouldNotBuildASecret() {
     // A connection with no name is refused by `addConnection` itself — it is the Keychain item's
     // label and every sentence in the engine names it.
     #expect(
@@ -206,7 +206,7 @@ private func chainSpec(name: String = "acct") -> ConnectionSpec {
 /// as plain JSON, so a secret that leaked into any of its fields would be a credential on disk in
 /// the clear. Asserted by encoding the spec the form builds and searching the bytes — a field-by-
 /// field assertion would pass for a spec that grew a seventh field tomorrow.
-@Test func theAddFormNeverPutsTheCredentialIntoTheSavedSpec() throws {
+@Test(.engineLifetime) func theAddFormNeverPutsTheCredentialIntoTheSavedSpec() throws {
     let secret = "sk-DO-NOT-PERSIST-8f3a9c"
     var draft = ConnectionDraft()
     draft.kind = .s3
@@ -235,7 +235,7 @@ private func chainSpec(name: String = "acct") -> ConnectionSpec {
 /// carries its own copy to decide which extension a row's Install button asks for. Delete this test
 /// and the two can drift — and the drift is an "Install httpfs" button on a row the engine is
 /// loading `azure` for, which installs the wrong thing and reports success.
-@Test func theExtensionThisScreenNamesIsTheOneTheEngineLoads() {
+@Test(.engineLifetime) func theExtensionThisScreenNamesIsTheOneTheEngineLoads() {
     #expect(duckDBExtension(for: .azure) == SiftEngine.extensionName(for: .azure))
     #expect(duckDBExtension(for: .s3) == SiftEngine.extensionName(for: .s3))
     #expect(duckDBExtension(for: .azure) == "azure")
@@ -254,7 +254,7 @@ private func chainSpec(name: String = "acct") -> ConnectionSpec {
 ///    `INSTALL` cannot succeed);
 ///  * collapse `.rejectedName` into `.unavailable` → the last goes red (a Sift bug is reported as
 ///    something the user can install their way out of).
-@Test func aRowsStateIsDecidedInThatOrderAndTheOrderMatters() {
+@Test(.engineLifetime) func aRowsStateIsDecidedInThatOrderAndTheOrderMatters() {
     let spec = chainSpec()
     func state(
         issue: String? = nil, ext: ExtensionState? = .loaded, allowRemote: Bool = true,
@@ -300,7 +300,7 @@ private func chainSpec(name: String = "acct") -> ConnectionSpec {
 ///
 /// Mutation: make `.remoteOff` or `.readyAfterRelaunch` a problem and this goes red — the normal
 /// strict posture, which is the default every user starts in, would paint its whole list red.
-@Test func onlyABrokenRowReadsAsBroken() {
+@Test(.engineLifetime) func onlyABrokenRowReadsAsBroken() {
     #expect(!ConnectionRowState.ready.isProblem)
     #expect(!ConnectionRowState.readyAfterRelaunch.isProblem)
     #expect(!ConnectionRowState.remoteOff.isProblem)
@@ -319,7 +319,7 @@ private func chainSpec(name: String = "acct") -> ConnectionSpec {
 ///
 /// Also the end-to-end half of the precedence claim: this session is strict, so the row WOULD be
 /// `.readyAfterRelaunch` — and the real issue beats it.
-@Test func aRowRendersTheEnginesOwnSentenceAndNeverASecondWordingForIt() async throws {
+@Test(.engineLifetime) func aRowRendersTheEnginesOwnSentenceAndNeverASecondWordingForIt() async throws {
     let spec = s3Spec(name: "no-key-here")
     let session = try plantedSession(allowRemote: false, connections: [spec])
     // Strict at launch, so nothing was issued yet; this is what fills `connectionIssues()`.
@@ -343,7 +343,7 @@ private func chainSpec(name: String = "acct") -> ConnectionSpec {
 /// The identity half of a row names the account or the key id — both of which are already in
 /// `connections.json` in the clear and both of which `duckdb_secrets()` prints unredacted — and
 /// never anything from the Keychain.
-@Test func aRowNamesWhatItReachesAndHowItSignsIn() {
+@Test(.engineLifetime) func aRowNamesWhatItReachesAndHowItSignsIn() {
     #expect(connectionDetail(chainSpec()) == "Azure · acct · az login")
     #expect(
         connectionDetail(
@@ -368,7 +368,7 @@ private func chainSpec(name: String = "acct") -> ConnectionSpec {
 
 /// The removal confirmation says the part that is not recoverable, because that is the only reason
 /// there is a confirmation at all.
-@Test func removingAConnectionSaysTheKeychainItemGoesWithIt() {
+@Test(.engineLifetime) func removingAConnectionSaysTheKeychainItemGoesWithIt() {
     #expect(
         removeConnectionConfirmation("prod") == """
             Remove prod? Its credential is deleted from your Keychain as well, and Sift cannot get \
@@ -380,7 +380,7 @@ private func chainSpec(name: String = "acct") -> ConnectionSpec {
 /// and exactly why. The token is a bearer credential in the query string; `RemoteURL` splits it off
 /// so it cannot reach a config file, the staging catalog or a log, and a "save this SAS URL" field
 /// would persist the one string that whole type exists to keep off disk.
-@Test func theSasLineSaysItIsNotAConnectionAndNeverTouchesDisk() {
+@Test(.engineLifetime) func theSasLineSaysItIsNotAConnectionAndNeverTouchesDisk() {
     #expect(
         sasNote == """
             A URL with a SAS token in it is not a connection — paste the whole URL when you open \
@@ -398,7 +398,7 @@ private func chainSpec(name: String = "acct") -> ConnectionSpec {
 /// catalog — which, for a table opened over a connection the user is in the middle of removing, is
 /// precisely when the screen is most needed.
 @MainActor
-@Test func connectionsIsASheetAboutTheAppAndSurvivesTheCatalogChanging() async throws {
+@Test(.engineLifetime) func connectionsIsASheetAboutTheAppAndSurvivesTheCatalogChanging() async throws {
     #expect(AppState.ModalSheet.connections.id == "connections")
     #expect(AppState.ModalSheet.connections.subject == nil)
 
@@ -416,7 +416,7 @@ private func chainSpec(name: String = "acct") -> ConnectionSpec {
 /// is the one the screen has the most to say in: remote off, nothing saved, which is where the
 /// master switch itself lives.
 @MainActor
-@Test func theConnectionsScreenOpensWithNothingSavedAndNothingOpen() throws {
+@Test(.engineLifetime) func theConnectionsScreenOpensWithNothingSavedAndNothingOpen() throws {
     let state = AppState(session: try Session(home: tempHome()))
     #expect(state.tables.isEmpty)
     state.presentConnections()
@@ -432,7 +432,7 @@ private func chainSpec(name: String = "acct") -> ConnectionSpec {
 /// just turned on, so the first connection saved on a strict session marked its extension `.loaded`
 /// having installed nothing at all. `connectionRowState` hides that today (a relaunch outranks an
 /// extension state), which is exactly why it needs a test rather than a reader's confidence.
-@Test(arguments: [
+@Test(.engineLifetime, arguments: [
     // saved, usableNow, issue, expected
     (true, true, String?.none, true),      // the one shape that is evidence
     (false, true, String?.none, false),    // a save that threw leaves no issue either

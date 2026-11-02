@@ -1,3 +1,4 @@
+import TestSupport
 import Foundation
 import Security
 import Testing
@@ -62,7 +63,7 @@ private let requiresKeychain = ConditionTrait.enabled(if: keychain.usable, keych
 
 // MARK: - The round trip
 
-@Test(requiresKeychain)
+@Test(.engineLifetime, requiresKeychain)
 func aCredentialSurvivesAddReadUpdateReadAndDelete() throws {
     let account = UUID().uuidString
     defer { try? Keychain.delete(account: account, in: testService) }
@@ -88,7 +89,7 @@ func aCredentialSurvivesAddReadUpdateReadAndDelete() throws {
             "a deleted credential must read as absent")
 }
 
-@Test(requiresKeychain)
+@Test(.engineLifetime, requiresKeychain)
 func twoConnectionsDoNotShareOneItem() throws {
     let alpha = UUID().uuidString
     let beta = UUID().uuidString
@@ -108,7 +109,7 @@ func twoConnectionsDoNotShareOneItem() throws {
             "deleting one connection's credential must not touch another's")
 }
 
-@Test(requiresKeychain)
+@Test(.engineLifetime, requiresKeychain)
 func deletingACredentialThatIsNotThereSucceeds() throws {
     // No `#expect`: a throw from a `throws` test is already a failure, and this test's entire
     // assertion is that the next line does not throw. Drop `errSecItemNotFound` from `delete`'s
@@ -136,7 +137,7 @@ private func storedLabel(_ account: String) throws -> String? {
     return (found as? [String: Any])?[kSecAttrLabel as String] as? String
 }
 
-@Test(requiresKeychain)
+@Test(.engineLifetime, requiresKeychain)
 func theLabelReachesTheItemAndFollowsARename() throws {
     let account = UUID().uuidString
     defer { try? Keychain.delete(account: account, in: testService) }
@@ -157,7 +158,7 @@ func theLabelReachesTheItemAndFollowsARename() throws {
 // No keychain needed for either of these: they are about what this module says, not what the OS
 // does, so they run everywhere including a machine where the round trips skip.
 
-@Test func aKeychainFailureCarriesBothTheOSStatusAndSecuritysOwnWords() {
+@Test(.engineLifetime) func aKeychainFailureCarriesBothTheOSStatusAndSecuritysOwnWords() {
     let error = KeychainError(action: "save", status: errSecInteractionNotAllowed)
 
     #expect(error.status == errSecInteractionNotAllowed)
@@ -177,7 +178,7 @@ func theLabelReachesTheItemAndFollowsARename() throws {
             "a Foundation dump replaced the sentence")
 }
 
-@Test func anUnknownStatusStillProducesASentence() {
+@Test(.engineLifetime) func anUnknownStatusStillProducesASentence() {
     // Apple has no text for most numbers and answers `"OSStatus <n>"`; the sentence must survive
     // that, and must never come out with an empty middle.
     let error = KeychainError(action: "read", status: -999_999)
@@ -186,7 +187,7 @@ func theLabelReachesTheItemAndFollowsARename() throws {
     #expect(!error.description.contains(": (OSStatus"), "the message half went missing")
 }
 
-@Test func testsNeverWriteWhereTheAppReads() {
+@Test(.engineLifetime) func testsNeverWriteWhereTheAppReads() {
     #expect(Keychain.service == "dev.sift.connections")
     #expect(testService == "dev.sift.connections.test")
     #expect(testService != Keychain.service,
