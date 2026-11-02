@@ -65,6 +65,38 @@ final class InstallationStoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: installed.path))
     }
 
+    func testPersistentSigningFixtureAcceptsMatchingCopyAndRejectsAdHocImpostor() throws {
+        guard let path = ProcessInfo.processInfo.environment["MACTOOLS_SIGNED_DOCKPEEK_FIXTURE"] else {
+            throw XCTSkip("Set MACTOOLS_SIGNED_DOCKPEEK_FIXTURE to an existing persistently signed DockPeek build.")
+        }
+        let payload = store.payloadDirectory!.appendingPathComponent("DockPeek.app")
+        let installed = store.userDirectory.appendingPathComponent("DockPeek.app")
+        for directory in [store.payloadDirectory!, store.userDirectory] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        // Read signed public bytes only: never look up a signing key or modify the original.
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: path), to: payload)
+        try FileManager.default.copyItem(at: payload, to: installed)
+        let productionStore = InstallationStore(payloadDirectory: store.payloadDirectory,
+            userDirectory: store.userDirectory, systemDirectory: store.systemDirectory)
+        XCTAssertEqual(try productionStore.existing(.dockPeek)?.path, installed.path)
+        try InstallationStore.checkInstalledIdentity(installed, payload: payload, app: .dockPeek)
+
+        try FileManager.default.removeItem(at: installed)
+        let impostor = try fixture(in: store.userDirectory)
+        let executable = impostor.appendingPathComponent("Contents/MacOS/DockPeek")
+        try FileManager.default.removeItem(at: executable)
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: "/usr/bin/true"), to: executable)
+        try command("/usr/bin/codesign", ["--force", "--sign", "-", "--timestamp=none", impostor.path])
+        try command("/usr/bin/codesign", ["--verify", "--strict", impostor.path])
+        XCTAssertThrowsError(try InstallationStore.checkInstalledIdentity(impostor, payload: payload, app: .dockPeek))
+        XCTAssertThrowsError(try productionStore.existing(.dockPeek))
+        XCTAssertThrowsError(try productionStore.settings(.dockPeek))
+        XCTAssertThrowsError(try productionStore.install(.dockPeek, scope: .user))
+        XCTAssertThrowsError(try productionStore.uninstall(.dockPeek))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: impostor.path))
+    }
+
     private func command(_ executable: String, _ arguments: [String]) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
