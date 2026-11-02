@@ -476,14 +476,11 @@ extension Session {
     /// `connectionRowState` produces only when `usableNow`). A fourth call site has to earn its own
     /// gate; there is no guard here to fall back on.
     ///
-    /// ⚠️ This is the only post-`init` writer of `Database.loadedExtensions`, whose header notes the
-    /// dictionary is unsynchronized because it is written at configure time and read afterwards.
-    /// Every call here is actor-isolated, so the writes are serialized against each other; the one
-    /// reader that is not is `Session.engineInfo()`, which the app calls once while building
-    /// `AppState`, long before any Connections sheet exists.
+    /// Database serializes extension loading and exposes lock-protected state snapshots, so
+    /// first-use file consent and background readers cannot race these writes.
     public func installExtension(_ name: String) -> ExtensionState {
         if database.loadedExtensions[name] == .loaded { return .loaded }
-        database.loadExtensions([name])
+        database.loadExtensions([name], installMissing: true)
         return database.loadedExtensions[name]
             ?? .unavailable("DuckDB reported nothing at all about \(name).")
     }

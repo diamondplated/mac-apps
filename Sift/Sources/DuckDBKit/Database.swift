@@ -10,7 +10,7 @@ import Foundation
 /// with a fix in it; the other is a bug report. **Absent stays a fourth thing: never asked.**
 public enum ExtensionState: Sendable, Equatable {
     case loaded
-    /// LOAD and INSTALL both failed — carries DuckDB's first line so the UI can say why.
+    /// Loading failed, or an explicitly authorized installation failed, with a reason.
     case unavailable(String)
     /// The name failed the injection guard. A Sift bug, never a user-fixable state.
     case rejectedName
@@ -20,12 +20,16 @@ public enum ExtensionState: Sendable, Equatable {
 /// which is why this is `@unchecked Sendable` while `Connection` is not.
 public final class Database: @unchecked Sendable {
     private var handle: duckdb_database?
-    // loadedExtensions, hardened and networkInstalls are written only during configure-time
-    // (harden/loadExtensions) and read afterwards, making the unsynchronized collections safe on
-    // @unchecked Sendable.
-    public private(set) var loadedExtensions: [String: ExtensionState] = [:]
+    // First-use consent can load extensions after initialization, while background readers
+    // inspect the engine. Snapshot state is locked separately from potentially slow installs.
+    private let stateLock = NSLock()
+    private let extensionLoadLock = NSLock()
+    private var extensionStates: [String: ExtensionState] = [:]
+    private var hardeningOutcomes: [String: Bool] = [:]
+    private var installAttempts: [String] = []
+    public var loadedExtensions: [String: ExtensionState] { stateLock.withLock { extensionStates } }
     /// Per-setting outcome of the last `harden()`, keyed by setting name.
-    public private(set) var hardened: [String: Bool] = [:]
+    public var hardened: [String: Bool] { stateLock.withLock { hardeningOutcomes } }
     /// Every name this `Database` issued an `INSTALL` for, in order — **the decision, not the
     /// delivery**.
     ///
@@ -41,7 +45,7 @@ public final class Database: @unchecked Sendable {
     /// `INSTALL` is the only outbound network call anything in this package makes. Appended before
     /// the statement runs, so a failed download is recorded too: the request left the machine
     /// either way, and that is what is being measured.
-    public private(set) var networkInstalls: [String] = []
+    public var networkInstalls: [String] { stateLock.withLock { installAttempts } }
 
     /// The filesystems `harden()` denies, as `disabled_filesystems` wants them: a bare
     /// comma-separated list, no quoting.
@@ -149,17 +153,20 @@ public final class Database: @unchecked Sendable {
     public func harden(allowRemote: Bool = false) {
         let settings = Self.hardeningSettings(allowRemote: allowRemote)
         guard let con = try? connect() else {
-            for (name, _) in settings { hardened[name] = false }
+            for (name, _) in settings { stateLock.withLock { hardeningOutcomes[name] = false } }
             return
         }
         for (name, value) in settings {
-            hardened[name] = (try? con.execute("SET \(name)=\(value)")) != nil
+            let succeeded = (try? con.execute("SET \(name)=\(value)")) != nil
+            stateLock.withLock { hardeningOutcomes[name] = succeeded }
         }
     }
 
     /// LOAD what we need, since autoloading is disabled by `harden()`. Extension
-    /// binaries are per-DuckDB-version, so a version bump needs a fresh INSTALL.
-    public func loadExtensions(_ names: [String]) {
+    /// binaries are per-DuckDB-version; INSTALL requires explicit caller authorization.
+    public func loadExtensions(_ names: [String], installMissing: Bool = false) {
+        extensionLoadLock.lock()
+        defer { extensionLoadLock.unlock() }
         guard let con = try? connect() else { return }
         for name in names {
             // DuckDB accepts no bound parameters for LOAD, so the name is interpolated —
@@ -169,25 +176,29 @@ public final class Database: @unchecked Sendable {
             // Package invariant, from DBValue.swift: nothing in Sift interpolates a user
             // value into SQL text.
             guard Self.isExtensionName(name) else {
-                loadedExtensions[name] = .rejectedName
+                stateLock.withLock { extensionStates[name] = .rejectedName }
                 continue
             }
             if (try? con.execute("LOAD \(name)")) != nil {
-                loadedExtensions[name] = .loaded
+                stateLock.withLock { extensionStates[name] = .loaded }
+                continue
+            }
+            guard installMissing else {
+                stateLock.withLock { extensionStates[name] = .unavailable("The DuckDB \(name) extension is not installed or could not be loaded.") }
                 continue
             }
             do {
-                networkInstalls.append(name)
+                stateLock.withLock { installAttempts.append(name) }
                 try con.execute("INSTALL \(name)")
                 try con.execute("LOAD \(name)")
-                loadedExtensions[name] = .loaded
+                stateLock.withLock { extensionStates[name] = .loaded }
             } catch {
                 // The INSTALL-or-second-LOAD failure, not the first LOAD's: the first one always
                 // says the same uninteresting thing ("Extension …/<name>.duckdb_extension not
                 // found"), while this one distinguishes the two cases a user can act on — a 404
                 // from extensions.duckdb.org (no such extension) from a machine that could not
                 // reach it at all (no network). MEASURED against the vendored 1.5.5.
-                loadedExtensions[name] = .unavailable((error as? DuckDBError)?.firstLine ?? "\(error)")
+                stateLock.withLock { extensionStates[name] = .unavailable((error as? DuckDBError)?.firstLine ?? "\(error)") }
             }
         }
     }

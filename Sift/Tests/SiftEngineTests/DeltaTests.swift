@@ -21,7 +21,8 @@ private let GB = 1024 * 1024 * 1024
 
 private func newConnection(extensions: [String] = []) throws -> Connection {
     let db = try Database.inMemory()
-    db.loadExtensions(extensions)
+    db.harden()
+    db.loadExtensions(extensions, installMissing: false)
     return try db.connect()
 }
 
@@ -103,7 +104,7 @@ func timeTravelUsesTheVersionArgument() throws {
         // The sentence has to say WHY, because "install an extension" alone reads as a nuisance
         // rather than as the reason the numbers would be wrong.
         #expect(error.message.contains("resurrect deleted rows"), "got: \(error.message)")
-        #expect(error.message.contains("INSTALL delta"), "the way out must be named: \(error.message)")
+        #expect(error.message.contains("approve downloading"), "the way out must be named: \(error.message)")
     }
 
     // Nothing was opened — a refusal must not leave a half-built table behind.

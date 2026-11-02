@@ -123,9 +123,18 @@ private let sessionExtensions = ["delta", "excel"]
 /// is the same one SiftUI will surface in a banner). Named `SessionError`, not `SiftError`: this
 /// module imports `SiftCore`, whose `SiftError` is the protocol every concrete error here
 /// conforms to (see `SQLRejected`, `UnsupportedSource`) — reusing the name would shadow it.
+public struct ExtensionDownloadRequest: Sendable, Equatable {
+    public let extensionName: String
+    public let sourcePath: String
+}
+
 public struct SessionError: SiftError, Equatable {
     public let message: String
-    public init(_ message: String) { self.message = message }
+    public let extensionDownload: ExtensionDownloadRequest?
+    public init(_ message: String, extensionDownload: ExtensionDownloadRequest? = nil) {
+        self.message = message
+        self.extensionDownload = extensionDownload
+    }
     public var description: String { message }
 }
 
@@ -353,7 +362,8 @@ public actor Session {
             if !config.allowRemote && Database.hardeningSettings().contains(where: { outcomes[$0.name] != true }) {
                 throw SessionError("Could not apply the security settings required for a local-only session.")
             }
-            db.loadExtensions(sessionExtensions + remoteExtensions(for: config))
+            db.loadExtensions(sessionExtensions, installMissing: false)
+            db.loadExtensions(remoteExtensions(for: config), installMissing: true)
 
             let con: Connection
             do {
@@ -766,21 +776,7 @@ public actor Session {
             throw SessionError("No such file or folder: \(resolved)")
         }
 
-        // 🔴 The single most consequential refusal in the product, and until 2026-08-11 it was
-        // held up by an environmental accident: `delta` always loads on every machine this runs
-        // on, so the branch was unreachable and deleting it left 461 tests green. What it guards
-        // is reading a Delta table as a raw parquet glob, which RESURRECTS DELETED ROWS — the
-        // worst thing a tool whose entire premise is not lying about data could do. It deserves a
-        // seam, not luck: `deltaLoadedForTest` is that seam and its only purpose.
-        if isDeltaDir(resolved), !(deltaLoadedForTest ?? (database.loadedExtensions["delta"] == .loaded)) {
-            throw SessionError(
-                "\((resolved as NSString).lastPathComponent) is a Delta table, but the DuckDB "
-                    + "delta extension is not available, so Sift cannot read it correctly. Reading "
-                    + "the parquet files directly would resurrect deleted rows — refusing rather "
-                    + "than showing you wrong numbers. Fix: run INSTALL delta once with network "
-                    + "access."
-            )
-        }
+        try requireFileExtension(for: resolved)
 
         let spec: SourceSpec
         do {
@@ -806,6 +802,58 @@ public actor Session {
             spec: spec, requestedName: name,
             displayName: (resolved as NSString).lastPathComponent
         )
+    }
+
+    /// A local decision only: asking never installs or reaches the network.
+    public func requiredExtension(for path: String) throws -> ExtensionDownloadRequest? {
+        guard let name = try fileExtensionName(for: path) else { return nil }
+        let loaded = name == "delta" ? (deltaLoadedForTest ?? (database.loadedExtensions[name] == .loaded))
+            : database.loadedExtensions[name] == .loaded
+        guard !loaded else { return nil }
+        return ExtensionDownloadRequest(extensionName: name, sourcePath: classifyRemote(path)?.sanitized ?? path)
+    }
+
+    private func fileExtensionName(for path: String) throws -> String? {
+        if let remote = classifyRemote(path) {
+            try checkRemotePosture(remote)
+            return xlsxExt.contains(remote.effectiveExt) ? "excel" : nil
+        }
+        let resolved = realPath((path as NSString).expandingTildeInPath)
+        let format: Fmt
+        do { format = try detectFormat(resolved) }
+        catch let error as UnsupportedSource { throw SessionError(error.message) }
+        catch let error as LegacyXls { throw SessionError(error.message) }
+        switch format {
+        case .delta: return "delta"
+        case .xlsx: return "excel"
+        default: return nil
+        }
+    }
+
+    // MEASURED before the missing-extension seam: 461 tests passed with the Delta refusal
+    // deleted because every test machine already had delta installed; raw parquet fallback
+    // resurrects deleted rows, so deltaLoadedForTest must keep exercising this refusal.
+    private func requireFileExtension(for path: String) throws {
+        guard let request = try requiredExtension(for: path) else { return }
+        let message: String
+        if request.extensionName == "delta" {
+            message = "This is a Delta table and reading its parquet files directly would resurrect deleted rows; approve downloading the DuckDB delta extension before opening it."
+        } else {
+            message = "Approve downloading the DuckDB excel extension before opening this workbook."
+        }
+        throw SessionError(message, extensionDownload: request)
+    }
+
+    /// Call only after the user approves this specific request; no other extension is installed.
+    public func downloadExtension(_ request: ExtensionDownloadRequest) throws {
+        guard try fileExtensionName(for: request.sourcePath) == request.extensionName,
+              sessionExtensions.contains(request.extensionName) else {
+            throw SessionError("The file no longer needs the approved extension; open it again to review the download request.")
+        }
+        database.loadExtensions([request.extensionName], installMissing: true)
+        guard database.loadedExtensions[request.extensionName] == .loaded else {
+            throw SessionError("Sift could not download or load the DuckDB \(request.extensionName) extension; check your connection and try again.")
+        }
     }
 
     /// The half of an open both branches share: derive a free table name, put the source into the
@@ -957,6 +1005,7 @@ public actor Session {
         try checkRemotePosture(url)
         try checkRemoteExtension(url)
         try checkRemoteConnection(url)
+        try requireFileExtension(for: url.sanitized)
 
         let opened = try await remoteOpen(
             url, sheet: sheet, nullPadding: nullPadding, skipPreamble: skipPreamble,
@@ -1218,6 +1267,7 @@ public actor Session {
         // narrowed since (both are frozen for the life of the `Database`). A saved connection CAN
         // have been removed in between, and that has a sentence of its own.
         try checkRemoteConnection(url)
+        try requireFileExtension(for: url.sanitized)
 
         let openedAt = t.openedAt
         let fetchedAtNs = fetchClockNs()

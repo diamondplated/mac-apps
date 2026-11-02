@@ -897,7 +897,7 @@ let verificationChecks: [VerificationCheck] = [
 /// Can DuckDB load `name` out of what is already installed on this machine?
 ///
 /// 🔴 **A bare `LOAD` with no `INSTALL` behind it, and that is the whole gate.**
-/// `Database.loadExtensions` does LOAD→INSTALL→LOAD, so building a permissive `Session` on an
+/// `Database.loadExtensions(..., installMissing: true)` does LOAD→INSTALL→LOAD, so building a permissive `Session` on an
 /// unprepared machine puts `extensions.duckdb.org` on the critical path of a command the user ran to
 /// check their own install — and a remote path that cannot reach what it needs is not fast about
 /// saying so (MEASURED on the first remote CI canary: 244 s to report nothing). `scratchDatabase()`
@@ -1528,7 +1528,7 @@ func waitForStaging(_ session: Session, _ name: String, timeout: TimeInterval = 
 func scratchDatabase(loading extensions: [String] = []) throws -> Database {
     let db = try Database.inMemory()
     db.harden()
-    if !extensions.isEmpty { db.loadExtensions(extensions) }
+    if !extensions.isEmpty { db.loadExtensions(extensions, installMissing: false) }
     return db
 }
 
@@ -1815,10 +1815,13 @@ public struct FileOverview: Sendable {
 /// and a staged copy it adopts or leaves behind is a feature. Tests pass an explicit one.
 public func openAndDescribe(
     path: String, sheet: String? = nil, rows: Int = 10, home: String? = nil,
-    nullPadding: Bool = false, skipPreamble: Bool = true
+    nullPadding: Bool = false, skipPreamble: Bool = true, allowExtensionDownload: Bool = false
 ) async throws -> FileOverview {
     let started = DispatchTime.now()
     let session = try Session(home: home)
+    if allowExtensionDownload, let request = try await session.requiredExtension(for: path) {
+        try await session.downloadExtension(request)
+    }
     let t = try await session.openPath(
         path, sheet: sheet, nullPadding: nullPadding, skipPreamble: skipPreamble
     )
@@ -2046,10 +2049,20 @@ public enum SiftCommand: Sendable, Equatable {
     case verify
     case open(
         path: String, sheet: String?, rows: Int, width: Int,
-        nullPadding: Bool, skipPreamble: Bool
+        nullPadding: Bool, skipPreamble: Bool, allowExtensionDownload: Bool = false
     )
     /// The arguments made no sense. Carries the sentence to print before the usage text.
     case usageError(String)
+}
+
+/// Keep command-line consent guidance testable rather than deciding inside the executable.
+public func renderCLIError(_ error: Error) -> String {
+    var message = error.localizedDescription
+    if let failure = error as? SessionError, failure.extensionDownload != nil {
+        if message.hasSuffix(".") { message.removeLast() }
+        message += "; re-run with --allow-extension-download to approve this download."
+    }
+    return "sift: \(message)\n"
 }
 
 public let siftUsage = """
@@ -2057,13 +2070,14 @@ public let siftUsage = """
 
     Usage:
       sift <path> [--sheet NAME] [--rows N] [--width N]
-                  [--null-padding | --no-skip-preamble]
+                  [--null-padding | --no-skip-preamble] [--allow-extension-download]
       sift --verify
       sift --help
 
       --sheet NAME   which sheet of a workbook to open (default: the first non-empty one)
       --rows N       rows to preview (default: 10)
       --width N      terminal width to lay the grid out for (default: 100)
+      --allow-extension-download  approve downloading the extension this file needs
 
     When a note says the file lost its shape, these are the two ways back. They
     cannot be combined \u{2014} pinning the skip is what defeats null padding:
@@ -2090,6 +2104,7 @@ public func parseArguments(_ args: [String]) -> SiftCommand {
     var width = 100
     var nullPadding = false
     var skipPreamble = true
+    var allowExtensionDownload = false
 
     var i = 0
     while i < args.count {
@@ -2123,6 +2138,9 @@ public func parseArguments(_ args: [String]) -> SiftCommand {
                 return .usageError("--width needs a whole number of at least 20")
             }
             width = n
+        case "--allow-extension-download":
+            guard inlineValue == nil else { return .usageError("--allow-extension-download takes no value") }
+            allowExtensionDownload = true
         case "--null-padding":
             nullPadding = true
         case "--no-skip-preamble":
@@ -2144,6 +2162,6 @@ public func parseArguments(_ args: [String]) -> SiftCommand {
     }
     return .open(
         path: path, sheet: sheet, rows: rows, width: width,
-        nullPadding: nullPadding, skipPreamble: skipPreamble
+        nullPadding: nullPadding, skipPreamble: skipPreamble, allowExtensionDownload: allowExtensionDownload
     )
 }
