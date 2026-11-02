@@ -45,7 +45,7 @@ public enum TileExecutorError: Error, CustomStringConvertible {
 public struct TileExecutor: Sendable {
     /// Keep whole-output buffers below one eighth of physical memory, capped at 2 GiB.
     public static var defaultMaxWorkingMemoryBytes: UInt64 {
-        min(ProcessInfo.processInfo.physicalMemory / 8, 2 * 1024 * 1024 * 1024)
+        ImageMemoryPolicy.defaultLimit
     }
 
     public let tileSize: Int

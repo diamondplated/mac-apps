@@ -17,10 +17,15 @@ binary.
 
 **It reaches nothing until you ask it to.** On a fresh install there is no `connections.json`,
 `allowRemote` is `false`, DuckDB's network filesystems are disabled by name, and `httpfs` and
-`azure` are never even loaded. No telemetry, no analytics, no update check. The outbound requests a
-default install makes are the one-time checksum-verified download of the pinned `libduckdb`
-(`scripts/fetch-duckdb.sh`, which you run explicitly) and the one-time `INSTALL` of the DuckDB
-`delta` and `excel` extensions from DuckDB's own repository.
+`azure` are never even loaded. No telemetry, no analytics, no update check. Building from source requires a
+checksum-verified download of the pinned `libduckdb` through `scripts/fetch-duckdb.sh`,
+which you run explicitly. App startup does not install any
+local-format extension. If `excel` or `delta` is missing when you open a workbook or Delta
+table, Sift asks **Download and Open** or **Cancel** before contacting
+`extensions.duckdb.org`. Approval downloads only the required DuckDB extension; your local
+file contents are not uploaded. Cancelling makes no install request. An installed extension
+is reused without a prompt. The CLI requires `--allow-extension-download` for this first-use
+download; `--verify` never downloads missing extensions.
 
 Two things used to make that paragraph untrue and no longer do, both fixed in the Phase 1 review:
 saving your first connection installed the `azure` or `httpfs` extension over the network

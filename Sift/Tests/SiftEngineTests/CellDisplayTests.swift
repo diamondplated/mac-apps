@@ -1,3 +1,4 @@
+import TestSupport
 import Testing
 import Foundation
 import DuckDBKit
@@ -13,7 +14,7 @@ import DuckDBKit
 
 // MARK: - the three states (design spec §9)
 
-@Test func nullAnEmptyStringAndTheLiteralNASlashAAllRenderDifferently() {
+@Test(.engineLifetime) func nullAnEmptyStringAndTheLiteralNASlashAAllRenderDifferently() {
     // The whole product, in one assertion: these are three different facts about a cell and a user
     // must be able to tell them apart, because they filter differently and they mean different
     // things in real data.
@@ -29,7 +30,7 @@ import DuckDBKit
 
 // MARK: - doubles
 
-@Test func aWholeDoubleLosesItsPointZeroAndAFractionalOneKeepsSixDigitsAtMost() {
+@Test(.engineLifetime) func aWholeDoubleLosesItsPointZeroAndAFractionalOneKeepsSixDigitsAtMost() {
     #expect(doubleGlyph(1.0) == "1")
     #expect(doubleGlyph(980.00) == "980")
     #expect(doubleGlyph(1250.50) == "1,250.5")
@@ -41,7 +42,7 @@ import DuckDBKit
     #expect(doubleGlyph(2.0 / 3.0) == "0.666667")
 }
 
-@Test func aHugeDoubleIsGroupedRatherThanPrintedInExponentNotation() {
+@Test(.engineLifetime) func aHugeDoubleIsGroupedRatherThanPrintedInExponentNotation() {
     // `String(describing: 1e16)` is "1e+16", which is what the CLI used to print and what the web
     // never does — `Number.isInteger(1e16)` is true, so it groups.
     #expect(doubleGlyph(1e16) == "10,000,000,000,000,000")
@@ -49,7 +50,7 @@ import DuckDBKit
     #expect(!doubleGlyph(1e16).contains("e"))
 }
 
-@Test func nonFiniteDoublesArePrintedAsThemselvesRatherThanInvented() {
+@Test(.engineLifetime) func nonFiniteDoublesArePrintedAsThemselvesRatherThanInvented() {
     #expect(doubleGlyph(Double.nan) == "nan")
     #expect(doubleGlyph(Double.infinity) == "inf")
     #expect(doubleGlyph(-Double.infinity) == "-inf")
@@ -57,14 +58,14 @@ import DuckDBKit
     #expect(doubleGlyph(-0.0) == "0")
 }
 
-@Test func doublesGoThroughTheSharedRuleWhenTheyArriveAsCells() {
+@Test(.engineLifetime) func doublesGoThroughTheSharedRuleWhenTheyArriveAsCells() {
     #expect(glyph(for: .double(1250.50), kind: .number) == "1,250.5")
     #expect(glyph(for: .double(980.00), kind: .number) == "980")
 }
 
 // MARK: - exact digits
 
-@Test func groupDigitsInsertsSeparatorsWithoutEverParsingTheNumber() {
+@Test(.engineLifetime) func groupDigitsInsertsSeparatorsWithoutEverParsingTheNumber() {
     #expect(groupDigits("1234567") == "1,234,567")
     #expect(groupDigits("999") == "999")
     #expect(groupDigits("1000") == "1,000")
@@ -78,7 +79,7 @@ import DuckDBKit
     #expect(groupDigits("") == "")
 }
 
-@Test func exactIntegersAndDecimalsKeepEveryDigitAndTheirDeclaredScale() {
+@Test(.engineLifetime) func exactIntegersAndDecimalsKeepEveryDigitAndTheirDeclaredScale() {
     #expect(glyph(for: .int(9_007_199_254_740_993), kind: .number) == "9,007,199,254,740,993")
     #expect(glyph(for: .int(-42), kind: .number) == "-42")
     // DECIMAL(12,2): the trailing zero is declared, so it stays — and grouping only touches the
@@ -87,7 +88,7 @@ import DuckDBKit
     #expect(glyph(for: .decimal(Decimal(string: "3")!, scale: 2), kind: .number) == "3.00")
 }
 
-@Test func aHugeIntArrivingAsTextIsGroupedAsDigitsNotReformattedAsANumber() {
+@Test(.engineLifetime) func aHugeIntArrivingAsTextIsGroupedAsDigitsNotReformattedAsANumber() {
     // HUGEINT crosses as text because there is no Int128 on the pinned toolchain.
     let hugeint = "170141183460469231731687303715884105727"
     let rendered = glyph(for: .text(hugeint), kind: .number)
@@ -100,7 +101,7 @@ import DuckDBKit
 
 // MARK: - the other kinds
 
-@Test func boolsRenderAsTrueOrFalseWhicheverShapeTheyArriveIn() {
+@Test(.engineLifetime) func boolsRenderAsTrueOrFalseWhicheverShapeTheyArriveIn() {
     #expect(glyph(for: .bool(true), kind: .bool) == "true")
     #expect(glyph(for: .bool(false), kind: .bool) == "false")
     #expect(glyph(for: .text("true"), kind: .bool) == "true")
@@ -108,7 +109,7 @@ import DuckDBKit
     #expect(glyph(for: .null, kind: .bool) == "null")
 }
 
-@Test func timestampsDropTheirTSeparatorAndSubSecondNoise() {
+@Test(.engineLifetime) func timestampsDropTheirTSeparatorAndSubSecondNoise() {
     #expect(glyph(for: .text("2026-01-15T10:30:00.123456"), kind: .temporal) == "2026-01-15 10:30:00")
     #expect(glyph(for: .text("2026-01-15T10:30:00"), kind: .temporal) == "2026-01-15 10:30:00")
     #expect(glyph(for: .text("2026-01-15"), kind: .temporal) == "2026-01-15")
@@ -118,7 +119,7 @@ import DuckDBKit
     #expect(glyph(for: .text("10:30:00."), kind: .temporal) == "10:30:00.")
 }
 
-@Test func textNestedAndBlobKeepTheEnginesOwnRendering() {
+@Test(.engineLifetime) func textNestedAndBlobKeepTheEnginesOwnRendering() {
     #expect(glyph(for: .text("first, with comma"), kind: .text) == "first, with comma")
     #expect(glyph(for: .list([.text("a"), .null]), kind: .nested) == "[a, NULL]")
     #expect(glyph(for: .blob(1234), kind: .blob) == "<blob 1,234 B>")
@@ -126,7 +127,7 @@ import DuckDBKit
 
 // MARK: - the renderer really uses it
 
-@Test func theGridRendersThroughTheSharedRulesNotThroughCellDisplay() {
+@Test(.engineLifetime) func theGridRendersThroughTheSharedRulesNotThroughCellDisplay() {
     let columns = [
         TablePage.ColumnInfo(name: "amount", type: "DOUBLE", kind: .number),
         TablePage.ColumnInfo(name: "note", type: "VARCHAR", kind: .text),

@@ -1,8 +1,8 @@
 # CLAUDE.md
 
 Latent is a folder-first SwiftUI photo viewer for macOS 14+ with a local CoreML enhancement
-pipeline, OpenCLIP search, a vim culling keymap, and an opt-in LAN phone companion. SwiftPM only;
-there is no Xcode project. README.md, CONTRIBUTING.md and SECURITY.md are accurate and worth reading
+pipeline, OpenCLIP search, a vim culling keymap, and an opt-in LAN phone companion. SwiftPM builds
+the app and libraries; QuickLookExtension contains a small extension-only Xcode project. README.md, CONTRIBUTING.md and SECURITY.md are accurate and worth reading
 before a non-trivial change.
 
 ## Build and verify
@@ -30,7 +30,7 @@ swift test                 # XCTest; needs full Xcode
 - `PhotoML`: tiling, CoreML wrappers, model registry.
 - `PhotoSearch`: CLIP encoders, BPE tokenizer, per-folder embedding index.
 - `PhotoViewerCore`: `VimKeymap` and durable culling state (no Apple UI deps).
-- `PhotoGeo`, `PhotoQuickLook`: EXIF GPS, Quick Look renderer (extension target not built yet).
+- `PhotoGeo`, `PhotoQuickLook`: EXIF GPS, Quick Look renderer and packaged read-only extension.
 - `PhotoServe`: LAN HTTP server, address gate, pairing, embedded `client.html` phone client.
 - `PhotoViewerApp`: the SwiftUI app (`AppState` is the hub).
 - `PipelineCLI`: `pv-pipeline`.

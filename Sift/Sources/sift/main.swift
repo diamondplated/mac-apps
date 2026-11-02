@@ -27,17 +27,17 @@ case .verify:
     print("\n" + renderSummary(report))
     exit(report.exitCode)
 
-case .open(let path, let sheet, let rows, let width, let nullPadding, let skipPreamble):
+case .open(let path, let sheet, let rows, let width, let nullPadding, let skipPreamble, let allowExtensionDownload):
     do {
         let overview = try await openAndDescribe(
             path: path, sheet: sheet, rows: rows,
-            nullPadding: nullPadding, skipPreamble: skipPreamble
+            nullPadding: nullPadding, skipPreamble: skipPreamble, allowExtensionDownload: allowExtensionDownload
         )
         print(renderOverview(overview, width: width))
     } catch {
         // Every engine error already spells one clean sentence (SiftCore's `SiftError`); printing
         // anything more here would be a parser dump the user cannot act on.
-        FileHandle.standardError.write(Data("sift: \(error.localizedDescription)\n".utf8))
+        FileHandle.standardError.write(Data(renderCLIError(error).utf8))
         exit(1)
     }
 }

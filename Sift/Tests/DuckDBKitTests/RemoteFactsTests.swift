@@ -3,12 +3,12 @@ import Testing
 import TestSupport
 @testable import DuckDBKit
 
-// Executable pins for the ten remote-connection measurements in
+// Executable pins for sections 1–9 and 11 of the remote-connection measurements in
 // docs/superpowers/specs/2026-08-16-duckdb-remote-facts.md. A failure here is not a test bug —
 // it means libduckdb's remote behavior moved and the Connections design must move with it.
 //
 // GATED behind SIFT_REMOTE_FACTS=1 and excluded from the default suite on purpose: every test
-// needs `httpfs`/`azure`/`delta` present, and `loadExtensions` does LOAD→INSTALL→LOAD, so a
+// needs `httpfs`/`azure`/`delta` present, and `loadExtensions(..., installMissing: true)` does LOAD→INSTALL→LOAD, so a
 // machine without them reaches for the network. The default `swift test` must stay offline.
 //
 //     SIFT_REMOTE_FACTS=1 swift test --filter remoteFact
@@ -21,7 +21,7 @@ private let remoteFacts = ProcessInfo.processInfo.environment["SIFT_REMOTE_FACTS
 /// tests measure what the engine does when the network filesystems are reachable.
 private func db(_ extensions: [String]) throws -> Database {
     let d = try Database.inMemory()
-    d.loadExtensions(extensions)
+    d.loadExtensions(extensions, installMissing: true)
     for name in extensions {
         try #require(d.loadedExtensions[name] == .loaded, "the \(name) extension must be installed")
     }
@@ -77,7 +77,7 @@ func remoteFact1_azureRegistersTwoFilesystemsAndHardenNowBlocksBoth() throws {
     // saying Permission Error and says "No valid Azure credentials found" instead.
     let hardened = try Database.inMemory()
     hardened.harden()
-    hardened.loadExtensions(["azure"])
+    hardened.loadExtensions(["azure"], installMissing: true)
     try #require(hardened.loadedExtensions["azure"] == .loaded)
     let strict = try hardened.connect()
     for (url, name) in [("az://c/x.parquet", "AzureBlobStorageFileSystem"),
@@ -93,7 +93,7 @@ func remoteFact1_azureRegistersTwoFilesystemsAndHardenNowBlocksBoth() throws {
     // reaches the credential check, which is exactly how far this test can see without an account.
     let open = try Database.inMemory()
     open.harden(allowRemote: true)
-    open.loadExtensions(["azure"])
+    open.loadExtensions(["azure"], installMissing: true)
     try #require(open.loadedExtensions["azure"] == .loaded)
     let permissive = failure(try open.connect(), "SELECT * FROM read_parquet('az://c/x.parquet')")
     #expect(!permissive.contains("Permission Error"), "\(permissive)")
@@ -212,7 +212,7 @@ func remoteFact4_httpGlobsAreRefusedNotExpanded() throws {
 // MARK: - 5. `read_blob` over http is byte-exact and downloads the whole object
 
 @Test(.enabled(if: remoteFacts))
-func remoteFact5_readBlobOverHttpIsByteExactAndUnchunked() throws {
+func remoteFact5_readBlobOverHttpIsByteExactInTwoMiBRanges() throws {
     let dir = TestTemp.dir("remote-blob")
     let path = (dir as NSString).appendingPathComponent("blob.bin")
     var blob = Data(); blob.reserveCapacity(4 << 20)
@@ -234,14 +234,14 @@ func remoteFact5_readBlobOverHttpIsByteExactAndUnchunked() throws {
     #expect(remote[0] == .int(Int64(blob.count)))
     #expect(remote[1] == onDisk[1], "read_blob over http must be byte-for-byte the local bytes")
 
-    // One HEAD for the size, then ONE GET whose Range spans the entire object: the header is
-    // present but this is a whole-object download, not a chunked or partial read. The planned
-    // remote-xlsx path therefore pays the full file every time.
+    // 2.0 still fetches every byte, now in exact 2 MiB ranges rather than the
+    // single whole-object GET measured on 1.5.6. Order is not guaranteed.
     let gets = server.log.filter { $0.method == "GET" }
     #expect(server.log.filter { $0.method == "HEAD" }.count == 1, "\(server.log)")
-    #expect(gets.count == 1, "\(server.log)")
-    #expect(gets.first?.range == "bytes=0-\(blob.count - 1)", "\(server.log)")
-    #expect(gets.first?.sent == blob.count)
+    #expect(gets.count == 2, "\(server.log)")
+    #expect(gets.compactMap(\.range).sorted() == ["bytes=0-2097151", "bytes=2097152-4194303"])
+    #expect(gets.map(\.sent) == [2 << 20, 2 << 20])
+    #expect(gets.allSatisfy { $0.status == 206 })
 }
 
 // MARK: - 6. `CREATE SECRET` — bindable, temporary, Database-scoped, redacted
@@ -303,7 +303,7 @@ func remoteFact6c_secretsAreTemporaryByDefaultAndRedactedOnRead() throws {
 
     do {
         let database = try Database(path: store)
-        database.loadExtensions(["azure"])
+        database.loadExtensions(["azure"], installMissing: true)
         try #require(database.loadedExtensions["azure"] == .loaded)
         let c = try database.connect()
         try c.execute("SET secret_directory='\(secretDir)'")
@@ -342,7 +342,7 @@ func remoteFact6c_secretsAreTemporaryByDefaultAndRedactedOnRead() throws {
 
     // Reopening the same file confirms it: the secret is gone.
     let reopened = try Database(path: store)
-    reopened.loadExtensions(["azure"])
+    reopened.loadExtensions(["azure"], installMissing: true)
     let c = try reopened.connect()
     try c.execute("SET secret_directory='\(secretDir)'")
     #expect(try c.query("SELECT count(*) FROM duckdb_secrets()").allRows()[0][0] == .int(0))
@@ -365,8 +365,16 @@ func remoteFact7a_csvOverHttpDownloadsTheWholeObjectWhateverTheSampleSize() thro
         server.clearLog()
         _ = try c.query(sql).allRows()
         let gets = server.log.filter { $0.method == "GET" }
-        #expect(gets.count == 1, "\(server.log)")
-        #expect(gets.first?.sent == csv.count, "the whole object, every time: \(server.log)")
+        // 2.0 splits the same whole-object transfer into five exact ranges.
+        let chunkBytes = 2 << 20
+        let expectedRanges = stride(from: 0, to: csv.count, by: chunkBytes).map {
+            "bytes=\($0)-\(min($0 + chunkBytes, csv.count) - 1)"
+        }
+        #expect(gets.count == 5, "\(server.log)")
+        #expect(gets.compactMap(\.range).sorted() == expectedRanges.sorted(), "\(server.log)")
+        #expect(gets.allSatisfy { $0.status == 206 })
+        #expect(gets.reduce(0) { $0 + $1.sent } == csv.count,
+                "the whole object, every time: \(server.log)")
     }
 
     // A plain `read_csv … LIMIT 5` fetches the object TWICE — sniff pass, then scan pass.
@@ -381,15 +389,16 @@ func remoteFact7a_csvOverHttpDownloadsTheWholeObjectWhateverTheSampleSize() thro
 func remoteFact7b_aServerThatRefusesRangesFailsButOneThatIgnoresThemWorks() throws {
     let csv = try makeCSV(rows: 2000)
 
-    // 416 is fatal, after the initial GET plus `http_retries` (3) more. The retry wait is turned
-    // down so the pin costs milliseconds rather than the default 100/400/1600 ms backoff.
+    // MEASURED on 1.5.6: HTTP 416 is fatal after one GET, without retrying a permanent
+    // response. On 1.5.5 it made 1 + http_retries (four) GETs. Keep the exact pin: a
+    // default retry-policy change must be reviewed, not hidden by a loose bound.
     let rejecting = try LoopbackServer(files: ["/data.csv": csv], mode: .reject)
     defer { rejecting.stop() }
     let strict = try remoteDB().connect()
     try strict.execute("SET http_retry_wait_ms=1")
     let text = failure(strict, "SELECT count(*) FROM read_csv('\(rejecting.base)/data.csv')")
     #expect(text.contains("416"), "\(text)")
-    #expect(rejecting.log.filter { $0.method == "GET" }.count == 4, "1 + http_retries: \(rejecting.log)")
+    #expect(rejecting.log.filter { $0.method == "GET" }.count == 1, "permanent 416 is not retried: \(rejecting.log)")
 
     // A server that IGNORES the Range header and answers 200 with the whole body is handled
     // transparently — no error, right answer. Only an outright refusal breaks the read.
@@ -435,7 +444,7 @@ func remoteFact8_httpTimeoutAndRetryKnobsAndTheirRealScope() throws {
 
     // Defaults, as shipped. These are the numbers any timeout UI has to start from.
     for (name, value) in [("http_timeout", Cell.int(30)), ("http_retries", .int(3)),
-                          ("http_retry_wait_ms", .int(100)), ("http_retry_backoff", .int(4)),
+                          ("http_retry_wait_ms", .int(100)), ("http_retry_backoff", .double(4)),
                           ("http_keep_alive", .bool(true)), ("enable_http_metadata_cache", .bool(false)),
                           ("allow_asterisks_in_http_paths", .bool(false))] {
         #expect(try a.query("SELECT current_setting('\(name)')").allRows()[0][0] == value, "\(name)")
@@ -469,7 +478,7 @@ func remoteFact8_httpTimeoutAndRetryKnobsAndTheirRealScope() throws {
         """).allRows()[0][0] == .int(0))
     try before.execute("SET http_retries=7")
     #expect(throws: DuckDBError.self) { try before.execute("SET totally_made_up_setting=1") }
-    pre.loadExtensions(["httpfs"])
+    pre.loadExtensions(["httpfs"], installMissing: true)
     try #require(pre.loadedExtensions["httpfs"] == .loaded)
     #expect(try before.query("SELECT current_setting('http_retries')").allRows()[0][0] == .int(7))
     #expect(try pre.connect().query("SELECT current_setting('http_retries')").allRows()[0][0] == .int(3))
@@ -720,3 +729,30 @@ final class LoopbackServer: @unchecked Sendable {
     }
 }
 
+
+@Test(.enabled(if: remoteFacts))
+func remoteFact11_externalFileCacheIsEnabledByDefault() throws {
+    let d = try remoteDB()
+    #expect(try d.connect().query("SELECT current_setting('enable_external_file_cache')").allRows()[0][0] == .bool(true))
+}
+
+@Test(.enabled(if: remoteFacts))
+func remoteFact_deltaAndExcelInstallThenLoadWithAutoloadDisabled() throws {
+    let d = try Database.inMemory()
+    d.harden()
+    let c = try d.connect()
+    // A fresh extension directory proves INSTALL is necessary even on a warm runner.
+    let directory = TestTemp.dir("extension-fact")
+    try c.execute("SET extension_directory='\(directory.replacingOccurrences(of: "'", with: "''"))'")
+    for name in ["delta", "excel"] {
+        #expect(throws: DuckDBError.self) { try c.execute("LOAD \(name)") }
+    }
+    d.loadExtensions(["delta", "excel"], installMissing: true)
+    #expect(d.networkInstalls == ["delta", "excel"])
+    #expect(d.loadedExtensions["delta"] == .loaded)
+    #expect(d.loadedExtensions["excel"] == .loaded)
+    #expect(try c.query("SELECT current_setting('autoload_known_extensions')").allRows()[0][0] == .bool(false))
+    // Successful LOAD must prevent a second INSTALL.
+    d.loadExtensions(["delta", "excel"], installMissing: true)
+    #expect(d.networkInstalls == ["delta", "excel"])
+}

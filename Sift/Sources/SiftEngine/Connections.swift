@@ -282,6 +282,9 @@ extension Session {
     /// `createSecretSQL(_:secretValue:)` binds: the Azure connection string, or the S3 secret key.
     /// `nil` for `credentialChain`, which by design stores nothing at all.
     public func addConnection(_ spec: ConnectionSpec, secret: String?) async throws -> ConnectionOutcome {
+        try requireOpen()
+        ownedWork.begin()
+        defer { ownedWork.finish() }
         guard !remoteConfig.connections.contains(where: { $0.id == spec.id }) else {
             throw SessionError(
                 "A connection with that id is already saved. Remove it first, or save the edit "
@@ -396,6 +399,9 @@ extension Session {
     /// user set on purpose (and, because the posture cannot be narrowed live, would not even take
     /// effect until the next launch, so the UI would be lying twice).
     public func removeConnection(_ id: UUID) async throws {
+        try requireOpen()
+        ownedWork.begin()
+        defer { ownedWork.finish() }
         guard let spec = remoteConfig.connections.first(where: { $0.id == id }) else {
             throw SessionError("There is no saved connection with that id.")
         }
@@ -434,6 +440,9 @@ extension Session {
     /// Turning it back on re-issues the secrets, so a revoke followed by a change of mind is
     /// genuinely `.active` again on a session that started permissive.
     public func setAllowRemote(_ on: Bool) async throws -> ConnectionOutcome {
+        try requireOpen()
+        ownedWork.begin()
+        defer { ownedWork.finish() }
         var next = remoteConfig
         next.allowRemote = on
         try Self.writeRemoteConfig(next, to: connectionsPath)
@@ -476,14 +485,12 @@ extension Session {
     /// `connectionRowState` produces only when `usableNow`). A fourth call site has to earn its own
     /// gate; there is no guard here to fall back on.
     ///
-    /// ⚠️ This is the only post-`init` writer of `Database.loadedExtensions`, whose header notes the
-    /// dictionary is unsynchronized because it is written at configure time and read afterwards.
-    /// Every call here is actor-isolated, so the writes are serialized against each other; the one
-    /// reader that is not is `Session.engineInfo()`, which the app calls once while building
-    /// `AppState`, long before any Connections sheet exists.
+    /// Database serializes extension loading and exposes lock-protected state snapshots, so
+    /// first-use file consent and background readers cannot race these writes.
     public func installExtension(_ name: String) -> ExtensionState {
+        guard !isClosing else { return .unavailable("This session is closing.") }
         if database.loadedExtensions[name] == .loaded { return .loaded }
-        database.loadExtensions([name])
+        database.loadExtensions([name], installMissing: true)
         return database.loadedExtensions[name]
             ?? .unavailable("DuckDB reported nothing at all about \(name).")
     }
@@ -493,6 +500,7 @@ extension Session {
     /// any connection will do, and staying off the shared one keeps this file out of the
     /// no-suspension invariant Session.swift's header documents.
     private func engineConnection() throws -> Connection {
+        try requireOpen()
         do {
             return try database.connect()
         } catch let error as DuckDBError {

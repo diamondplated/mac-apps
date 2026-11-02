@@ -9,9 +9,9 @@ import TestSupport
 private let remoteFacts = ProcessInfo.processInfo.environment["SIFT_REMOTE_FACTS"] == "1"
 
 // Forces an actual link against libduckdb (module autolink only fires on import)
-// and pins that the loaded library is genuinely the 1.5.5 build we checksummed.
+// and pins that the loaded library is genuinely the 2.0.0 build we checksummed.
 @Test func linkedLibraryIsThePinnedDuckDBVersion() {
-    #expect(String(cString: duckdb_library_version()) == "v1.5.5")
+    #expect(String(cString: duckdb_library_version()) == "v2.0.0")
 }
 
 @Test func errorKeepsOnlyTheFirstLine() {
@@ -233,7 +233,7 @@ func remoteFact_loadExtensionsTellsAMissingBinaryApartFromARejectedName() throws
     let db = try Database.inMemory()
     db.harden()
     #expect(db.networkInstalls.isEmpty)
-    db.loadExtensions(["no_such_extension_zzz", "httpfs; ATTACH 'evil.db'"])
+    db.loadExtensions(["no_such_extension_zzz", "httpfs; ATTACH 'evil.db'"], installMissing: true)
 
     let missing = db.loadedExtensions["no_such_extension_zzz"]
     let rejected = db.loadedExtensions["httpfs; ATTACH 'evil.db'"]
@@ -378,4 +378,11 @@ private struct Interrupter: @unchecked Sendable {
         [.bool(true), .int(42), .double(1.5), .text("hi"), .null]
     )
     #expect(rs.columns.map(\.name) == ["b", "i", "d", "s", "n"])
+}
+
+@Test func databaseBoundsOnlyTheNewAsyncWorkerPool() throws {
+    let con = try Database.inMemory().connect()
+    let row = try con.query("SELECT current_setting('async_threads'), current_setting('threads')").allRows()[0]
+    #expect(row[0] == .int(4))
+    #expect(row[1] == .int(Int64(ProcessInfo.processInfo.activeProcessorCount)))
 }

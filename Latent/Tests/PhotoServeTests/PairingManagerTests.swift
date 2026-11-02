@@ -62,6 +62,31 @@ final class PairingManagerTests: XCTestCase {
         }
     }
 
+    func testFailureBudgetsArePerPeerAndExpire() async throws {
+        let mgr = PairingManager()
+        for _ in 0..<10 {
+            await assertThrows(.noActiveCode) { try await mgr.validate(code: "bad", host: "A", now: self.epoch) }
+        }
+        let code = await mgr.issueCode(now: epoch)
+        for _ in 0..<5 {
+            await assertThrows(.wrongCode) { try await mgr.validate(code: "bad", host: "A", now: self.epoch) }
+        }
+        await assertThrows(.rateLimited) { try await mgr.validate(code: code, host: "A", now: self.epoch) }
+        try await mgr.validate(code: code, host: "B", now: epoch)
+        let later = epoch.addingTimeInterval(60)
+        let next = await mgr.issueCode(now: later)
+        try await mgr.validate(code: next, host: "A", now: later)
+    }
+
+    func testGlobalBackstopBoundsPeerChurn() async {
+        let mgr = PairingManager()
+        let code = await mgr.issueCode(now: epoch)
+        for i in 0..<PairingManager.maxGlobalAttemptsPerMinute {
+            await assertThrows(.wrongCode) { try await mgr.validate(code: "bad", host: "peer-\(i)", now: self.epoch) }
+        }
+        await assertThrows(.rateLimited) { try await mgr.validate(code: code, host: "new-peer", now: self.epoch) }
+    }
+
     func testCodesAre128BitHexAndDoNotRepeat() async {
         var seen = Set<String>()
         for _ in 0..<200 {

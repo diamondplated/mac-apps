@@ -1,3 +1,4 @@
+import TestSupport
 import CDuckDB
 import Testing
 @testable import SiftEngine
@@ -68,21 +69,21 @@ private let allow = [
 private let deniedFilesystems = ["HTTPFileSystem", "S3FileSystem",
                                  "AzureBlobStorageFileSystem", "AzureDfsStorageFileSystem"]
 
-@Test(arguments: deny)
+@Test(.engineLifetime, arguments: deny)
 func deniedByTheCombinedGate(sql: String) {
     #expect(throws: SQLRejected.self) {
         try assertSelectOnly(sql)
     }
 }
 
-@Test(arguments: allow)
+@Test(.engineLifetime, arguments: allow)
 func allowedByTheCombinedGate(sql: String) throws {
     try assertSelectOnly(sql)   // must not throw
 }
 
 // MARK: - The two cases Plan 2's GuardTests.swift deferred here
 
-@Test func statementCountingCatchesASecondStatementBehindAValidLead() {
+@Test(.engineLifetime) func statementCountingCatchesASecondStatementBehindAValidLead() {
     // "SELECT 1; DROP TABLE x" starts with SELECT, so the leading-keyword check waves it
     // through — only counting the extracted statements catches the second one.
     #expect(throws: SQLRejected.self) {
@@ -90,7 +91,7 @@ func allowedByTheCombinedGate(sql: String) throws {
     }
 }
 
-@Test func rejectionMessageNamesOneStatementAtATime() {
+@Test(.engineLifetime) func rejectionMessageNamesOneStatementAtATime() {
     do {
         try assertSelectOnly("SELECT 1; SELECT 2")
         Issue.record("expected SQLRejected")
@@ -103,7 +104,7 @@ func allowedByTheCombinedGate(sql: String) throws {
 
 // MARK: - Genuine extract failure (a syntax error, not a rejection reason above)
 
-@Test func aSyntaxErrorIsReportedAsNotValidSQLRatherThanNothingToRun() {
+@Test(.engineLifetime) func aSyntaxErrorIsReportedAsNotValidSQLRatherThanNothingToRun() {
     // "SELEC 1" (typo) makes duckdb_extract_statements itself fail — count 0 with a non-empty
     // duckdb_extract_statements_error — which is a different DENY reason than an empty/
     // comment-only query. Regression guard for GuardStatements.swift:106-108.
@@ -119,7 +120,7 @@ func allowedByTheCombinedGate(sql: String) throws {
 
 // MARK: - The landmine this task exists to close
 
-@Test func validSelectAgainstATableTheGuardHasNeverOpenedIsNotRejected() throws {
+@Test(.engineLifetime) func validSelectAgainstATableTheGuardHasNeverOpenedIsNotRejected() throws {
     // duckdb_prepare_extracted_statement is a binder call: it fails on a table that does not
     // exist in whatever scratch connection the guard used to ask the question, which is true of
     // EVERY real table the user is about to open. That failure must fall through as "not my
@@ -150,7 +151,7 @@ func allowedByTheCombinedGate(sql: String) throws {
 /// derives its expectation from the constant it is checking cannot notice that constant losing a
 /// name, and losing a name is the whole failure mode — `SET disabled_filesystems` never validates,
 /// so a dropped or misspelled entry is a security layer that does nothing and says nothing.
-@Test func theGateScratchConnectionIsHardenedLikeEveryOtherOne() throws {
+@Test(.engineLifetime) func theGateScratchConnectionIsHardenedLikeEveryOtherOne() throws {
     // Dropping ONE name at a time: the error names whichever name is being dropped, so each of the
     // four is pinned individually. Drop one from the source list and exactly this test goes red,
     // naming it.
@@ -187,7 +188,7 @@ func allowedByTheCombinedGate(sql: String) throws {
 /// Unlike `disabled_filesystems`, these three DO read back — so this is a direct assertion on what
 /// the process configured, not on what happens to be on disk afterwards. Delete any of the three
 /// SETs from `Database.hardeningSettings()` and this test names it.
-@Test(arguments: ["autoinstall_known_extensions", "autoload_known_extensions",
+@Test(.engineLifetime, arguments: ["autoinstall_known_extensions", "autoload_known_extensions",
                   "allow_community_extensions"])
 func theGateScratchConnectionAlsoDisablesTheExtensionInstaller(setting: String) throws {
     let value = try #require(withGuardScratchConnection { con -> String in
@@ -207,7 +208,7 @@ func theGateScratchConnectionAlsoDisablesTheExtensionInstaller(setting: String) 
 
 /// The control for the test above: the same SETs succeed on a connection nothing hardened, so the
 /// assertion is reading the hardening rather than a property DuckDB has anyway.
-@Test func aScratchConnectionNobodyHardenedAcceptsThoseSameSets() throws {
+@Test(.engineLifetime) func aScratchConnectionNobodyHardenedAcceptsThoseSameSets() throws {
     // A fresh database per SET: the set is monotonic and Database-wide, so running them all on one
     // connection would itself be a narrowing and would fail for the right reason on the wrong
     // connection — which is exactly the confusion this control exists to rule out.
@@ -223,4 +224,15 @@ func theGateScratchConnectionAlsoDisablesTheExtensionInstaller(setting: String) 
 
         #expect(duckdb_query(con, sql, nil) == DuckDBSuccess, "\(sql) failed on an un-hardened connection")
     }
+}
+
+@Test(.engineLifetime) func theGateScratchConnectionBoundsTheNewAsyncWorkerPool() throws {
+    let value = try #require(withGuardScratchConnection { con -> Int64 in
+        var result = duckdb_result()
+        defer { duckdb_destroy_result(&result) }
+        guard duckdb_query(con, "SELECT current_setting('async_threads')", &result) == DuckDBSuccess
+        else { return -1 }
+        return duckdb_value_int64(&result, 0, 0)
+    })
+    #expect(value == 4)
 }

@@ -124,7 +124,7 @@ final class ProfileGate: @unchecked Sendable {
 
 // MARK: - guard 2: the table under this name moved on
 
-@Test func aProfileFinishedForAClosedAndReopenedTableIsRejected() async throws {
+@Test(.engineLifetime) func aProfileFinishedForAClosedAndReopenedTableIsRejected() async throws {
     // Kills the `tables[name]?.openedAt == openedAt` guard, and only that guard: the delivery
     // below carries the live claim's own job ID, so guard 1 is proven to wave it through first.
     let dir = try tempDir()
@@ -173,7 +173,7 @@ final class ProfileGate: @unchecked Sendable {
 
 // MARK: - guard 1: the claim was revoked
 
-@Test func aRevokedProfileJobsLateResultCannotStealTheReplacementsClaim() async throws {
+@Test(.engineLifetime) func aRevokedProfileJobsLateResultCannotStealTheReplacementsClaim() async throws {
     // Kills the `profileJobs[name]?.id == jobID` guard. Comparing `openedAt` there instead — which
     // is what shipped — passes this delivery, because the replacement registered under the same
     // generation: the stale profile is cached, the replacement's claim is deleted, and the
@@ -234,7 +234,7 @@ final class ProfileGate: @unchecked Sendable {
 
 // MARK: - the value the caller is handed, not just the value the catalog keeps
 
-@Test func anAwaitedProfileDescribesTheTableThatIsOpenNowNotTheOneItWasLaunchedFor() async throws {
+@Test(.engineLifetime) func anAwaitedProfileDescribesTheTableThatIsOpenNowNotTheOneItWasLaunchedFor() async throws {
     // The hole detaching the work opened, which the `openedAt` guard did not close: `rel` is a
     // bare quoted NAME, so the job's `SUMMARIZE "x"` binds when it RUNS. REPRODUCED before the fix
     // — the awaiting `profileOf` returned the reopened file's numbers while the cache correctly
@@ -275,7 +275,7 @@ final class ProfileGate: @unchecked Sendable {
     #expect(returned.n == 30, "it must describe the file open under this name NOW")
 }
 
-@Test func closingATableWhileItsPanelLoadsGivesThePanelASentenceNotACatalogDump() async throws {
+@Test(.engineLifetime) func closingATableWhileItsPanelLoadsGivesThePanelASentenceNotACatalogDump() async throws {
     // The other half of the same hole: a job bound by NAME does not merely return the wrong answer
     // when the name moves, it can FAIL — `closeTable` drops the view underneath it, so its query
     // dies with `Catalog Error: Table with name x does not exist!`. Handing that to the panel is a
@@ -306,7 +306,7 @@ final class ProfileGate: @unchecked Sendable {
     }
 }
 
-@Test func closingATableWhileTheDistinctPanelLoadsGivesItASentenceNotACatalogDump() async throws {
+@Test(.engineLifetime) func closingATableWhileTheDistinctPanelLoadsGivesItASentenceNotACatalogDump() async throws {
     // The same close, one panel over. `histogram` lets `profileOf` propagate and reports
     //     No open table named 'x'.
     // `distinct` wrapped the identical call in `try?`, threw that sentence away, and then ran its
@@ -348,7 +348,7 @@ final class ProfileGate: @unchecked Sendable {
 
 // MARK: - what the registry is actually for
 
-@Test func concurrentProfileCallsShareOneJobAndPublishTheProfilingFlag() async throws {
+@Test(.engineLifetime) func concurrentProfileCallsShareOneJobAndPublishTheProfilingFlag() async throws {
     // Coalescing is the entire reason `profileJobs` exists — the UI kicks a profile speculatively
     // after the first page and every panel asks for one on click — and nothing pinned it, so a
     // regression to one `SUMMARIZE` per caller would have been silent and seconds wide.

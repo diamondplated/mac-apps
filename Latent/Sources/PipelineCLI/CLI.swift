@@ -12,6 +12,7 @@ import PhotoViewerCore
 import PhotoGeo
 import PhotoQuickLook
 import PhotoServe
+import VerificationSupport
 
 // CLI entry. Doubles as an executable verifier for the pipeline, since this
 // project currently runs against macOS CommandLineTools (no XCTest framework).
@@ -20,6 +21,10 @@ import PhotoServe
 @main
 struct PipelineCLI {
     static func main() async {
+        if CommandLine.arguments.dropFirst() == ["--verify-model-install"] {
+            do { try await verifyLiveModelInstall(); exit(0) }
+            catch { print("FAIL valid model install: \(error)"); exit(1) }
+        }
         // Vim persistence checks must never touch the installed app's real
         // bookmark registry, especially if Latent is open while this verifier
         // runs. The production code still exercises its normal file/lock path
@@ -37,6 +42,11 @@ struct PipelineCLI {
             try? FileManager.default.removeItem(at: vimStateDirectory)
         }
 
+        if CommandLine.arguments.contains("--verify-image-memory") {
+            let failures = await runVerification("400MP PNG rejects enhancement and decodes a bounded preview", check: verifyOversizedPNG)
+            exit(failures == 0 ? 0 : 1)
+        }
+
         print("photo-viewer pipeline runner / verifier")
         print("=======================================\n")
 
@@ -48,6 +58,14 @@ struct PipelineCLI {
         failures += await runVerification("sidecar round-trip preserves stage parameters", check: sidecarRoundTrip)
         failures += await runVerification("sidecar load rejects newer schema versions", check: sidecarRejectsNewerVersion)
         failures += await runVerification("LRU eviction drops least-recently-used entry", check: lruEviction)
+        failures += await runVerification("oversized cache entries preserve upstream results", check: oversizedCachePreservesUpstream)
+        failures += await runVerification("enhancement decode and upscale respect memory ceilings", check: enhancementMemoryCeilings)
+        failures += await runVerification("400MP PNG rejects enhancement and decodes a bounded preview", check: verifyOversizedPNG)
+        failures += await runVerification("model availability invalidates cached fallbacks", check: modelAvailabilityInvalidatesIntermediates)
+        failures += await runVerification("newly installed models retry a previous miss", check: newModelRetriesLoad)
+        failures += await runVerification("valid model install replaces cached fallback", check: liveModelInstallSubprocess)
+        failures += await runVerification("HDR display preserves extended P3 pixels offscreen", check: hdrDisplayPreservesExtendedPixels)
+        failures += await runVerification("generated HEIC gain map survives production HDR preview", check: generatedGainMapSurvivesPreview)
         failures += await runVerification("image I/O round-trips a JPEG through reader+writer", check: jpegRoundTrip)
         failures += await runVerification("Export Copy atomically keeps concurrent results", check: concurrentExportsKeepBoth)
         failures += await runVerification("reader bakes EXIF orientation into pixels (axes swap for orientation 6)", check: orientationBaking)
@@ -163,6 +181,8 @@ struct PipelineCLI {
         failures += await runVerification("PhotoGeo: extractGPS reads lat/lon from a synthetic JPEG", check: extractGPSFromSyntheticJPEG)
         failures += await runVerification("QuickLookRenderer: synthetic JPEG renders within max dimension", check: quickLookRenderRespectsMaxDimension)
         failures += await runVerification("QuickLookRenderer: rejects unsupported file extensions", check: quickLookRenderRejectsUnsupported)
+        failures += await runVerification("Trash receipts and archive leases", check: lifecycleTrashAndArchiveSafety)
+        failures += await runVerification("Missing-model stage fallbacks", check: missingModelFallbacks)
         failures += await runVerification("ArchiveExtractor: detects zip / tar / tar.gz / tar.bz2 / tar.xz from filename", check: archiveDetectsCommonFormats)
         failures += await runVerification("ArchiveExtractor: extracts a real zip, preserving subfolder structure", check: archiveExtractRoundTripZip)
         failures += await runVerification("ArchiveExtractor: rejects unsupported extensions", check: archiveExtractRejectsBadFormat)

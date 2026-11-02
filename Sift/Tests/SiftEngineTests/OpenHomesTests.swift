@@ -13,14 +13,14 @@ import TestSupport
 
 private func newHome() -> String { TestTemp.path("openhomes") }
 
-@Test func twoLiveSessionsOnOneHomeAreRefusedRatherThanOverwritingEachOther() async throws {
+@Test(.engineLifetime) func twoLiveSessionsOnOneHomeAreRefusedRatherThanOverwritingEachOther() async throws {
     let home = newHome()
     let first = try Session(home: home)
     #expect(throws: SessionError.self) { _ = try Session(home: home) }
     await first.shutdown()
 }
 
-@Test func aHomeIsClaimableAgainOnceTheSessionHoldingItHasShutDown() async throws {
+@Test(.engineLifetime) func aHomeIsClaimableAgainOnceTheSessionHoldingItHasShutDown() async throws {
     let home = newHome()
     let first = try Session(home: home)
     await first.shutdown()
@@ -28,7 +28,7 @@ private func newHome() -> String { TestTemp.path("openhomes") }
     await second.shutdown()
 }
 
-@Test func twoSessionsOnDifferentHomesBothOpen() async throws {
+@Test(.engineLifetime) func twoSessionsOnDifferentHomesBothOpen() async throws {
     let s1 = try Session(home: newHome())
     let s2 = try Session(home: newHome())
     await s1.shutdown()
@@ -39,7 +39,7 @@ private func newHome() -> String { TestTemp.path("openhomes") }
 /// runs and — without the token — releases B's claim, letting a third session in alongside B.
 /// This test is the whole reason `OpenHomes` stores a UUID. It must go RED if `release` stops
 /// comparing tokens; proved by deleting the comparison once and watching it fail.
-@Test func aDeallocatedSessionCannotReleaseAClaimItNoLongerHolds() async throws {
+@Test(.engineLifetime) func aDeallocatedSessionCannotReleaseAClaimItNoLongerHolds() async throws {
     let home = newHome()
 
     var first: Session? = try Session(home: home)
@@ -60,7 +60,7 @@ private func newHome() -> String { TestTemp.path("openhomes") }
 /// `Session.deinit` and it still goes green). This proves the deinit both runs at `= nil` and does
 /// release — a session dropped without `shutdown()` hands its home back rather than holding it for
 /// the life of the process.
-@Test func aSessionDroppedWithoutShutdownStillHandsItsHomeBack() async throws {
+@Test(.engineLifetime) func aSessionDroppedWithoutShutdownStillHandsItsHomeBack() async throws {
     let home = newHome()
     var only: Session? = try Session(home: home)
     #expect(only?.siftHome == home, "this is the home it claimed")
@@ -74,7 +74,7 @@ private func newHome() -> String { TestTemp.path("openhomes") }
 /// fully initialized, so no `deinit` runs and the failure path has to hand the home back itself —
 /// if it did not, the FIRST attempt would leave a claim behind and the second would report
 /// "already using" instead of the unopenable store. Two attempts is what makes that visible.
-@Test func aFailedOpenLeavesNoClaimBehindForTheNextAttemptToTripOver() async throws {
+@Test(.engineLifetime) func aFailedOpenLeavesNoClaimBehindForTheNextAttemptToTripOver() async throws {
     let home = newHome()
     // A `stage.duckdb` that is a directory cannot be opened as a database — the same unopenable
     // store `ErrorSentenceTests` uses.

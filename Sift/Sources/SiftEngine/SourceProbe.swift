@@ -95,8 +95,8 @@ public func sniffCSV(
     if !skipPreamble { args += ", skip=0" }
     let sql = """
         SELECT Delimiter, Quote, Escape, Comment, SkipRows, HasHeader, Prompt, \
-        list_transform(Columns, x -> x.name) AS col_names, \
-        list_transform(Columns, x -> x.type) AS col_types \
+        list_transform(Columns, lambda x : x.name) AS col_names, \
+        list_transform(Columns, lambda x : x.type) AS col_types \
         FROM sniff_csv(\(qlit(path)), \(args))
         """
     guard let row = try con.query(sql).allRows().first else {

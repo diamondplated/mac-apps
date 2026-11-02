@@ -33,13 +33,24 @@ upstream projects, all permissively licensed.
 
 ```bash
 swift build
-swift run pv-pipeline      # assert-based, runs anywhere
-swift test                 # XCTest target, needs full Xcode (not just CommandLineTools)
+swift run pv-pipeline      # assert-based, runs with macOS Command Line Tools
+swift test                 # XCTest targets, needs full Xcode (not just CommandLineTools)
 ```
 
 `pv-pipeline` exists because `swift test` needs Xcode and the pipeline internals are worth checking
 on machines that only have CommandLineTools. Both are run in CI. If you add a scenario to one,
 consider whether it belongs in the other.
+
+`python3 scripts/test_native_trash.py --mutation` also runs in CI. It compiles the production
+Trash adapter with a headless harness, mounts a private 64 MiB disk image without Finder browsing
+or windows, and checks native Trash receipts, exact recovered bytes, and undo overwrite refusal.
+The probe's sandbox permits writes only on that disposable volume and denies home file-data,
+user preferences, and network access. A permanent-delete mutant must fail the receipt check.
+This requires macOS with Swift 6, `hdiutil`, and `sandbox-exec`; it never uses your home Trash
+or photos. The script prints its temporary log directory, detaches its own image on success,
+failure, or handled cancellation, and removes the image only after detach. If detach fails (or
+the process is killed forcibly), retain the image and detach it before removing the printed
+temporary directory. No application or Quick Look registration is involved.
 
 For anything touching the viewer UI, actually open a real folder of photos. The grid, the prefetcher
 and the trash flow all behave differently at a few thousand images than they do at ten.
@@ -56,7 +67,10 @@ and the trash flow all behave differently at a few thousand images than they do 
 - `PhotoGeo` — EXIF GPS extraction for the map view.
 - `PhotoServe` — the opt-in LAN server, address gate, pairing and the phone client.
 - `PhotoSearch` — embeddings, per-folder index, CLIP image and text encoders, Swift BPE tokenizer.
-- `PhotoQuickLook` — `QuickLookRenderer`, ready for an extension target that is not built yet.
+- `PhotoQuickLook` — shared renderer and PNG reply content, compiled into the extension-only
+  `QuickLookExtension/LatentPreview.xcodeproj` target as well as the testable Swift library.
+  `scripts/build_quicklook.sh` builds the provider without registration; `build_app.sh` embeds
+  and signs it before sealing the host app.
 - `PhotoViewerApp` — the SwiftUI app.
 - `PipelineCLI` — `pv-pipeline`.
 

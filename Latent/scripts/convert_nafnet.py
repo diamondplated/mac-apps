@@ -28,7 +28,6 @@ Usage:
 from pathlib import Path
 import subprocess
 import sys
-import urllib.request
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WEIGHTS_DIR = REPO_ROOT / "scripts" / "weights"
@@ -43,11 +42,14 @@ NAFNET_GIT = "https://github.com/megvii-research/NAFNet.git"
 WEIGHTS_PAGE = "https://github.com/megvii-research/NAFNet/blob/main/docs/SIDD.md"
 
 
+# Fixed upstream revision; changing this pin requires reviewing the imported code.
+NAFNET_REVISION = "2b4af71ebe098a92a75910c233a3965a3e93ede4"
+
+
 def ensure_repo() -> None:
-    if NAFNET_REPO_DIR.exists():
-        return
-    print(f"cloning {NAFNET_GIT}")
-    subprocess.run(["git", "clone", "--depth", "1", NAFNET_GIT, str(NAFNET_REPO_DIR)], check=True)
+    from source_pin import ensure_pinned_repo
+
+    ensure_pinned_repo(NAFNET_GIT, NAFNET_REPO_DIR, NAFNET_REVISION)
 
 
 def download_weights() -> None:
@@ -79,8 +81,11 @@ def download_weights() -> None:
 
 def build_model():
     import torch
+    ensure_repo()
     # basicsr on PyPI does NOT contain NAFNet — 1.4.2 ships 19 archs and this
     # is not among them. It lives in NAFNet's own vendored basicsr fork.
+    # Keep the verified checkout free of executable, untracked bytecode caches.
+    sys.dont_write_bytecode = True
     sys.path.insert(0, str(NAFNET_REPO_DIR))
     from basicsr.models.archs.NAFNet_arch import NAFNet  # type: ignore[import-not-found]
 

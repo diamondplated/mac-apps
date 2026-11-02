@@ -9,3 +9,6 @@ Sift.app/
 .build/
 Vendor/
 Sources/CDuckDB/duckdb.h
+
+# Local agent scratch; retained historical reports live in docs/superpowers/reports.
+.superpowers/

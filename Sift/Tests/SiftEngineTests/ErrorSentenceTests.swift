@@ -70,7 +70,7 @@ private func expectSentence(
 
 /// The four malformed opens `sift <path>` can be pointed at. Every one of them used to print
 /// `sift: The operation couldn’t be completed. (DuckDBKit.DuckDBError error 1.)`.
-@Test func everyMalformedOpenReportsDuckDBsOwnSentence() async throws {
+@Test(.engineLifetime) func everyMalformedOpenReportsDuckDBsOwnSentence() async throws {
     let dir = try tempDir()
     func write(_ name: String, _ bytes: String) throws -> String {
         let path = (dir as NSString).appendingPathComponent(name)
@@ -92,7 +92,7 @@ private func expectSentence(
 
 // MARK: - the other five
 
-@Test func closeTableReportsACatalogRefusalAsASentence() async throws {
+@Test(.engineLifetime) func closeTableReportsACatalogRefusalAsASentence() async throws {
     // A staging swap turns the name into a real TABLE, and `DROP VIEW` on a table is a hard
     // `Catalog Error` — the review-I6 window, reconstructed exactly rather than raced.
     let dir = try tempDir()
@@ -109,7 +109,7 @@ private func expectSentence(
     }
 }
 
-@Test func unstageReportsACatalogRefusalAsASentence() async throws {
+@Test(.engineLifetime) func unstageReportsACatalogRefusalAsASentence() async throws {
     // The mirror image: `unstage` drops the staged TABLE, and a VIEW under that name makes
     // `DROP TABLE` the hard error instead.
     let dir = try tempDir()
@@ -124,7 +124,7 @@ private func expectSentence(
     }
 }
 
-@Test func stagedEntriesAndPurgeStagedReportAMissingCatalogAsASentence() async throws {
+@Test(.engineLifetime) func stagedEntriesAndPurgeStagedReportAMissingCatalogAsASentence() async throws {
     let session = try Session(home: newSessionHome())
     let con = try session.database.connect()
     try con.execute("DROP TABLE IF EXISTS _sift_sources")
@@ -133,7 +133,7 @@ private func expectSentence(
     await expectSentence("purgeStaged with no catalog") { _ = try await session.purgeStaged() }
 }
 
-@Test func badRowsReportsAVanishedSourceFileAsASentence() async throws {
+@Test(.engineLifetime) func badRowsReportsAVanishedSourceFileAsASentence() async throws {
     // The panel reads the file through its all-varchar expression, not through the view, so a
     // source deleted while its tab is open fails inside `badRows` itself. Reachable by anyone
     // with `rm`, and it used to arrive as a raw DuckDB dump because this one method deliberately
@@ -165,7 +165,7 @@ private func expectSentence(
 
 // MARK: - and the conformance that covers the sites nobody enumerated
 
-@Test func sessionInitReportsAnUnopenableStoreAsASentence() async throws {
+@Test(.engineLifetime) func sessionInitReportsAnUnopenableStoreAsASentence() async throws {
     // `Session.init` is a public method that throws `DuckDBError` from `Database(path:)`, and it
     // is the first thing the CLI and the app call. A home whose `stage.duckdb` is a directory
     // cannot be opened as a database.

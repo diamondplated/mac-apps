@@ -112,8 +112,32 @@ public final class AppManager {
         try await Task.detached(priority: .userInitiated) {
             guard try store.existing(app) != nil else { throw AppManagerError.message("\(app.name) is not installed.") }
         }.value
-        try await terminateApplications(app)
-        try await Task.detached(priority: .userInitiated) { try store.uninstall(app) }.value
+        try await Self.unregisterAndUninstall(app, readSettings: {
+            try await Task.detached(priority: .userInitiated) { try store.settings(app) }.value
+        }, writeSettings: { patch in
+            try await Task.detached(priority: .userInitiated) { try store.settings(app, patch: patch) }.value
+        }, remove: {
+            try await self.terminateApplications(app)
+            try await Task.detached(priority: .userInitiated) { try store.uninstall(app) }.value
+        })
+    }
+
+    /// Unregister while the bundle still exists. Refuse removal if the bridge cannot
+    /// confirm the change, so a copy in Trash cannot remain a login item.
+    static func unregisterAndUninstall(_ app: ManagedApp,
+                                       readSettings: () async throws -> Data,
+                                       writeSettings: (Data) async throws -> Data,
+                                       remove: () async throws -> Void) async throws {
+        if app.supportsSettingsBridge {
+            if try InstallationStore.loginEnabled(in: await readSettings()) {
+                let response = try await writeSettings(Data(#"{"launchAtLogin":false}"#.utf8))
+                guard try !InstallationStore.loginEnabled(in: response),
+                      try !InstallationStore.loginEnabled(in: await readSettings()) else {
+                    throw AppManagerError.message("\(app.name)'s launch at login registration could not be disabled. Its installation has not been changed.")
+                }
+            }
+        }
+        try await remove()
     }
 
     public func launch(_ app: ManagedApp) async throws {

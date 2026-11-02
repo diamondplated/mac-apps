@@ -53,7 +53,7 @@ import SiftCore
 //      a DROP of one must go through that connection too — which is why the three in Staging.swift
 //      are on this list at all.
 //
-//      🔴 **THE INVARIANT IS PER-USE, NOT PER-METHOD, AND TWO OF THE EIGHT ARE `async`.**
+//      🔴 **THE INVARIANT IS PER-USE, NOT PER-METHOD, AND THREE OF THE EIGHT ARE `async`.**
 //      `Connection` is not `Sendable`; what makes sharing safe is that no user ever SUSPENDS
 //      between acquiring the connection and finishing with it, so the actor's serial executor
 //      guarantees exactly one caller is inside at a time. All eight were re-checked line by line
@@ -123,9 +123,18 @@ private let sessionExtensions = ["delta", "excel"]
 /// is the same one SiftUI will surface in a banner). Named `SessionError`, not `SiftError`: this
 /// module imports `SiftCore`, whose `SiftError` is the protocol every concrete error here
 /// conforms to (see `SQLRejected`, `UnsupportedSource`) — reusing the name would shadow it.
+public struct ExtensionDownloadRequest: Sendable, Equatable {
+    public let extensionName: String
+    public let sourcePath: String
+}
+
 public struct SessionError: SiftError, Equatable {
     public let message: String
-    public init(_ message: String) { self.message = message }
+    public let extensionDownload: ExtensionDownloadRequest?
+    public init(_ message: String, extensionDownload: ExtensionDownloadRequest? = nil) {
+        self.message = message
+        self.extensionDownload = extensionDownload
+    }
     public var description: String { message }
 }
 
@@ -238,6 +247,11 @@ public actor Session {
     /// removed by whichever of `applyStaged`/`finishStage` ends it, so "not in this dictionary"
     /// means "not running" — which is exactly what `cancel` reports as `false`.
     var stageJobs: [String: StageJob] = [:]
+    let ownedWork = SessionWork()
+    var isClosing = false
+    var stageBarrierForTest: (@Sendable () async -> Void)?
+    func setStageBarrierForTest(_ barrier: (@Sendable () async -> Void)?) { stageBarrierForTest = barrier }
+    private var shutdownComplete = false
     /// Python's `_job_seq`. Monotonic, never reused.
     var stageJobSeq = 0
     /// Python's `STAGE_DWELL_SECONDS`: how long `maybeStageAfterDwell` waits for a sign the user
@@ -263,7 +277,12 @@ public actor Session {
         try self.init(home: home, keychainService: Keychain.service)
     }
 
-    init(home: String?, keychainService: String, identityBudget: TimeInterval = 5) throws {
+    /// Internal fault-injection seam: production uses Database.harden and its measured outcomes.
+    init(home: String?, keychainService: String, identityBudget: TimeInterval = 5,
+         hardening: ((Database, Bool) -> [String: Bool])? = nil) throws {
+        let lifetime = SessionLifetime.current
+        try lifetime?.beginInitialization()
+        defer { lifetime?.finishInitialization() }
         let resolvedHome = Self.resolveHome(home)
         // Read once into a local: the failure path below needs it while `self` is still only
         // partly initialized, and it must be the SAME value `deinit` will release with.
@@ -341,8 +360,18 @@ public actor Session {
             self.keychainService = keychainService
             self.identityBudget = identityBudget
 
-            db.harden(allowRemote: config.allowRemote)
-            db.loadExtensions(sessionExtensions + remoteExtensions(for: config))
+            let outcomes: [String: Bool]
+            if let hardening {
+                outcomes = hardening(db, config.allowRemote)
+            } else {
+                db.harden(allowRemote: config.allowRemote)
+                outcomes = db.hardened
+            }
+            if !config.allowRemote && Database.hardeningSettings().contains(where: { outcomes[$0.name] != true }) {
+                throw SessionError("Could not apply the security settings required for a local-only session.")
+            }
+            db.loadExtensions(sessionExtensions, installMissing: false)
+            db.loadExtensions(remoteExtensions(for: config), installMissing: true)
 
             let con: Connection
             do {
@@ -381,6 +410,7 @@ public actor Session {
                 self.secretIssues = Self.issueSecrets(con, config: config, service: keychainService)
             }
             self.pagingConnection = con
+            SessionLifetime.current?.register(self)
         } catch {
             Self.openHomes.release(resolvedHome, token: token)
             throw error
@@ -424,9 +454,20 @@ public actor Session {
             if kill(pid, 0) == 0 { continue }   // still alive: leave it alone
             if errno == ESRCH {
                 try? FileManager.default.removeItem(atPath: (home as NSString).appendingPathComponent(name))
+                removePrivateCache(in: home, pid: pid)
             }
             // EPERM: alive but owned by someone else — leave it alone, same as Python.
         }
+    }
+
+    /// A symlinked parent would make recursive removal escape the cache root.
+    static func removePrivateCache(in home: String, pid: Int32) {
+        let cache = (home as NSString).appendingPathComponent(remoteCacheDirName)
+        let manager = FileManager.default
+        guard let attributes = try? manager.attributesOfItem(atPath: cache),
+              attributes[.type] as? FileAttributeType == .typeDirectory else { return }
+        // A child symlink is unlinked by removeItem, never followed.
+        try? manager.removeItem(atPath: (cache as NSString).appendingPathComponent("stage-\(pid)"))
     }
 
     /// Matches `stage-(\d+)\.duckdb(\.wal)?` as a full-string match (Python's `re.fullmatch`).
@@ -530,7 +571,12 @@ public actor Session {
 
     // MARK: - relations
 
+    func requireOpen() throws {
+        guard !isClosing else { throw SessionError("This session is closing.") }
+    }
+
     public func table(_ name: String) throws -> Table {
+        try requireOpen()
         guard var t = tables[name] else {
             throw SessionError("No open table named '\(name)'.")
         }
@@ -613,9 +659,9 @@ public actor Session {
 
     /// Test support: override whether `openPath` believes the `delta` extension loaded. `nil`
     /// (the default) means "ask the database", which is what production always does — this exists
-    /// only so DeltaTests can reach `openPath`'s refusal, which on every machine this code runs on
-    /// is otherwise unreachable because `delta` always loads. See the refusal itself for why a
-    /// branch that prevents resurrecting deleted rows must not be pinned by luck.
+    /// so DeltaTests can reach the refusal even on machines with a warm extension cache.
+    /// Historically every test machine loaded delta at launch, hiding a deleted refusal guard;
+    /// the branch that prevents resurrecting deleted rows must not be pinned by luck.
     var deltaLoadedForTest: Bool?
     func setDeltaLoadedForTest(_ loaded: Bool?) { deltaLoadedForTest = loaded }
 
@@ -642,11 +688,11 @@ public actor Session {
     /// either way, so `sortedRelation` re-materializes and nothing ever reads the stale copy — it is
     /// up to `sortMaterializeMax` rows (51.9 MB measured) held for the life of the session. A leak
     /// has no observable answer to assert on except this one.
-    func tempTableExistsForTest(_ name: String) -> Bool {
-        let rows = try? pagingConnection.query(
-            "SELECT count(*) FROM duckdb_tables() WHERE table_name = ?", [.text(name)]
+    func tempTableExistsForTest(_ name: String, query: String? = nil) throws -> Bool {
+        let rows = try pagingConnection.query(
+            query ?? "SELECT count(*) FROM duckdb_tables() WHERE table_name = ?", [.text(name)]
         ).allRows()
-        return (rows?.first.map { cellInt($0[0]) } ?? 0) > 0
+        return (rows.first.map { cellInt($0[0]) } ?? 0) > 0
     }
 
     /// Test support: shorten (or lengthen) the staging dwell. The same internal-seam trick as
@@ -719,6 +765,9 @@ public actor Session {
         _ path: String, name: String? = nil, sheet: String? = nil,
         nullPadding: Bool = false, skipPreamble: Bool = true
     ) async throws -> Table {
+        try requireOpen()
+        ownedWork.begin()
+        defer { ownedWork.finish() }
         guard !(nullPadding && !skipPreamble) else {
             throw SessionError(
                 "Null padding and skipping no preamble cannot be combined — pinning the skip is "
@@ -744,21 +793,7 @@ public actor Session {
             throw SessionError("No such file or folder: \(resolved)")
         }
 
-        // 🔴 The single most consequential refusal in the product, and until 2026-08-11 it was
-        // held up by an environmental accident: `delta` always loads on every machine this runs
-        // on, so the branch was unreachable and deleting it left 461 tests green. What it guards
-        // is reading a Delta table as a raw parquet glob, which RESURRECTS DELETED ROWS — the
-        // worst thing a tool whose entire premise is not lying about data could do. It deserves a
-        // seam, not luck: `deltaLoadedForTest` is that seam and its only purpose.
-        if isDeltaDir(resolved), !(deltaLoadedForTest ?? (database.loadedExtensions["delta"] == .loaded)) {
-            throw SessionError(
-                "\((resolved as NSString).lastPathComponent) is a Delta table, but the DuckDB "
-                    + "delta extension is not available, so Sift cannot read it correctly. Reading "
-                    + "the parquet files directly would resurrect deleted rows — refusing rather "
-                    + "than showing you wrong numbers. Fix: run INSTALL delta once with network "
-                    + "access."
-            )
-        }
+        try requireFileExtension(for: resolved)
 
         let spec: SourceSpec
         do {
@@ -784,6 +819,60 @@ public actor Session {
             spec: spec, requestedName: name,
             displayName: (resolved as NSString).lastPathComponent
         )
+    }
+
+    /// A local decision only: asking never installs or reaches the network.
+    public func requiredExtension(for path: String) throws -> ExtensionDownloadRequest? {
+        try requireOpen()
+        guard let name = try fileExtensionName(for: path) else { return nil }
+        let loaded = name == "delta" ? (deltaLoadedForTest ?? (database.loadedExtensions[name] == .loaded))
+            : database.loadedExtensions[name] == .loaded
+        guard !loaded else { return nil }
+        return ExtensionDownloadRequest(extensionName: name, sourcePath: classifyRemote(path)?.sanitized ?? path)
+    }
+
+    private func fileExtensionName(for path: String) throws -> String? {
+        if let remote = classifyRemote(path) {
+            try checkRemotePosture(remote)
+            return xlsxExt.contains(remote.effectiveExt) ? "excel" : nil
+        }
+        let resolved = realPath((path as NSString).expandingTildeInPath)
+        let format: Fmt
+        do { format = try detectFormat(resolved) }
+        catch let error as UnsupportedSource { throw SessionError(error.message) }
+        catch let error as LegacyXls { throw SessionError(error.message) }
+        switch format {
+        case .delta: return "delta"
+        case .xlsx: return "excel"
+        default: return nil
+        }
+    }
+
+    // MEASURED before the missing-extension seam: 461 tests passed with the Delta refusal
+    // deleted because every test machine already had delta installed; raw parquet fallback
+    // resurrects deleted rows, so deltaLoadedForTest must keep exercising this refusal.
+    private func requireFileExtension(for path: String) throws {
+        guard let request = try requiredExtension(for: path) else { return }
+        let message: String
+        if request.extensionName == "delta" {
+            message = "This is a Delta table and reading its parquet files directly would resurrect deleted rows; approve downloading the DuckDB delta extension before opening it."
+        } else {
+            message = "Approve downloading the DuckDB excel extension before opening this workbook."
+        }
+        throw SessionError(message, extensionDownload: request)
+    }
+
+    /// Call only after the user approves this specific request; no other extension is installed.
+    public func downloadExtension(_ request: ExtensionDownloadRequest) throws {
+        try requireOpen()
+        guard try fileExtensionName(for: request.sourcePath) == request.extensionName,
+              sessionExtensions.contains(request.extensionName) else {
+            throw SessionError("The file no longer needs the approved extension; open it again to review the download request.")
+        }
+        database.loadExtensions([request.extensionName], installMissing: true)
+        guard database.loadedExtensions[request.extensionName] == .loaded else {
+            throw SessionError("Sift could not download or load the DuckDB \(request.extensionName) extension; check your connection and try again.")
+        }
     }
 
     /// The half of an open both branches share: derive a free table name, put the source into the
@@ -812,6 +901,7 @@ public actor Session {
         spec: SourceSpec, requestedName: String?, displayName: String, extraNotes: [String] = [],
         replacing existing: Table? = nil
     ) throws -> Table {
+        try requireOpen()
         let tname: String
         let generation: Int
         if let existing {
@@ -882,10 +972,13 @@ public actor Session {
         tables[tname] = t
 
         let snapshot = t
+        let interrupt = StageJob()
+        ownedWork.begin(interrupt: interrupt)
         Task.detached { [self] in
+            defer { ownedWork.finish() }
             await runAfterOpen(
                 name: tname, spec: snapshot.spec, initialRowCount: snapshot.rowCount,
-                openedAt: snapshot.openedAt
+                openedAt: snapshot.openedAt, interrupt: interrupt
             )
         }
 
@@ -935,6 +1028,7 @@ public actor Session {
         try checkRemotePosture(url)
         try checkRemoteExtension(url)
         try checkRemoteConnection(url)
+        try requireFileExtension(for: url.sanitized)
 
         let opened = try await remoteOpen(
             url, sheet: sheet, nullPadding: nullPadding, skipPreamble: skipPreamble,
@@ -1093,14 +1187,20 @@ public actor Session {
     ) async throws -> RemoteOpen {
         let database = self.database
         let home = self.siftHome
+        let cacheOwner = self.sharedStore ? nil : ProcessInfo.processInfo.processIdentifier
         let identityBudget = self.identityBudget
         let fetchedAtNs = fetchClockNs()
+        try requireOpen()
+        let interrupt = StageJob()
+        ownedWork.begin(interrupt: interrupt)
         do {
-            return try await Task.detached {
-                try await buildRemoteOpen(
+            return try await Task.detached { [ownedWork] in
+                defer { interrupt.closeInterruptWindow(); ownedWork.finish() }
+                return try await buildRemoteOpen(
                     database: database, home: home, url: url, fetchedAtNs: fetchedAtNs,
                     sheet: sheet, nullPadding: nullPadding, skipPreamble: skipPreamble,
-                    knownToken: knownToken, identityBudget: identityBudget
+                    knownToken: knownToken, identityBudget: identityBudget, cacheOwner: cacheOwner,
+                    interrupt: interrupt
                 )
             }.value
         } catch let error as UnsupportedSource {
@@ -1147,6 +1247,9 @@ public actor Session {
     /// orphan at the next launch.
     @discardableResult
     public func refreshRemote(_ name: String) async throws -> RefreshOutcome {
+        try requireOpen()
+        ownedWork.begin()
+        defer { ownedWork.finish() }
         let t = try table(name)
         guard let ref = t.spec.remote else {
             throw SessionError(
@@ -1195,6 +1298,7 @@ public actor Session {
         // narrowed since (both are frozen for the life of the `Database`). A saved connection CAN
         // have been removed in between, and that has a sentence of its own.
         try checkRemoteConnection(url)
+        try requireFileExtension(for: url.sanitized)
 
         let openedAt = t.openedAt
         let fetchedAtNs = fetchClockNs()
@@ -1275,9 +1379,11 @@ public actor Session {
     /// stopped it. `openedAt` is that stop: `Table.init` sets it once, fresh, per open, so a stale
     /// callback's `openedAt` can never match a reopened table's.
     nonisolated private func runAfterOpen(
-        name: String, spec: SourceSpec, initialRowCount: Int?, openedAt: Int
+        name: String, spec: SourceSpec, initialRowCount: Int?, openedAt: Int, interrupt: StageJob
     ) async {
+        defer { interrupt.closeInterruptWindow() }
         guard let connection = try? database.connect() else { return }
+        interrupt.attach(connection)
 
         // 🔴 **The remote adaptation is that there is none, and that is the design working rather
         // than a gap.** A remote text source has already been downloaded once (`buildRemoteOpen`),
@@ -1363,6 +1469,9 @@ public actor Session {
     /// Given the choice between reintroducing that risk and leaving this cliff documented, this
     /// keeps the simpler, provably-safe design and accepts the cliff.
     public func page(_ name: String, offset: Int, limit: Int = pageRows) async throws -> TablePage {
+        try requireOpen()
+        ownedWork.begin()
+        defer { ownedWork.finish() }
         var t = try table(name)
         // Persists whatever `t` ends up mutated to (filteredCount, sortKey) on every exit path —
         // success or a thrown error — matching Python, where `t` IS the dictionary's own object,
@@ -1478,6 +1587,9 @@ public actor Session {
     /// one thing standing between a stale profile and a reopened table would stop being reachable
     /// — and stop being testable — while the SUMMARIZE kept running anyway.
     public func closeTable(_ name: String) async throws {
+        try requireOpen()
+        ownedWork.begin()
+        defer { ownedWork.finish() }
         let t = try table(name)
         // Before the `defer` below registers, so a refused close removes nothing: a merge view is
         // built over this table's NAME, and dropping the view underneath one leaves it in the
@@ -1515,10 +1627,19 @@ public actor Session {
         // waiting: the job's own `.stale` repair drops whatever it finds under the name.
     }
 
-    /// Hands the home back before anything else: after this call another `Session` may legitimately
-    /// open it, and this one's later `deinit` must not take it away again (`release` compares the
-    /// token, so it cannot).
-    public func shutdown() {
+    /// Close admission and join owned work before handing the home back or removing private
+    /// files. Another session may reopen it only after the old writers have actually stopped.
+    public func shutdown() async {
+        guard !shutdownComplete else { return }
+        // Close admission before suspending: an after-open/dwell callback cannot start another
+        // stage behind this drain. The actor hop also follows any synchronous query in flight.
+        isClosing = true
+        for job in stageJobs.values { job.requestCancel() }
+        for job in profileJobs.values { job.task.cancel() }
+        ownedWork.cancel()
+        await ownedWork.drain()
+        guard !shutdownComplete else { return }
+        shutdownComplete = true
         Self.openHomes.release(siftHome, token: claimToken)
         dropPrivateStore()
     }
@@ -1534,6 +1655,7 @@ public actor Session {
     /// were never meant to outlive that anyway ("staged data will not persist").
     public nonisolated func dropPrivateStore() {
         guard !sharedStore else { return }
+        Self.removePrivateCache(in: siftHome, pid: ProcessInfo.processInfo.processIdentifier)
         for path in [dbPath, dbPath + ".wal"] {
             try? FileManager.default.removeItem(atPath: path)
         }
@@ -1673,9 +1795,10 @@ let sasParquetNote =
 func buildRemoteOpen(
     database: Database, home: String, url: RemoteURL, fetchedAtNs: Int,
     sheet: String?, nullPadding: Bool, skipPreamble: Bool, knownToken: String? = nil,
-    identityBudget: TimeInterval = 5
+    identityBudget: TimeInterval = 5, cacheOwner: Int32? = nil, interrupt: StageJob? = nil
 ) async throws -> RemoteOpen {
     let con = try database.connect()
+    interrupt?.attach(con)
     let fmt = try remoteFormat(url, con: con)
     let identity = await remoteIdentity(url, timeout: identityBudget)
     let token = remoteObjectToken(url, identity, fetchedAtNs: fetchedAtNs)
@@ -1691,7 +1814,7 @@ func buildRemoteOpen(
 
     var cachePath: String?
     if fmt != .parquet || sasParquet {
-        let path = try remoteCachePath(home: home, url: url)
+        let path = try remoteCachePath(home: home, url: url, owner: cacheOwner)
         if token != knownToken || !FileManager.default.fileExists(atPath: path) {
             try downloadRemoteObject(con: con, url: url, to: path)
         }
@@ -1718,11 +1841,16 @@ func buildRemoteOpen(
 /// The directory is created at **0700**, through the same call that enforces it on `~/.sift`
 /// itself: these files are copies of someone's real data sitting on a laptop (spec §11), and
 /// `downloadRemoteObject` writes each one 0600 inside it.
-func remoteCachePath(home: String, url: RemoteURL) throws -> String {
-    let dir = (home as NSString).appendingPathComponent(remoteCacheDirName)
+func remoteCachePath(home: String, url: RemoteURL, owner: Int32? = nil) throws -> String {
+    var dir = (home as NSString).appendingPathComponent(remoteCacheDirName)
     // Named for `~/.sift`, but it is exactly "create this directory and hold it at 0700, whether or
     // not it already existed" — which is the contract this needs, unchanged.
     try Session.ensureHomeDirectory(dir)
+    // Fallback catalogs must never share files with the lock holder's cache sweep.
+    if let owner {
+        dir = (dir as NSString).appendingPathComponent("stage-\(owner)")
+        try Session.ensureHomeDirectory(dir)
+    }
     return (dir as NSString).appendingPathComponent(fnv1a(url.sanitized) + cacheSuffix(url))
 }
 

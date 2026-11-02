@@ -129,7 +129,7 @@ private func inspector(_ state: AppState, _ table: String, _ tab: InspectorTab) 
 /// be (or with any other constant) and that tab's assertion goes red, because a constant draws the
 /// same pixels for both tables.
 @MainActor
-@Test func everyInspectorTabMountsItsRealPanelAndNotAPlaceholder() async throws {
+@Test(.engineLifetime) func everyInspectorTabMountsItsRealPanelAndNotAPlaceholder() async throws {
     let (state, one, two) = try await twoUnlikeTables()
 
     // Source — the path, the format, the size, the row count and the basis sentence all differ.
@@ -154,7 +154,7 @@ private func inspector(_ state: AppState, _ table: String, _ tab: InspectorTab) 
 /// different panels for one table, which is the half the test above cannot see (a single panel
 /// mounted under all three cases would pass it).
 @MainActor
-@Test func theThreeInspectorTabsDrawThreeDifferentPanels() async throws {
+@Test(.engineLifetime) func theThreeInspectorTabsDrawThreeDifferentPanels() async throws {
     let (state, one, _) = try await twoUnlikeTables()
     state.selectedColumn = "label"
 
@@ -167,7 +167,7 @@ private func inspector(_ state: AppState, _ table: String, _ tab: InspectorTab) 
 /// …and with nothing open, all three say so rather than drawing a panel about a table that is not
 /// there. The empty state is the one place where "all three tabs are identical" is correct.
 @MainActor
-@Test func theInspectorSaysNothingOpenOnEveryTabWhenNothingIsOpen() async throws {
+@Test(.engineLifetime) func theInspectorSaysNothingOpenOnEveryTabWhenNothingIsOpen() async throws {
     let state = AppState(session: try Session(home: tempHome()))
     // Below the tab strip, which draws its own selected segment and therefore differs three ways
     // whatever is under it.
@@ -190,7 +190,7 @@ private func inspector(_ state: AppState, _ table: String, _ tab: InspectorTab) 
 /// pinned in `AppStateTests`); this is the assertion that if it IS reached, something is drawn.
 /// Delete the `Text` and the `Button` and the ink collapses to the empty render's.
 @MainActor
-@Test func theSheetFallbackPaintsRatherThanRenderingABlankModal() throws {
+@Test(.engineLifetime) func theSheetFallbackPaintsRatherThanRenderingABlankModal() throws {
     let painted = inkCount(try render(SheetSubjectGone(), 400, 140))
     let blank = inkCount(try render(Color.clear, 400, 140))
     #expect(painted > blank, "the fallback drew nothing — this is the blank sheet, again")

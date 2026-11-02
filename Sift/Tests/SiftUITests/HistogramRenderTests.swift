@@ -38,7 +38,7 @@ private func appKitReady() { _ = NSApplication.shared }
 /// 🔴 `ByteCountFormatter` would pass none of this reliably: it follows `Locale.current` for the
 /// decimal separator and switches between SI and binary units by region, so `1_572_864` reads
 /// `1.5 MB` here and `1.65 MB` on a machine set up slightly differently.
-@Test func humanBytesIsTheWebsUnitLadderAndNotTheSystemFormatters() {
+@Test(.engineLifetime) func humanBytesIsTheWebsUnitLadderAndNotTheSystemFormatters() {
     #expect(humanBytes(0) == "0 B")
     #expect(humanBytes(1) == "1 B")
     #expect(humanBytes(1023) == "1023 B", "no decimal and no grouping below a kilobyte")
@@ -58,7 +58,7 @@ private func appKitReady() { _ = NSApplication.shared }
 /// drawing `panel.buckets` in array order puts bucket 5 in slot 2 and shifts everything after it —
 /// a plausible, entirely wrong distribution, in the panel whose only job is showing the shape of the
 /// data.
-@Test func anAbsentBucketDrawsZeroHeightInItsOwnSlotRatherThanShiftingItsNeighbours() {
+@Test(.engineLifetime) func anAbsentBucketDrawsZeroHeightInItsOwnSlotRatherThanShiftingItsNeighbours() {
     let bars = HistogramView.bars(panelOf(bins: 6, buckets: [(0, 100), (1, 50), (5, 25)]))
 
     #expect(bars.count == 6, "one bar per bin, present or not")
@@ -69,14 +69,14 @@ private func appKitReady() { _ = NSApplication.shared }
 
 /// A single row among a million still has to be visible, or the panel says "empty" about data that
 /// is there — `Math.max(n ? 2 : 0, …)` in the web.
-@Test func aBucketWithRowsInItNeverDrawsShorterThanTwoPercentAndAnEmptyOneDrawsNothing() {
+@Test(.engineLifetime) func aBucketWithRowsInItNeverDrawsShorterThanTwoPercentAndAnEmptyOneDrawsNothing() {
     let bars = HistogramView.bars(panelOf(bins: 3, buckets: [(0, 1_000_000), (1, 1)]))
     #expect(bars[0].fraction == 1.0)
     #expect(bars[1].fraction == 0.02, "one row in a million is still a bar")
     #expect(bars[2].fraction == 0, "…and a bucket with nothing in it is still nothing")
 }
 
-@Test func theNullBarIsScaledAgainstWhicheverIsTallerAndIsAbsentWhenNothingIsNull() {
+@Test(.engineLifetime) func theNullBarIsScaledAgainstWhicheverIsTallerAndIsAbsentWhenNothingIsNull() {
     #expect(HistogramView.nullBar(panelOf(bins: 4, buckets: [(0, 10)], nNull: 0)) == nil)
 
     let some = HistogramView.nullBar(panelOf(bins: 4, buckets: [(0, 100)], nNull: 25))
@@ -90,14 +90,14 @@ private func appKitReady() { _ = NSApplication.shared }
     #expect(mostly?.tooltip == "1,000 null (excluded from the buckets)", "grouped, by groupDigits")
 }
 
-@Test func theCaptionCountsBucketsAndOnlyMentionsNullsWhenThereAreSome() {
+@Test(.engineLifetime) func theCaptionCountsBucketsAndOnlyMentionsNullsWhenThereAreSome() {
     #expect(HistogramView.caption(panelOf(bins: 40, buckets: [(0, 1)])) == "40 buckets")
     #expect(
         HistogramView.caption(panelOf(bins: 40, buckets: [(0, 1)], nNull: 12_500))
             == "40 buckets · 12,500 null shown separately in amber")
 }
 
-@Test func aDegenerateColumnSaysWhyInsteadOfPlottingAFlatLine() {
+@Test(.engineLifetime) func aDegenerateColumnSaysWhyInsteadOfPlottingAFlatLine() {
     let flat = HistogramPanel(
         col: "x", kind: nil, lo: nil, step: nil, bins: nil, nNull: 0, buckets: [],
         degenerate: true, reason: "every value is the same, or the range is empty", milliseconds: nil)
@@ -109,7 +109,7 @@ private func appKitReady() { _ = NSApplication.shared }
 
 /// The axis takes the profile's own extremes when there is one, and the buckets' otherwise — it
 /// never invents a number.
-@Test func theAxisPrefersTheProfilesExtremesAndFallsBackToTheBucketsOwn() {
+@Test(.engineLifetime) func theAxisPrefersTheProfilesExtremesAndFallsBackToTheBucketsOwn() {
     let panel = panelOf(bins: 4, buckets: [(0, 10), (3, 4)], low: .double(1.5), high: .double(88.25))
     #expect(HistogramView.axis(panel, profile: nil).min == "1.5")
     #expect(HistogramView.axis(panel, profile: nil).max == "88.25")
@@ -122,7 +122,7 @@ private func appKitReady() { _ = NSApplication.shared }
 
 // MARK: - high cardinality
 
-@Test func theHighCardSentenceNamesTheRatioAndSaysWhyThereIsNoRankedList() {
+@Test(.engineLifetime) func theHighCardSentenceNamesTheRatioAndSaysWhyThereIsNoRankedList() {
     let profile = ColumnProfile(
         name: "order_id", type: "VARCHAR", kind: .text, n: 1_200_000, approxDistinct: 1_199_988,
         view: .highcard)
@@ -141,7 +141,7 @@ private func appKitReady() { _ = NSApplication.shared }
 }
 
 /// The web's `pct`: two decimals only where one would round a real value down to `0.0%`.
-@Test func smallPercentagesGetASecondDecimalSoTheyAreNotRoundedToNothing() {
+@Test(.engineLifetime) func smallPercentagesGetASecondDecimalSoTheyAreNotRoundedToNothing() {
     #expect(HighCardView.pct(0) == "0.0%")
     #expect(HighCardView.pct(0.0004) == "0.04%")
     #expect(HighCardView.pct(0.009) == "0.90%")
@@ -156,7 +156,7 @@ private func appKitReady() { _ = NSApplication.shared }
 /// Both sentinels come from the engine's constants and neither is spelled here. The null used to be
 /// the literal `␀ NULL` — the distinct panel's SQL-built label — beside an empty string that was
 /// already routed properly, in a window where the grid drew a third spelling.
-@Test func aNullSampleSaysSoAndAnEmptyStringIsStillNotTheSameThing() {
+@Test(.engineLifetime) func aNullSampleSaysSoAndAnEmptyStringIsStillNotTheSameThing() {
     #expect(HighCardView.sampleLabel(.null, kind: .text) == SiftEngine.nullGlyph)
     #expect(HighCardView.sampleLabel(.text(""), kind: .text) == SiftEngine.emptyStringGlyph)
     #expect(HighCardView.sampleLabel(.text("NULL"), kind: .text) == "NULL", "the literal text")
@@ -164,7 +164,7 @@ private func appKitReady() { _ = NSApplication.shared }
     #expect(HighCardView.sampleLabel(.bool(true), kind: .bool) == "true")
 }
 
-@Test func aLengthBucketsTooltipNamesTheLengthAndTheGroupedCount() {
+@Test(.engineLifetime) func aLengthBucketsTooltipNamesTheLengthAndTheGroupedCount() {
     #expect(
         HighCardView.lengthTooltip(LengthBucket(len: 36, n: 1_200_000))
             == "length 36: 1,200,000 rows")
@@ -177,7 +177,7 @@ private func appKitReady() { _ = NSApplication.shared }
 /// rest of the suite runs on (five seconds then, thirty since #5) — MEASURED: this file's
 /// fixtures were enough to time three of those out on a loaded machine. The real-open path is
 /// still covered, once, by the Source-tab render below.
-@Test func theStatsGridSaysWhatIsKnownLeavesOutWhatIsNotAndTildesAnEstimate() throws {
+@Test(.engineLifetime) func theStatsGridSaysWhatIsKnownLeavesOutWhatIsNotAndTildesAnEstimate() throws {
     var table = fakeTable(fmt: .csv)
     table.spec = SourceSpec(
         key: SourceKey(path: "/tmp/stats.csv", mtimeNs: 0, size: 134), fmt: .csv, readFn: "read_csv",
@@ -234,7 +234,7 @@ private func appKitReady() { _ = NSApplication.shared }
     #expect(rowsBasisText(unknown.rowsBasis) == "counting…")
 }
 
-@Test func onlyTheFormatsWorthCopyingOfferTheButtonAndTheRestExplainWhyNot() {
+@Test(.engineLifetime) func onlyTheFormatsWorthCopyingOfferTheButtonAndTheRestExplainWhyNot() {
     #expect(SourceTab.stageable == [.csv, .globCsv, .xlsx, .json, .ndjson])
     #expect(!SourceTab.stageable.contains(.parquet), "columnar already — a copy only duplicates it")
     #expect(!SourceTab.stageable.contains(.delta))
@@ -249,7 +249,7 @@ private func appKitReady() { _ = NSApplication.shared }
     #expect(SourceTab.staging(fakeTable(fmt: .parquet, staged: true)) == .staged)
 }
 
-@Test func theStagingNoteQuotesTheEnginesOwnReasonAndTellsMergeApartFromColumnar() {
+@Test(.engineLifetime) func theStagingNoteQuotesTheEnginesOwnReasonAndTellsMergeApartFromColumnar() {
     #expect(SourceTab.stagingNote(fakeTable(fmt: .csv, staged: true)).hasPrefix("Staged:"))
 
     // The engine's `shouldStage` is the authority on the decision, and its reason is appended
@@ -267,7 +267,7 @@ private func appKitReady() { _ = NSApplication.shared }
             == "Already columnar with per-file statistics, so staging would not make it faster.")
 }
 
-@Test func theDetectedDialectBreaksOneUnreadableLineIntoOneArgumentPerLine() {
+@Test(.engineLifetime) func theDetectedDialectBreaksOneUnreadableLineIntoOneArgumentPerLine() {
     let prompt = "read_csv('/tmp/a.csv', delim=',', header=true, quote='\"')"
     #expect(
         SourceTab.dialectText(prompt) == """
@@ -281,7 +281,7 @@ private func appKitReady() { _ = NSApplication.shared }
         SourceTab.dialectText("read_parquet('/tmp/a.parquet')") == "read_parquet('/tmp/a.parquet')")
 }
 
-@Test func aSheetsRowSaysItsShapeOrThatItIsEmpty() {
+@Test(.engineLifetime) func aSheetsRowSaysItsShapeOrThatItIsEmpty() {
     #expect(SourceTab.sheetDetail(SheetInfo(name: "Q1", rows: 12_500, cols: 8)) == "12,500×8")
     #expect(SourceTab.sheetDetail(SheetInfo(name: "blank", rows: 1, cols: 1)) == "empty")
 }
@@ -297,7 +297,7 @@ private func appKitReady() { _ = NSApplication.shared }
 /// histogram drawing one identical bar per bucket — the same vacuity the inspector task hit when a
 /// header band alone carried its "two renders differ".
 @MainActor
-@Test func twoColumnsWithDifferentDistributionsDrawDifferentHistograms() async throws {
+@Test(.engineLifetime) func twoColumnsWithDifferentDistributionsDrawDifferentHistograms() async throws {
     appKitReady()
     let (state, name) = try await histFixture()
     let ramp = try await state.session.histogram(name, col: "ramp", bins: 12)
@@ -332,7 +332,7 @@ private func appKitReady() { _ = NSApplication.shared }
 /// Hand-built panels rather than a second opened file: the two differ ONLY in `nNull`, so the axis,
 /// the buckets and the caption are identical and the amber bar is the only thing that can move.
 @MainActor
-@Test func theNullBarIsAmberAndDrawnInFrontOfTheBucketsRatherThanAsOne() throws {
+@Test(.engineLifetime) func theNullBarIsAmberAndDrawnInFrontOfTheBucketsRatherThanAsOne() throws {
     appKitReady()
     let buckets = (0..<12).map { ($0, 100 - $0 * 4) }
     let plotted = try render(
@@ -363,7 +363,7 @@ private func appKitReady() { _ = NSApplication.shared }
 /// rendering two labels that differ only in their LAST characters. If either end is being trimmed,
 /// the two pictures come out identical.
 @MainActor
-@Test func theAxisDrawsTheWholeOfALongTimestampRatherThanElidingItsTail() throws {
+@Test(.engineLifetime) func theAxisDrawsTheWholeOfALongTimestampRatherThanElidingItsTail() throws {
     appKitReady()
     let panel = panelOf(bins: 12, buckets: [(0, 10), (11, 4)])
     func axis(_ maxLabel: String, _ tag: String) throws -> NSBitmapImageRep {
@@ -383,7 +383,7 @@ private func appKitReady() { _ = NSApplication.shared }
 /// The high-card panel's three parts all have to reach the screen: two length distributions that
 /// differ have to draw differently, and the sample list has to draw at all.
 @MainActor
-@Test func theHighCardPanelDrawsItsLengthsAndItsSampleAndNotJustItsSentence() throws {
+@Test(.engineLifetime) func theHighCardPanelDrawsItsLengthsAndItsSampleAndNotJustItsSentence() throws {
     appKitReady()
     let profile = ColumnProfile(
         name: "id", type: "VARCHAR", kind: .text, n: 900, approxDistinct: 899, view: .highcard)
@@ -409,7 +409,7 @@ private func appKitReady() { _ = NSApplication.shared }
 /// would draw both identically — and the question that line exists to answer is precisely *which*
 /// of the four `data.csv`s this is.
 @MainActor
-@Test func theSourceTabDrawsTheWholePathAndTheRowsThatOnlyAppearWhenTheyMatter() async throws {
+@Test(.engineLifetime) func theSourceTabDrawsTheWholePathAndTheRowsThatOnlyAppearWhenTheyMatter() async throws {
     appKitReady()
 
     // One `Session` for both files, with the first CLOSED before the second opens — two sessions

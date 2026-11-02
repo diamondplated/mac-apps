@@ -33,17 +33,29 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Same-owner native checkout: keep Git ownership checks and avoid copying the user global config.
+          set-safe-directory: false
           persist-credentials: false
 
       # Since hosted macos-15 went away, nothing here catches a break that only an older SDK
       # would reject. Ask for the macOS SDK by name: with Xcode selected and the Command Line
       # Tools also installed, a bare `xcrun --show-sdk-version` resolves the CLT SDK path, then
       # fails to read it through Xcode ("SDK ... cannot be located"). SwiftPM asks by name too.
+      - name: Configure compiler caches
+        shell: bash
+        run: |
+          printf 'CLANG_MODULE_CACHE_PATH=%s\n' "$RUNNER_TEMP/clang-module-cache" >> "$GITHUB_ENV"
+          printf 'SWIFTPM_MODULECACHE_OVERRIDE=%s\n' "$RUNNER_TEMP/swiftpm-module-cache" >> "$GITHUB_ENV"
       - name: Show toolchain
         run: |
           sw_vers
           swift --version
           xcrun --sdk macosx --show-sdk-version
+
+      - name: Check frozen source contracts
+        run: |
+          python3 scripts/check-contracts.py
+          python3 scripts/test-contracts.py
 
       - name: Fetch libduckdb
         run: ./scripts/fetch-duckdb.sh

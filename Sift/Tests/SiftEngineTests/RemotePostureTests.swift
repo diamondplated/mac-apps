@@ -12,7 +12,7 @@ import SiftCore
 // answer "…and does a remote read actually WORK", which no offline test can.
 //
 // GATED behind SIFT_REMOTE_FACTS=1 for the reason RemoteFactsTests.swift gives: `httpfs` has to be
-// present, and `loadExtensions` does LOAD→INSTALL→LOAD, so an unprepared machine reaches for the
+// present, and `loadExtensions(..., installMissing: true)` does LOAD→INSTALL→LOAD, so an unprepared machine reaches for the
 // network. The default `swift test` stays offline. The name prefix matters — CI's canary step runs
 // `swift test --filter remoteFact`.
 //
@@ -45,7 +45,7 @@ private func parquetBytes(rows: Int) throws -> Data {
 /// MEASURED (`docs/…/2026-08-16-duckdb-remote-facts.md` §2): the disabled set is per-`Database` and
 /// only ever grows, so these are two `Database`s and never a toggle. Both `LOAD httpfs` explicitly —
 /// `autoload_known_extensions=false` applies in both postures, and `allowRemote` does not touch it.
-@Test(.enabled(if: remoteFacts))
+@Test(.engineLifetime, .enabled(if: remoteFacts))
 func remoteFactHarden_allowRemoteDecidesWhetherALoadedHttpfsCanRead() throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
@@ -54,7 +54,7 @@ func remoteFactHarden_allowRemoteDecidesWhetherALoadedHttpfsCanRead() throws {
 
     let open = try Database.inMemory()
     open.harden(allowRemote: true)
-    open.loadExtensions(["httpfs"])
+    open.loadExtensions(["httpfs"], installMissing: true)
     try #require(open.loadedExtensions["httpfs"] == .loaded, "the httpfs extension must be installed")
     let permissive = try open.connect()
     // Loopback needs nothing like the default 30 s, and a machine that cannot reach the oracle
@@ -67,7 +67,7 @@ func remoteFactHarden_allowRemoteDecidesWhetherALoadedHttpfsCanRead() throws {
     // The reverse, on the same URL and the same extension: refused before a request is made.
     let locked = try Database.inMemory()
     locked.harden()
-    locked.loadExtensions(["httpfs"])
+    locked.loadExtensions(["httpfs"], installMissing: true)
     try #require(locked.loadedExtensions["httpfs"] == .loaded)
     let before = server.requestLog.count
     let text = failure(try locked.connect(), "SELECT count(*) FROM read_parquet('\(url)')")
@@ -87,14 +87,14 @@ func remoteFactHarden_allowRemoteDecidesWhetherALoadedHttpfsCanRead() throws {
 /// switch here for Sift to get wrong, only an upstream default that this test exists to notice
 /// changing. It goes through `wrapUserSQL`, the wrap a console query actually passes, rather than a
 /// bare connection: the claim is about the shipped path, not about a DuckDB feature in isolation.
-@Test(.enabled(if: remoteFacts))
+@Test(.engineLifetime, .enabled(if: remoteFacts))
 func remoteFactSecrets_redactionSurvivesTheUserSQLWrap() throws {
     let key = "SUPERSECRETKEY123"
     let keyID = "AKIAEXAMPLEKEYID"
 
     let database = try Database.inMemory()
     database.harden()
-    database.loadExtensions(["httpfs"])   // `TYPE s3` secrets come from httpfs
+    database.loadExtensions(["httpfs"], installMissing: true)   // `TYPE s3` secrets come from httpfs
     try #require(database.loadedExtensions["httpfs"] == .loaded, "the httpfs extension must be installed")
     let con = try database.connect()
     // Bound, never interpolated — MEASURED §6a: every VALUE position of CREATE SECRET binds.

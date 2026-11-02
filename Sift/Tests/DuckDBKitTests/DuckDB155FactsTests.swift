@@ -3,7 +3,7 @@ import Testing
 import TestSupport
 @testable import DuckDBKit
 
-/// Re-verification of the nine DuckDB 1.5.5 behaviors AGENTS.md pins, measured against
+/// Executable DuckDB 1.5.5 behavior pins, including the concurrency facts in AGENTS.md, measured against
 /// libduckdb rather than the Python wheel. A failure here is not a test bug — it means
 /// the engine changed and the design must change with it.
 private func con() throws -> Connection {
@@ -73,7 +73,8 @@ private func siftCoreTestsFixture(_ name: String) -> String {
 /// from this target either — test targets don't export to one another in SwiftPM).
 private func extensionIsAvailable(_ name: String) -> Bool {
     guard let db = try? Database.inMemory() else { return false }
-    db.loadExtensions([name])
+    db.harden()
+    db.loadExtensions([name], installMissing: false)
     return db.loadedExtensions[name] == .loaded
 }
 
@@ -86,7 +87,7 @@ func fact4_readXlsxTakesSheetArrowNotSheetName() throws {
     let path = siftCoreTestsFixture("book.xlsx")
     let db = try Database.inMemory()
     db.harden()
-    db.loadExtensions(["excel"])
+    db.loadExtensions(["excel"], installMissing: false)
     let c = try db.connect()
 
     let rows = try c.query("SELECT count(*) FROM read_xlsx('\(path)', sheet => 'By Store')").allRows()
@@ -191,7 +192,7 @@ func fact6_deltaTimeTravelUsesVersionArrowNotAtVersion() throws {
     let dir = TestTemp.dir("fact6")
     let db = try Database.inMemory()
     db.harden()
-    db.loadExtensions(["delta"])
+    db.loadExtensions(["delta"], installMissing: false)
     let c = try db.connect()
     let root = try makeDeltaFixture(con: c, dir: dir, kept: 100, tombstoned: 50)
 
@@ -228,19 +229,20 @@ func fact6_deltaTimeTravelUsesVersionArrowNotAtVersion() throws {
 }
 
 @Test func fact8_approxCountDistinctIsAnEstimate() throws {
-    // MEASURED against libduckdb 1.5.5 via the C API: approx_count_distinct(range(300))
-    // reports 340 for 300 distinct values — the same overshoot as the Python-wheel
-    // measurement AGENTS.md pins. HyperLogLog is an estimate and can overshoot the true
-    // count, which is why core/profile.py clamps it to the exact count — this test pins
-    // that the overshoot (and therefore the need for the clamp) still holds.
-    let rows = try con().query(
+    // Historical 1.5.5/1.5.6 measurement: 340 for range(300). On 2.0.0 the same
+    // input yields 296; range(100) yields 102. Keep exact pins for both directions
+    // and retain a real overshoot, since the engine must still clamp estimates.
+    let c = try con()
+    let rows = try c.query(
         "SELECT approx_count_distinct(i), count(*) FROM range(300) AS t(i)"
     ).allRows()
-    guard case .int(let approx) = rows[0][0], case .int(let exact) = rows[0][1] else {
-        Issue.record("expected two integers"); return
-    }
-    #expect(exact == 300)
-    #expect(approx == 340)
+    #expect(rows[0][0] == .int(296))
+    #expect(rows[0][1] == .int(300))
+    let overshoot = try c.query(
+        "SELECT approx_count_distinct(i), count(*) FROM range(100) AS t(i)"
+    ).allRows()
+    #expect(overshoot[0][0] == .int(102))
+    #expect(overshoot[0][1] == .int(100))
 }
 
 @Test func fact9_duckdbTablesEstimatedSizeIsRowsNotBytes() throws {
@@ -268,4 +270,22 @@ func fact6_deltaTimeTravelUsesVersionArrowNotAtVersion() throws {
                       "SET memory_limit='1GB'", "SELECT 1; DROP TABLE t"] {
         #expect(throws: DuckDBError.self) { _ = try c.query(wrapped(dangerous)) }
     }
+}
+
+@Test func fact10_interruptBeforeExecutionDoesNotCancelTheNextQuery() throws {
+    let c = try con()
+    c.interrupt()
+    #expect(try c.query("SELECT sum(i)::BIGINT FROM range(10000) AS t(i)").allRows()[0][0] == .int(49_995_000))
+}
+
+@Test func fact11_temporaryTablesBelongToTheirCreatingConnection() throws {
+    let db = try Database.inMemory()
+    db.harden()
+    let owner = try db.connect()
+    let other = try db.connect()
+    try owner.execute("CREATE TEMP TABLE sorted AS SELECT 42 AS value")
+    #expect(try owner.query("SELECT value FROM sorted").allRows()[0][0] == .int(42))
+    #expect(throws: DuckDBError.self) { _ = try other.query("SELECT value FROM sorted") }
+    // The failed cross-connection lookup must not destroy the owner's table.
+    #expect(try owner.query("SELECT count(*) FROM sorted").allRows()[0][0] == .int(1))
 }

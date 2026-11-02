@@ -714,3 +714,40 @@ Honest list of what this spike could not measure. None of it is guessed above.
    clean sentence, and that mapping cannot be written against errors nobody has seen.
 7. **`abfss://` beyond the VFS gate.** `AzureDfsStorageFileSystem` is confirmed registered; nothing
    past the permission check was reachable without an account.
+
+## Patch upgrade re-verification: 1.5.6 (2026-11-02)
+
+The measurements above describe 1.5.5 and remain as historical evidence. Against
+1.5.6, the loopback server that refuses Range requests records one HEAD (200) and
+one GET (416), instead of the four GET attempts measured on 1.5.5. The request
+still fails with HTTP 416. A server that ignores Range still returns the complete
+2,000-row CSV successfully. `remoteFact7b` pins the new exact count; the retry
+settings default remains separately pinned by `remoteFact8`.
+
+
+## DuckDB 2.0.0 re-measurement (2026-11-02)
+
+The historical request shapes above remain evidence for the older versions, not the
+current pin. The 2.0.0 gated facts retain exact byte counts and content checks:
+
+- `read_blob` fetches the same byte-exact 4 MiB object in two 2 MiB ranged GETs,
+  after one HEAD. Both responses are 206; their ranges cover the object exactly.
+- Both default `sniff_csv` and `sample_size=20` fetch the full 8,536,550-byte
+  fixture in five ranges: four 2 MiB chunks and one 147,942-byte tail. Request
+  order can vary. `read_csv ... LIMIT 5` still transfers twice the object size.
+- `http_retry_backoff` is decoded as FLOAT 4.0 (Swift `.double(4)`); timeout,
+  retry count/wait, setting scope, and the other pinned defaults remain unchanged.
+- The Azure deny list, temporary/bound secrets, remote refusal behavior,
+  parquet range reads, default external cache, and Delta/Excel install-then-load
+  contracts pass their existing assertions. Whole-object CSV staging remains
+  necessary; chunked transport does not reduce its total downloaded bytes.
+
+The new `async_threads` setting defaults to 32 in 2.0.0 and does not exist in
+1.5.6. A native `task_threads` probe measured 39 workers per default database
+on this eight-core Mac, versus 11 with `async_threads=4`; ten databases used
+391 versus 111 total process threads. The full parallel suite reached 4,091
+threads against the host's 4,096 per-task limit and aborted (a previous run
+left a cancellation hammer waiting for a thread that never started). Sift now
+applies four async I/O workers through shared opening settings to both the
+main database and raw parser scratch databases. SQL worker defaults remain
+unchanged, and no test is serialized or given a larger timeout.

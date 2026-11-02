@@ -5,7 +5,7 @@ import TestSupport
 
 // Excel: sheet enumeration and the legacy .xls refusal. Ported from engine/tests/test_sheets.py.
 //
-// Skipped, and reported in task-9-report.md's deferred checklist: three of the six tests need
+// Not ported into this pure-function target: three of the six tests need
 // `S.build_source` (which needs a live connection, and stays behind for Plan 3) to turn a chosen
 // sheet into a queryable relation — test_default_sheet_is_the_first_non_empty,
 // test_a_named_sheet_can_be_opened, test_sheet_names_with_quotes_do_not_break_the_expression.

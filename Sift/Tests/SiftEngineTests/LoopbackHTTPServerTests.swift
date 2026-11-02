@@ -36,7 +36,7 @@ private func fetch(
 
 // MARK: - GET, HEAD, and the plain cases
 
-@Test func getWithoutARangeServesTheWholeBody() async throws {
+@Test(.engineLifetime) func getWithoutARangeServesTheWholeBody() async throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
     server.register(path: "/data.bin", body: counting)
@@ -49,7 +49,7 @@ private func fetch(
     #expect(server.requestLog.map(\.status) == [200])
 }
 
-@Test func headReportsTheLengthAndTheRegisteredHeadersWithNoBody() async throws {
+@Test(.engineLifetime) func headReportsTheLengthAndTheRegisteredHeadersWithNoBody() async throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
     server.register(path: "/data.bin", body: counting,
@@ -78,7 +78,7 @@ private func fetch(
     #expect(server.requestLog.map(\.method) == ["HEAD", "HEAD"])
 }
 
-@Test func unknownPathIs404AndAnUnsupportedMethodIs405() async throws {
+@Test(.engineLifetime) func unknownPathIs404AndAnUnsupportedMethodIs405() async throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
     server.register(path: "/data.bin", body: counting)
@@ -95,7 +95,7 @@ private func fetch(
 
 // MARK: - Range
 
-@Test func aRangedGetAnswers206WithTheRightContentRange() async throws {
+@Test(.engineLifetime) func aRangedGetAnswers206WithTheRightContentRange() async throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
     server.register(path: "/data.bin", body: counting)
@@ -122,7 +122,7 @@ private func fetch(
         == ["bytes=10-19", "bytes=90-", "bytes=-10", "bytes=0-0", "bytes=95-100000"])
 }
 
-@Test func aRangeThatStartsPastTheEndOfTheFileIs416() async throws {
+@Test(.engineLifetime) func aRangeThatStartsPastTheEndOfTheFileIs416() async throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
     server.register(path: "/data.bin", body: counting)
@@ -138,7 +138,7 @@ private func fetch(
         .response.value(forHTTPHeaderField: "Content-Range") == "bytes */100")
 }
 
-@Test func aRangeThisServerCannotParseFallsThroughToTheWholeBody() async throws {
+@Test(.engineLifetime) func aRangeThisServerCannotParseFallsThroughToTheWholeBody() async throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
     server.register(path: "/data.bin", body: counting)
@@ -152,7 +152,7 @@ private func fetch(
     }
 }
 
-@Test func aPathThatIgnoresRangeServes200AndTheWholeBody() async throws {
+@Test(.engineLifetime) func aPathThatIgnoresRangeServes200AndTheWholeBody() async throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
     server.register(path: "/data.bin", body: counting, rangeMode: .ignore)
@@ -167,7 +167,7 @@ private func fetch(
     #expect(server.requestLog.map(\.range) == ["bytes=10-19"], "the header is still logged")
 }
 
-@Test func aPathThatRejectsRangeAlways416s() async throws {
+@Test(.engineLifetime) func aPathThatRejectsRangeAlways416s() async throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
     server.register(path: "/data.bin", body: counting, rangeMode: .reject)
@@ -188,7 +188,7 @@ private func fetch(
 
 // MARK: - The registry and the log
 
-@Test func unregisterTakesThePathAwayAndRegisteringAgainReplacesIt() async throws {
+@Test(.engineLifetime) func unregisterTakesThePathAwayAndRegisteringAgainReplacesIt() async throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
     server.register(path: "/data.bin", body: counting)
@@ -204,7 +204,7 @@ private func fetch(
     #expect(server.requestLog.map(\.status) == [200, 200, 404])
 }
 
-@Test func theRequestLogRecordsEveryRequestInOrder() async throws {
+@Test(.engineLifetime) func theRequestLogRecordsEveryRequestInOrder() async throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
     server.register(path: "/data.bin", body: counting)
@@ -225,7 +225,7 @@ private func fetch(
     #expect(log.map(\.bytesSent) == [0, 100, 10, 0])
 }
 
-@Test func theLogRecordsTheBytesActuallyWrittenNotTheBytesAskedFor() async throws {
+@Test(.engineLifetime) func theLogRecordsTheBytesActuallyWrittenNotTheBytesAskedFor() async throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
     server.register(path: "/honest.bin", body: counting)
@@ -245,7 +245,7 @@ private func fetch(
     #expect(server.requestLog.map(\.bytesSent) == [0, 100, 10, 100, 0, 0])
 }
 
-@Test func clearLogForgetsWhatCameBefore() async throws {
+@Test(.engineLifetime) func clearLogForgetsWhatCameBefore() async throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
     server.register(path: "/data.bin", body: counting)
@@ -263,7 +263,7 @@ private func fetch(
     #expect(server.requestLog.isEmpty)
 }
 
-@Test func theRequestLogIsSafeToReadWhileTheServerIsServing() async throws {
+@Test(.engineLifetime) func theRequestLogIsSafeToReadWhileTheServerIsServing() async throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
     server.register(path: "/data.bin", body: counting)
@@ -288,7 +288,7 @@ private func fetch(
 
 // MARK: - Many servers, and letting go of them
 
-@Test func serversRunInParallelOnDistinctPorts() async throws {
+@Test(.engineLifetime) func serversRunInParallelOnDistinctPorts() async throws {
     let servers = try (0..<4).map { _ in try LoopbackHTTPServer() }
     defer { for server in servers { server.stop() } }
     for (index, server) in servers.enumerated() {
@@ -317,13 +317,13 @@ private func fetch(
 /// AGENTS.md: the listener "must never grow a wildcard bind". Asked of the kernel, not of the
 /// source: a bind to `INADDR_ANY` still answers every `127.0.0.1` request above, so nothing else in
 /// this file would notice one.
-@Test func theListenerIsBoundToLoopbackAndNothingElse() throws {
+@Test(.engineLifetime) func theListenerIsBoundToLoopbackAndNothingElse() throws {
     let server = try LoopbackHTTPServer()
     defer { server.stop() }
     #expect(server.boundAddress == INADDR_LOOPBACK.bigEndian)
 }
 
-@Test func stopLeavesNoSocketsBehind() throws {
+@Test(.engineLifetime) func stopLeavesNoSocketsBehind() throws {
     // 50 servers, started and stopped. Each holds one listening socket and one thread that only
     // exits when the socket is closed, so a `stop()` that fails to unblock `accept()` shows up
     // here as +50 descriptors and 50 parked threads. The slack is because the suite runs in
@@ -343,7 +343,7 @@ private func fetch(
     #expect(after - before < 20, "\(before) -> \(after) descriptors across 50 start/stop cycles")
 }
 
-@Test func stopReleasesAConnectionThatIsStillOpen() throws {
+@Test(.engineLifetime) func stopReleasesAConnectionThatIsStillOpen() throws {
     let server = try LoopbackHTTPServer()
     server.register(path: "/x", body: counting)
 
@@ -407,11 +407,11 @@ private func drain(_ fd: Int32) -> Data {
 /// later remote test copies: run one statement, then read off the log *how* it was served.
 ///
 /// GATED behind `SIFT_REMOTE_FACTS=1` for the same reason as the other remote-facts tests:
-/// `loadExtensions` does LOAD→INSTALL→LOAD, so a machine without `httpfs` reaches for the network,
+/// `loadExtensions(..., installMissing: true)` does LOAD→INSTALL→LOAD, so a machine without `httpfs` reaches for the network,
 /// and the default `swift test` must stay offline.
 ///
 ///     SIFT_REMOTE_FACTS=1 swift test --filter remoteFact
-@Test(.enabled(if: remoteFacts))
+@Test(.engineLifetime, .enabled(if: remoteFacts))
 func remoteFactParquetReadThroughTheOracleIsRangedNotWholeObject() throws {
     let path = (TestTemp.dir("loopback-parquet") as NSString).appendingPathComponent("big.parquet")
     try Database.inMemory().connect().execute("""
@@ -425,7 +425,7 @@ func remoteFactParquetReadThroughTheOracleIsRangedNotWholeObject() throws {
     server.register(path: "/big.parquet", body: bytes)
 
     let database = try Database.inMemory()
-    database.loadExtensions(["httpfs"])
+    database.loadExtensions(["httpfs"], installMissing: true)
     try #require(database.loadedExtensions["httpfs"] == .loaded, "httpfs must be installed")
     let connection = try database.connect()
     // Everything here is on 127.0.0.1, so 5 s is generous — and it is the difference between a
@@ -447,4 +447,33 @@ func remoteFactParquetReadThroughTheOracleIsRangedNotWholeObject() throws {
     let transferred = gets.reduce(0) { $0 + $1.bytesSent }
     #expect(transferred < bytes.count / 20,
             "footer only: \(transferred) of \(bytes.count) B — \(server.requestLog)")
+}
+
+
+@Test(.engineLifetime) func stopKeepsClientOwnershipUntilItsShutdownCompletes() throws {
+    let server = try LoopbackHTTPServer()
+    defer { server.stop() }
+    // No handler thread or scheduler race: this socketpair is a real owned descriptor, and
+    // retirement is attempted at the exact point where shutdown would otherwise use a stale fd.
+    var pair: [Int32] = [-1, -1]
+    let madePair = pair.withUnsafeMutableBufferPointer {
+        socketpair(AF_UNIX, SOCK_STREAM, 0, $0.baseAddress!)
+    }
+    try #require(madePair == 0)
+    defer { close(pair[1]) }
+    try #require(server.adopt(pair[0]))
+    var retiredInsideShutdown = false
+    var shutdowns = 0
+    server.stop { client in
+        shutdowns += 1
+        #expect(client == pair[0])
+        retiredInsideShutdown = server.retire(client, wait: false)
+        #expect(!retiredInsideShutdown,
+                "The handler must not close/recycle a descriptor selected for shutdown")
+    }
+    #expect(shutdowns == 1)
+    if !retiredInsideShutdown { #expect(server.retire(pair[0])) }
+    var byte: UInt8 = 0
+    #expect(recv(pair[1], &byte, 1, MSG_DONTWAIT) == 0,
+            "The original connection was shut down and retired")
 }

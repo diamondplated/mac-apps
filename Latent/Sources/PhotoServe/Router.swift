@@ -178,7 +178,7 @@ public actor Router {
             // to be reentrant on: a second request that arrives while the
             // human is deciding finds no active code and is refused, so it
             // cannot ride on this request's approval.
-            try await pairing.validate(code: code)
+            try await pairing.validate(code: code, host: host)
         } catch PairingError.rateLimited {
             return .status(429)
         } catch {

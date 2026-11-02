@@ -64,6 +64,7 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
             state.flushCullingState()
+            state.cleanUpArchiveOnTermination()
         }
         // Right-click in Finder → "Open With → Latent" delivers the URL
         // here. Works for both folders (open as a folder) and individual

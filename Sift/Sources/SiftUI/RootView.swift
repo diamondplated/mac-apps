@@ -12,6 +12,7 @@ public struct RootView: View {
     /// one element for the whole page (`web/index.html:359`), and a toggle that forgot itself on
     /// every tab switch would be worse than one that remembers the wrong thing.
     @State private var showSQL = false
+    @State private var afterSheetDismissal: (@MainActor () async -> Void)?
 
     public init(state: AppState, onOpen: @escaping () -> Void) {
         self.state = state
@@ -81,7 +82,24 @@ public struct RootView: View {
         // by some route nobody thought of. What used to be here was `if let t = state.active` with
         // no else, which renders a body painting ZERO pixels — a blank window-modal sheet with no
         // button on it. Force-quit.
-        .sheet(item: $state.modalSheet) { which in
+        .alert(item: Binding(
+            get: { state.downloadingExtension ? nil : state.extensionDownloadPrompt },
+            set: { _ in }
+        )) { prompt in
+            Alert(title: Text("Download extension?"), message: Text(prompt.message),
+                primaryButton: .default(Text("Download and Open")) {
+                    Task { await state.approveExtensionDownload(prompt.id) }
+                },
+                secondaryButton: .cancel(Text("Cancel")) {
+                    state.cancelExtensionDownload(prompt.id)
+                })
+        }
+        .sheet(item: $state.modalSheet, onDismiss: {
+            // A missing-reader alert must be presented after the sheet picker has closed.
+            guard let action = afterSheetDismissal else { return }
+            afterSheetDismissal = nil
+            Task { await action() }
+        }) { which in
             switch which {
             case .export(let name):
                 if let t = state.tables.first(where: { $0.name == name }) {
@@ -106,7 +124,9 @@ public struct RootView: View {
                 }
             case .workbook(let path):
                 SheetPickerSheet(path: path) { picked in
-                    Task { for name in picked { await state.open(path: path, sheet: name) } }
+                    afterSheetDismissal = {
+                        for name in picked { await state.open(path: path, sheet: name) }
+                    }
                 }
             case .sheets(let name):
                 if let t = state.tables.first(where: { $0.name == name }) {
@@ -117,7 +137,7 @@ public struct RootView: View {
                     SheetPickerSheet(
                         title: t.name, sheets: t.spec.sheets, alreadyOpen: t.spec.sheet
                     ) { picked in
-                        Task {
+                        afterSheetDismissal = {
                             for sheet in picked { await state.openSheet(of: t, sheet: sheet) }
                         }
                     }

@@ -18,6 +18,7 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var state: AppState?
     private var window: NSWindow?
+    private let termination = TerminationCoordinator()
 
     /// Paths that arrived before the window existed. LaunchServices can deliver a Dock drop's
     /// `open` event before `applicationDidFinishLaunching` has returned, and the shell carried the
@@ -68,7 +69,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.toolbar = NSToolbar(identifier: "SiftToolbar")
         window.toolbarStyle = .unified
         window.contentView = NSHostingView(
-            rootView: RootView(state: state, onOpen: { [weak self] in self?.showOpenPanel() })
+            rootView: TerminationContent(termination: termination) {
+                RootView(state: state, onOpen: { [weak self] in self?.showOpenPanel() })
+            }
         )
 
         window.center()
@@ -91,22 +94,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// closing it means you are done — there is no document to leave the app open for.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
-    func applicationWillTerminate(_ notification: Notification) {
-        // The poll loop's only caller, and the reason `stopPolling()` had none until now: the
-        // process is going away, so nothing NEEDS stopping — but a `refresh()` in flight against a
-        // session whose store is about to be dropped is work with no reader, and cancelling first
-        // is one line.
-        state?.stopPolling()
-        // `dropPrivateStore()`, not `shutdown()`: `shutdown()` is actor-isolated, so calling it
-        // needs an `await`, and a `Task {}` spawned at terminate is not guaranteed to run before
-        // the process exits. `dropPrivateStore()` is `nonisolated`, is exactly the cleanup that
-        // matters here (removing a per-PID fallback store), and is safe to call redundantly.
-        state?.session.dropPrivateStore()
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        termination.request(
+            stopAdmission: { [self] in state?.stopPolling() },
+            drain: { [self] in await state?.session.shutdown() },
+            reply: { sender.reply(toApplicationShouldTerminate: true) }
+        )
+        return .terminateLater
     }
 
     /// Dock-icon drops, Finder "Open With", `open -a Sift.app file`, and File > Open Recent — all
     /// arrive here with real filesystem URLs, the thing a browser can never provide.
     func application(_ application: NSApplication, open urls: [URL]) {
+        guard !termination.isClosing else { return }
         note(urls)
         // `openArguments`, not `urls.map(\.path)` — see its doc comment in `SiftUI`. `.path` on a
         // non-file URL throws the scheme and host away and leaves a plausible-looking local path.
@@ -249,6 +249,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// A recent item opens by the same path as a Dock drop: `note` first, so choosing it moves it
     /// back to the top of the list.
     @objc private func openRecent(_ sender: NSMenuItem) {
+        guard !termination.isClosing else { return }
         guard let state, let url = sender.representedObject as? URL else { return }
         note([url])
         Task { await state.open(paths: [url.path]) }
@@ -268,6 +269,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func showOpenPanel() {
+        guard !termination.isClosing else { return }
         guard let state else { return }
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
@@ -276,7 +278,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = true
         panel.message = "Pick files, a folder of parquet, or a Delta table"
-        guard panel.runModal() == .OK else { return }
+        guard panel.runModal() == .OK, !termination.isClosing else { return }
         note(panel.urls)
         let paths = panel.urls.map(\.path)
         Task { await state.open(paths: paths) }
@@ -342,6 +344,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Returns whether the keystroke was consumed. Everything it decides is in `KeyNav`.
     private func handle(_ typed: String, _ modifiers: NSEvent.ModifierFlags) -> Bool {
+        guard !termination.isClosing else { return true }
         guard !prompting, let state, let character = typed.first else { return false }
         let command = modifiers == .command
 
@@ -504,6 +507,7 @@ extension AppDelegate: NSMenuItemValidation {
     /// rather than a hope — and it puts the rule in the target a test can import, which this one is
     /// not.
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard !termination.isClosing else { return false }
         guard let state else { return false }
         switch menuItem.action {
         // Both act on the open table, which is what `canExport` is.

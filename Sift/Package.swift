@@ -32,7 +32,7 @@ let package = Package(
         // Tests/SiftCoreTests/Fixtures.swift), and all three of them need the same temp-directory
         // root. Lives under Tests/ so it cannot be mistaken for shipping code, and is depended on
         // by nothing else, so it never reaches Sift.app.
-        .target(name: "TestSupport", path: "Tests/TestSupport"),
+        .target(name: "TestSupport", dependencies: ["SiftEngine"], path: "Tests/TestSupport"),
         .target(
             name: "DuckDBKit",
             dependencies: ["CDuckDB"],

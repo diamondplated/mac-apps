@@ -160,7 +160,7 @@ public actor ArchiveExtractor {
         var extracted = false
         defer {
             if !extracted {
-                try? FileManager.default.removeItem(at: dest)
+                try? ArchiveTemporaryStorage.remove(dest)
             }
         }
 
@@ -174,6 +174,7 @@ public actor ArchiveExtractor {
         try validateExtractedTree(at: dest, archiveURL: archiveURL, strict: true)
         try Task.checkCancellation()
 
+        try ArchiveTemporaryStorage.markCompleted(dest)
         extracted = true
         return dest
     }
@@ -201,7 +202,7 @@ public actor ArchiveExtractor {
 
     /// Delete an extracted-archive directory. Errors swallowed — best effort.
     public func cleanup(_ dir: URL) {
-        try? FileManager.default.removeItem(at: dir)
+        try? ArchiveTemporaryStorage.remove(dir)
     }
 
     // MARK: - Archive inspection
@@ -298,22 +299,11 @@ public actor ArchiveExtractor {
                 String($0).trimmingCharacters(in: CharacterSet(charactersIn: "\r"))
             }
         case .sevenZipTechnical:
-            candidates = listing.split(separator: "\n", omittingEmptySubsequences: true).compactMap { line in
-                let line = String(line).trimmingCharacters(in: CharacterSet(charactersIn: "\r"))
-                let prefix = "Path = "
-                guard line.hasPrefix(prefix) else { return nil }
-                return String(line.dropFirst(prefix.count))
-            }
+            candidates = try Self.sevenZipMemberPaths(listing, archiveURL: archiveURL)
         }
 
         var memberCount = 0
         for path in candidates {
-            // 7-Zip's technical listing includes one metadata record for the
-            // archive itself before its member records.
-            if invocation.listingStyle == .sevenZipTechnical,
-               Self.listedPath(path, identifies: archiveURL) {
-                continue
-            }
             memberCount += 1
             guard memberCount <= limits.maximumEntries else {
                 throw ArchiveError.resourceLimitExceeded(
@@ -325,13 +315,42 @@ public actor ArchiveExtractor {
         }
     }
 
-    private static func listedPath(_ path: String, identifies archiveURL: URL) -> Bool {
-        if path == archiveURL.path { return true }
-        guard path.hasPrefix("/") else { return false }
-        return URL(fileURLWithPath: path).standardizedFileURL == archiveURL.standardizedFileURL
+    /// Parse only member records after 7-Zip's technical-listing separator.
+    /// Continuations cannot be ignored: a newline in a filename can hide traversal.
+    public nonisolated static func sevenZipMemberPaths(_ listing: String, archiveURL: URL) throws -> [String] {
+        let lines = listing.components(separatedBy: "\n")
+        guard let boundary = lines.firstIndex(of: "----------") else {
+            throw ArchiveError.unsafeArchive(archiveURL, "missing 7-Zip member separator")
+        }
+        let fields: Set<String> = ["Path", "Size", "Packed Size", "Modified", "Created", "Accessed",
+                                   "Attributes", "CRC", "Encrypted", "Method", "Block", "Folder",
+                                   "Anti", "Comment", "Host OS", "Version", "Volume Index", "Offset",
+                                   "Symbolic Link", "Hard Link", "Characteristics"]
+        var paths: [String] = []
+        var recordHasPath = false
+        for line in lines.dropFirst(boundary + 1) {
+            if line.isEmpty { recordHasPath = false; continue }
+            guard !line.contains("\r"), let separator = line.range(of: " = "),
+                  fields.contains(String(line[..<separator.lowerBound])) else {
+                throw ArchiveError.unsafeArchive(archiveURL, "unrecognized 7-Zip member listing line")
+            }
+            let key = String(line[..<separator.lowerBound])
+            if key == "Path" {
+                guard !recordHasPath else {
+                    throw ArchiveError.unsafeArchive(archiveURL, "duplicate 7-Zip member path")
+                }
+                let path = String(line[separator.upperBound...])
+                try validateMemberPath(path, archiveURL: archiveURL)
+                paths.append(path)
+                recordHasPath = true
+            } else if !recordHasPath {
+                throw ArchiveError.unsafeArchive(archiveURL, "7-Zip member field precedes its path")
+            }
+        }
+        return paths
     }
 
-    static func validateMemberPath(_ path: String, archiveURL: URL, maximumBytes: Int = 4_096) throws {
+    nonisolated static func validateMemberPath(_ path: String, archiveURL: URL, maximumBytes: Int = 4_096) throws {
         guard !path.isEmpty else {
             throw ArchiveError.unsafeArchive(archiveURL, "an archive member has an empty path")
         }
@@ -357,6 +376,11 @@ public actor ArchiveExtractor {
                 throw ArchiveError.unsafeArchive(archiveURL, "drive-qualified member path: \(path)")
             }
         }
+        if normalized.split(separator: "/").contains(where: {
+            $0.hasPrefix(".latent-extraction-")
+        }) {
+            throw ArchiveError.unsafeArchive(archiveURL, "reserved extraction lease name")
+        }
         if normalized.split(separator: "/", omittingEmptySubsequences: false).contains("..") {
             throw ArchiveError.unsafeArchive(archiveURL, "parent traversal in member path: \(path)")
         }
@@ -378,12 +402,12 @@ public actor ArchiveExtractor {
     }
 
     /// Internal entry point retained for focused process-runner tests.
-    func runProcess(tool: String, args: [String], inputArchive: URL) async throws {
+    func runProcess(tool: String, args: [String], inputArchive: URL, destination: URL? = nil) async throws {
         _ = try await runTool(
             tool: tool,
             args: args,
             inputArchive: inputArchive,
-            destination: nil,
+            destination: destination,
             stdoutLimit: nil
         )
     }
@@ -424,7 +448,15 @@ public actor ArchiveExtractor {
         environment["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin:/opt/local/bin"
         environment["LC_ALL"] = "C"
         process.environment = environment
-        process.standardInput = FileHandle.nullDevice
+        if let destination {
+            try ArchiveProcessLease.configure(process, tool: tool, arguments: process.arguments ?? [], directory: destination)
+        } else {
+            process.standardInput = FileHandle.nullDevice
+        }
+
+        let inheritedLease = destination == nil ? nil : process.standardInput as? FileHandle
+        // Also close on monitor setup or spawn failure; Process retains stdin.
+        defer { try? inheritedLease?.close() }
 
         let stderrPipe = Pipe()
         let stderrCollector = BoundedDataCollector(limit: limits.maximumDiagnosticBytes)
@@ -464,6 +496,11 @@ public actor ArchiveExtractor {
 
         do {
             try process.run()
+            if destination != nil {
+                // The child now owns the duplicated stdin descriptor. Drop this
+                // parent's duplicate immediately; the registry retains our lease.
+                try? inheritedLease?.close()
+            }
         } catch {
             treeMonitor?.stop(flushPendingEvents: false)
             throw error
@@ -488,10 +525,14 @@ public actor ArchiveExtractor {
                 try await Task.sleep(nanoseconds: pollNanoseconds)
             }
         } catch {
-            await Self.terminateAndWait(processBox)
+            await Self.terminateAndWait(processBox, supervised: destination != nil)
             treeMonitor?.stop(flushPendingEvents: false)
-            await stderrTask.value
-            await stdoutTask?.value
+            // A stalled supervisor keeps its lease in the background. Its bounded
+            // drainers finish when it exits; cancellation must not await them forever.
+            if !process.isRunning {
+                await stderrTask.value
+                await stdoutTask?.value
+            }
             if error is CancellationError {
                 throw CancellationError()
             }
@@ -531,7 +572,7 @@ public actor ArchiveExtractor {
         }
     }
 
-    private static func terminateAndWait(_ processBox: SendableProcess) async {
+    private static func terminateAndWait(_ processBox: SendableProcess, supervised: Bool) async {
         await Task.detached(priority: .utility) {
             let process = processBox.process
             if process.isRunning {
@@ -542,10 +583,11 @@ public actor ArchiveExtractor {
                 usleep(50_000)
                 attempts += 1
             }
-            if process.isRunning {
+            // Never kill the lease holder before its signal trap reaps the tool group.
+            if process.isRunning && !supervised {
                 Darwin.kill(process.processIdentifier, SIGKILL)
             }
-            if process.isRunning {
+            if process.isRunning && !supervised {
                 process.waitUntilExit()
             }
         }.value
@@ -554,19 +596,8 @@ public actor ArchiveExtractor {
     // MARK: - Temporary directory
 
     private func makeTempDir(for archiveURL: URL) throws -> URL {
-        // Keep the component fixed-width and independent of an untrusted input
-        // filename. A near-NAME_MAX archive name plus our UUID otherwise makes
-        // creation fail before extraction even begins.
         _ = archiveURL
-        let unique = "pv-archive-\(UUID().uuidString)"
-        let dest = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent(unique, isDirectory: true)
-        try FileManager.default.createDirectory(
-            at: dest,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
-        )
-        return dest
+        return try ArchiveTemporaryStorage.createDirectory()
     }
 }
 extension ArchiveFormat: CaseIterable {

@@ -18,11 +18,18 @@ public func quickLookRenderRespectsMaxDimension() async throws {
 
     let cg = makeQLFixtureImage(width: 200, height: 120)
     let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString, 1, nil)!
-    CGImageDestinationAddImage(dest, cg, nil)
+    CGImageDestinationAddImage(dest, cg, [kCGImagePropertyOrientation: 6] as CFDictionary)
     if !CGImageDestinationFinalize(dest) {
         throw VerifyError(message: "failed to write QL fixture JPEG")
     }
 
+    let content = try QuickLookPreviewContent.load(url: url, maxDimension: 96)
+    guard let png = CGImageSourceCreateWithData(content.data as CFData, nil),
+          let decoded = CGImageSourceCreateImageAtIndex(png, 0, nil) else {
+        throw VerifyError(message: "provider reply is not a decodable PNG")
+    }
+    try require(decoded.height == 96 && decoded.width < decoded.height, "provider reply lost orientation or size cap")
+    try require(content.size == CGSize(width: decoded.width, height: decoded.height), "provider intrinsic size disagrees with bytes")
     let renderer = QuickLookRenderer(maxDimension: 96)
     let preview = try renderer.render(url: url)
     try require(preview.width <= 96 && preview.height <= 96,

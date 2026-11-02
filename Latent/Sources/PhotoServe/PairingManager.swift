@@ -27,7 +27,7 @@ public actor PairingManager {
     /// How long a displayed code stays redeemable. Long enough to walk to
     /// the Mac and scan; short enough that a stale screenshot is useless.
     public static let codeLifetime: TimeInterval = 60
-    /// Failed redemption attempts allowed per rolling minute.
+    /// Failed redemption attempts allowed per peer per rolling minute.
     public static let maxAttemptsPerMinute = 5
 
     private struct ActiveCode {
@@ -36,7 +36,8 @@ public actor PairingManager {
     }
 
     private var activeCode: ActiveCode?
-    private var recentFailures: [Date] = []
+    public static let maxGlobalAttemptsPerMinute = 100
+    private var recentFailures: [(host: String, time: Date)] = []
     private var pairedDevices: [PairedDevice] = []
 
     public init() {}
@@ -57,24 +58,22 @@ public actor PairingManager {
         activeCode = nil
     }
 
-    /// Check a submitted code. On success the code is consumed, so a replay
-    /// sees `.noActiveCode`. On failure the attempt counts toward the limit.
-    public func validate(code: String, now: Date = Date()) throws {
-        recentFailures.removeAll { now.timeIntervalSince($0) > 60 }
-        guard recentFailures.count < Self.maxAttemptsPerMinute else {
+    /// Check and consume a code. Failed guesses are bounded per peer and globally;
+    /// requests while no code is displayed do not spend a future pairing budget.
+    public func validate(code: String, host: String = "local", now: Date = Date()) throws {
+        recentFailures.removeAll { now.timeIntervalSince($0.time) >= 60 }
+        guard let active = activeCode else { throw PairingError.noActiveCode }
+        let peer = host.lowercased().replacingOccurrences(of: "::ffff:", with: "")
+        guard recentFailures.count < Self.maxGlobalAttemptsPerMinute,
+              recentFailures.lazy.filter({ $0.host == peer }).count < Self.maxAttemptsPerMinute else {
             throw PairingError.rateLimited
-        }
-        guard let active = activeCode else {
-            recentFailures.append(now)
-            throw PairingError.noActiveCode
         }
         guard now.timeIntervalSince(active.issuedAt) <= Self.codeLifetime else {
             activeCode = nil
-            recentFailures.append(now)
             throw PairingError.codeExpired
         }
         guard Self.constantTimeEquals(code, active.value) else {
-            recentFailures.append(now)
+            recentFailures.append((peer, now))
             throw PairingError.wrongCode
         }
         activeCode = nil

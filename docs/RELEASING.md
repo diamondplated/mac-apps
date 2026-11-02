@@ -31,6 +31,27 @@ Configure the runner user's native `gh auth login` session with read access to t
 
 Dispatch **Release Mac Tools** with the next version and mode **signedlocal** for the current distribution. Version `1.2.0` is already published and must not be reused. The workflow defaults to **notarized**, which intentionally fails until Developer ID and the notary profile exist. The publish checkbox defaults off. All work uses `[self-hosted, macOS, ARM64, air]`; no hosted runner fallback exists.
 
+## Diagnose release preflight
+
+For a credential-only workflow check, select **signedlocal**, enable **preflight_only**,
+and leave **publish** off. Supply the version already committed in the manager plist.
+The workflow runs the existing preflight and skips app tests, builds, release signing,
+publication, and artifact upload. Selecting both preflight_only and publish fails before
+credential checks. This mode still reads existing signing credentials and may resolve
+pinned Sparkle tools; it is not a credential-free diagnostic.
+
+If Sparkle reports that the existing key is unavailable, do not replace it or export it.
+Check the runner's actual launchd domain first: a runner already loaded as a GUI LaunchAgent
+does not need to be registered again merely because preflight failed. A login-keychain
+search-list entry alone does not prove that the keychain is unlocked or that the official
+Sparkle binary has access to the item. The generic failure message cannot distinguish
+those causes. Compare the configured official tool location with the one previously
+approved in Keychain Access; fresh SwiftPM artifact copies can have different paths.
+An owner may need to unlock the login keychain or approve that tool's access interactively,
+but do not broaden the item's ACL or change runner services without evidence and approval.
+Retry the credential-only workflow from the same runner context after the verified cause
+has been addressed. A successful interactive shell check alone does not prove CI access.
+
 ## Version and prepare
 
 Update `CFBundleShortVersionString` (for example `1.2.0`) and increment the integer `CFBundleVersion` in `MacTools/Info.plist`. The build number must exceed every published release. Commit the release source before publishing; publishing requires a clean working tree. `release.json` records the exact source commit. When downloads use a separate repository, its release tag belongs to that repository; no private source is copied there.

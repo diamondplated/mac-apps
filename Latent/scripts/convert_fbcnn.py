@@ -12,7 +12,7 @@ Usage:
     pip install -r scripts/requirements.txt
     python3 scripts/convert_fbcnn.py
 
-Tested with: Python 3.12, torch 2.7.1, coremltools 9.0.
+Install the versions pinned in scripts/requirements.txt.
 
 Notes:
 - FBCNN takes color JPEG as input, predicts both a denoised image AND a
@@ -26,7 +26,6 @@ from pathlib import Path
 import os
 import subprocess
 import sys
-import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -42,11 +41,14 @@ WEIGHTS_FILE = WEIGHTS_DIR / "fbcnn_color.pth"
 FBCNN_GIT = "https://github.com/jiaxi-jiang/FBCNN.git"
 
 
+# Fixed upstream revision; changing this pin requires reviewing the imported code.
+FBCNN_REVISION = "54d1831927506b3247e2d4d245abb4f4dab1a1cd"
+
+
 def ensure_repo() -> None:
-    if FBCNN_REPO_DIR.exists():
-        return
-    print(f"cloning {FBCNN_GIT}")
-    subprocess.run(["git", "clone", "--depth", "1", FBCNN_GIT, str(FBCNN_REPO_DIR)], check=True)
+    from source_pin import ensure_pinned_repo
+
+    ensure_pinned_repo(FBCNN_GIT, FBCNN_REPO_DIR, FBCNN_REVISION)
 
 
 def download_weights() -> None:
@@ -56,8 +58,11 @@ def download_weights() -> None:
 
 
 def build_model():
-    sys.path.insert(0, str(FBCNN_REPO_DIR))
     import torch
+    ensure_repo()
+    # Keep the verified checkout free of executable, untracked bytecode caches.
+    sys.dont_write_bytecode = True
+    sys.path.insert(0, str(FBCNN_REPO_DIR))
     # The repo exposes its network in models/network_fbcnn.py.
     from models.network_fbcnn import FBCNN  # type: ignore[import-not-found]
 

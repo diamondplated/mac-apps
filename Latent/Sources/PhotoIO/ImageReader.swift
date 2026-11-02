@@ -36,11 +36,14 @@ public enum ImageReadError: Error, CustomStringConvertible {
 /// Display P3, Adobe RGB, etc.). The original color space is recorded in
 /// metadata so writes can target the same gamut.
 public struct ImageReader: Sendable {
-    public init() {}
+    private let maxWorkingMemoryBytes: UInt64
 
-    /// Decode the primary image at full resolution with EXIF orientation
-    /// applied to the returned pixels.
-    public static func previewCGImage(url: URL) -> CGImage? {
+    public init(maxWorkingMemoryBytes: UInt64 = ImageMemoryPolicy.defaultLimit) {
+        self.maxWorkingMemoryBytes = maxWorkingMemoryBytes
+    }
+
+    /// Decode an EXIF-oriented display preview within the working-memory budget.
+    public static func previewCGImage(url: URL, maxWorkingMemoryBytes: UInt64 = ImageMemoryPolicy.defaultLimit) -> CGImage? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
             return nil
         }
@@ -51,8 +54,7 @@ public struct ImageReader: Sendable {
         let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] ?? [:]
         let width = properties[kCGImagePropertyPixelWidth] as? Int ?? 0
         let height = properties[kCGImagePropertyPixelHeight] as? Int ?? 0
-        let maxDimension = max(width, height)
-        guard maxDimension > 0 else {
+        guard let maxDimension = ImageMemoryPolicy.previewMaxDimension(width: width, height: height, maxBytes: maxWorkingMemoryBytes) else {
             return nil
         }
 
@@ -62,7 +64,13 @@ public struct ImageReader: Sendable {
             kCGImageSourceThumbnailMaxPixelSize: maxDimension,
             kCGImageSourceShouldCacheImmediately: true,
         ]
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        // Ask ImageIO to expand supported HDR/gain-map sources before display.
+        // The thumbnail path still applies EXIF orientation and keeps the
+        // source profile. SDR files retain their normal rendition.
+        var hdrOptions = options
+        hdrOptions[kCGImageSourceDecodeRequest] = kCGImageSourceDecodeToHDR
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, hdrOptions as CFDictionary)
+            ?? CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     }
 
     public func read(url: URL) throws -> (ImageBuffer, ImageMetadata) {
@@ -78,6 +86,7 @@ public struct ImageReader: Sendable {
 
         let pixelWidth = (propertiesCF[kCGImagePropertyPixelWidth] as? Int) ?? 0
         let pixelHeight = (propertiesCF[kCGImagePropertyPixelHeight] as? Int) ?? 0
+        _ = try ImageMemoryPolicy.validate(width: pixelWidth, height: pixelHeight, maxBytes: maxWorkingMemoryBytes)
         let orientationRaw = (propertiesCF[kCGImagePropertyOrientation] as? Int) ?? 1
         let orientation = ExifOrientation(rawValue: orientationRaw) ?? .up
 
@@ -89,6 +98,9 @@ public struct ImageReader: Sendable {
         guard let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
             throw ImageReadError.primaryImageDecodeFailed(url)
         }
+
+        // Validate decoded dimensions too, before orientation renders another image.
+        _ = try ImageMemoryPolicy.validate(width: cgImage.width, height: cgImage.height, maxBytes: maxWorkingMemoryBytes)
 
         // Bake orientation into pixel data via Core Image.
         let canonical = try bakeOrientation(cgImage: cgImage, orientation: orientation)

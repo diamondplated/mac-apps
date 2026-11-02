@@ -8,9 +8,8 @@
 #
 # Output: ./build/Latent.app — drop into /Applications or run in place.
 #
-# When the project migrates to an Xcode workspace this script gets retired:
-# Xcode would produce the .app via xcodebuild and own the full distribution,
-# entitlement, notarization, and Quick Look extension workflow.
+# SwiftPM builds the app; a small extension-only Xcode target builds its
+# data-based Quick Look provider. Both are sealed inside-out below.
 
 set -euo pipefail
 
@@ -124,6 +123,11 @@ for resource_dir in Models Tokenizer; do
     fi
 done
 
+# The provider uses the same renderer source as PhotoQuickLook. Build it without
+# signing, then sign it with the host identity before sealing the app itself.
+EXTENSION="$APP_DIR/Contents/PlugIns/LatentPreview.appex"
+"$REPO_ROOT/scripts/build_quicklook.sh" "$EXTENSION" "$REPO_ROOT/.build/quicklook-extension"     "$(lipo -archs "$APP_DIR/Contents/MacOS/$BINARY_NAME")"
+
 # 5. Seal the bundle. SwiftPM ad-hoc signs the executable at link time, but
 #    nothing signs the *bundle*, so there is no _CodeSignature/CodeResources
 #    and `codesign --verify` fails with "code has no resources but signature
@@ -134,20 +138,19 @@ done
 #    the default "-" is ad-hoc, which is what a local build wants.
 SIGNING_IDENTITY="${LATENT_SIGNING_IDENTITY:--}"
 if [[ "$PAYLOAD" == 1 ]]; then
-    # The hardened runtime is required for every Mac Tools payload, ad-hoc included.
     if [[ "$PAYLOAD_IDENTITY" == "-" ]]; then
-        codesign --force --options runtime --sign - --timestamp=none "$APP_DIR"
+        SIGN_ARGS=(--force --options runtime --sign - --timestamp=none)
     else
-        codesign --force --options runtime --sign "$PAYLOAD_IDENTITY" "$PAYLOAD_TIMESTAMP_OPTION" "$APP_DIR"
+        SIGN_ARGS=(--force --options runtime --sign "$PAYLOAD_IDENTITY" "$PAYLOAD_TIMESTAMP_OPTION")
     fi
 elif [[ "$SIGNING_IDENTITY" == "-" ]]; then
-    # Ad-hoc signing remains deterministic and offline for local/CI builds.
-    codesign --force --sign - --timestamp=none "$APP_DIR"
+    SIGN_ARGS=(--force --sign - --timestamp=none)
 else
-    # Distribution identities use the hardened runtime and Apple's trusted
-    # timestamp service, both prerequisites for Developer ID notarization.
-    codesign --force --sign "$SIGNING_IDENTITY" --options runtime --timestamp "$APP_DIR"
+    SIGN_ARGS=(--force --sign "$SIGNING_IDENTITY" --options runtime --timestamp)
 fi
+codesign "${SIGN_ARGS[@]}" --entitlements "$REPO_ROOT/QuickLookExtension/LatentPreview.entitlements" "$EXTENSION"
+codesign --verify --strict --verbose=2 "$EXTENSION"
+codesign "${SIGN_ARGS[@]}" "$APP_DIR"
 codesign --verify --strict --verbose=2 "$APP_DIR"
 
 if [[ "$PAYLOAD" == 1 ]]; then

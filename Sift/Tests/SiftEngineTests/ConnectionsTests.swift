@@ -25,7 +25,7 @@ import TestSupport
 // behind `SIFT_REMOTE_FACTS=1`.
 //
 // But a PERMISSIVE `Session` is not offline by itself: `Session.init` asks for `httpfs` (and
-// `azure` when a saved connection needs it), `Database.loadExtensions` does LOAD → INSTALL → LOAD,
+// `azure` when a saved connection needs it), `Database.loadExtensions(..., installMissing: true)` does LOAD → INSTALL → LOAD,
 // and the header this replaced said "nothing here needs the network" while a dozen tests below
 // fetched two binaries from `extensions.duckdb.org` on any machine that did not already have them.
 // That the assertions were all written `!= nil` rather than `== .loaded` meant the suite PASSED
@@ -117,7 +117,7 @@ private let keychainUsable: Bool = {
 // MARK: - what the file decides, and when it is read
 
 /// The default that every existing posture test depends on: no file, strict engine, empty list.
-@Test func aHomeWithNoConfigIsStrictAndEmpty() async throws {
+@Test(.engineLifetime) func aHomeWithNoConfigIsStrictAndEmpty() async throws {
     let session = try newSession(newHome())
 
     #expect(await session.connections() == RemoteConfig())
@@ -141,7 +141,7 @@ private let keychainUsable: Bool = {
 /// Also the refusal itself: a corrupt file must not quietly become `allowRemote: false`. Safe as
 /// that would be, it is the same code path a FUTURE-VERSION file takes, and defaulting that one
 /// silently undoes a revoke — see the test below.
-@Test func aCorruptConfigRefusesTheSessionBeforeAnyStoreFileExists() throws {
+@Test(.engineLifetime) func aCorruptConfigRefusesTheSessionBeforeAnyStoreFileExists() throws {
     let home = newHome()
     _ = try plantConfig(home, "{ this is not json")
 
@@ -168,7 +168,7 @@ private let keychainUsable: Bool = {
 /// 🔴 This is the case that makes the corrupt-file refusal non-negotiable. A newer Sift writes a
 /// field this build cannot see; if this build decoded around it, the next save would rewrite the
 /// file without that field — a scope, a switch or a revoke silently dropped, with nothing on screen.
-@Test func aFutureVersionConfigRefusesTheSessionWithItsOwnSentence() throws {
+@Test(.engineLifetime) func aFutureVersionConfigRefusesTheSessionWithItsOwnSentence() throws {
     let home = newHome()
     _ = try plantConfig(home, #"{"version": 2, "allowRemote": true, "connections": []}"#)
 
@@ -188,7 +188,7 @@ private let keychainUsable: Bool = {
 /// extensions are asked for. `.loaded` is deliberately not asserted — that needs a network INSTALL
 /// on an unprepared machine, and it is what the gated `--verify` check is for. What IS asserted is
 /// that Sift ASKED, which is the decision this file makes.
-@Test(.enabled(if: permissivePostureIsOffline, permissiveSkip))
+@Test(.engineLifetime, .enabled(if: permissivePostureIsOffline, permissiveSkip))
 func aSavedAllowRemoteDecidesThePostureAndTheExtensionsAtLaunch() async throws {
     let home = newHome()
     _ = try plantConfig(home, RemoteConfig(allowRemote: true, connections: [chainSpec()]))
@@ -207,7 +207,7 @@ func aSavedAllowRemoteDecidesThePostureAndTheExtensionsAtLaunch() async throws {
 }
 
 /// `azure` costs a second binary to fetch, so it is asked for only when something needs it.
-@Test(.enabled(if: permissivePostureIsOffline, permissiveSkip))
+@Test(.engineLifetime, .enabled(if: permissivePostureIsOffline, permissiveSkip))
 func azureIsNotLoadedForAnS3OnlyConfig() throws {
     let home = newHome()
     _ = try plantConfig(home, RemoteConfig(allowRemote: true, connections: [s3Spec()]))
@@ -223,7 +223,7 @@ func azureIsNotLoadedForAnS3OnlyConfig() throws {
 /// gone — deleted by hand in Keychain Access, or restored from a backup without the keychain — has
 /// nothing to bind, so `createSecretSQL` produces nothing. That is a broken connection and the user
 /// has to be told, but it is not a reason for a window full of local CSVs to refuse to open.
-@Test(.enabled(if: permissivePostureIsOffline, permissiveSkip))
+@Test(.engineLifetime, .enabled(if: permissivePostureIsOffline, permissiveSkip))
 func aMissingCredentialIsRecordedAgainstItsConnectionAndTheSessionStillStarts() async throws {
     let home = newHome()
     let spec = s3Spec(name: "no-key-here")
@@ -243,7 +243,7 @@ func aMissingCredentialIsRecordedAgainstItsConnectionAndTheSessionStillStarts() 
 
 /// The healthy half of the same path: `credentialChain` stores nothing on purpose, so an absent
 /// Keychain item is the CORRECT state for it and must not be reported as a problem.
-@Test(.enabled(if: permissivePostureIsOffline, permissiveSkip))
+@Test(.engineLifetime, .enabled(if: permissivePostureIsOffline, permissiveSkip))
 func aCredentialChainConnectionIssuesWithNoKeychainItemAtAll() async throws {
     let home = newHome()
     let spec = chainSpec()
@@ -256,7 +256,7 @@ func aCredentialChainConnectionIssuesWithNoKeychainItemAtAll() async throws {
 
 /// The strict posture reads no credential at all. A user who turned remote off should not be asked
 /// to unlock their keychain at launch on behalf of a session that cannot use what is in it.
-@Test func aStrictSessionIssuesNoSecretsEvenWithConnectionsSaved() async throws {
+@Test(.engineLifetime) func aStrictSessionIssuesNoSecretsEvenWithConnectionsSaved() async throws {
     let home = newHome()
     _ = try plantConfig(home, RemoteConfig(allowRemote: false, connections: [chainSpec()]))
     let session = try newSession(home)
@@ -287,7 +287,7 @@ func aCredentialChainConnectionIssuesWithNoKeychainItemAtAll() async throws {
 /// nothing, and the outcome says so. `connectionIssues()` stays empty rather than carrying DuckDB's
 /// missing-extension sentence, because `connectionRowState` ranks an issue above
 /// `.readyAfterRelaunch` and would paint a perfectly good save red.
-@Test func theFirstConnectionTurnsRemoteOnInTheFileAndNotInThisEngine() async throws {
+@Test(.engineLifetime) func theFirstConnectionTurnsRemoteOnInTheFileAndNotInThisEngine() async throws {
     let home = newHome()
     let session = try newSession(home)
     let spec = chainSpec(name: "first")
@@ -345,7 +345,7 @@ func aCredentialChainConnectionIssuesWithNoKeychainItemAtAll() async throws {
 ///    request actually leaves. Compared against a snapshot rather than against `[]` because
 ///    `Session.init` legitimately installs `delta`/`excel` on a machine that has never run Sift, and
 ///    this test is about what `addConnection` decided, not about what the process arrived carrying.
-@Test func savingTheFirstConnectionOnAStrictSessionInstallsNothing() async throws {
+@Test(.engineLifetime) func savingTheFirstConnectionOnAStrictSessionInstallsNothing() async throws {
     let session = try newSession(newHome())
     let before = session.database.networkInstalls
 
@@ -362,7 +362,7 @@ func aCredentialChainConnectionIssuesWithNoKeychainItemAtAll() async throws {
 /// and the row it produces has to be able to say the extension is missing. Asserted as "Sift asked",
 /// never as `.loaded` — `.loaded` needs a binary this machine may not have, which is the gated
 /// `--verify` check's job.
-@Test(.enabled(if: permissivePostureIsOffline, permissiveSkip))
+@Test(.engineLifetime, .enabled(if: permissivePostureIsOffline, permissiveSkip))
 func savingAConnectionOnAPermissiveSessionAsksForItsExtension() async throws {
     let home = newHome()
     _ = try plantConfig(home, RemoteConfig(allowRemote: true))
@@ -375,7 +375,7 @@ func savingAConnectionOnAPermissiveSessionAsksForItsExtension() async throws {
 }
 
 /// The same operation on a session that STARTED permissive is `.active` — the connection works now.
-@Test(.enabled(if: permissivePostureIsOffline, permissiveSkip))
+@Test(.engineLifetime, .enabled(if: permissivePostureIsOffline, permissiveSkip))
 func aConnectionAddedToAPermissiveSessionIsActiveImmediately() async throws {
     let home = newHome()
     _ = try plantConfig(home, RemoteConfig(allowRemote: true))
@@ -393,7 +393,7 @@ func aConnectionAddedToAPermissiveSessionIsActiveImmediately() async throws {
 /// (RE-MEASURED; see `theFirstConnectionTurnsRemoteOnInTheFileAndNotInThisEngine`). So the
 /// add-and-drop of a live secret was never exercised on a posture that could hold one, and now it
 /// is: `.active` rather than `.activeAfterRelaunch` is asserted as part of the round trip.
-@Test(.enabled(if: keychainUsable && permissivePostureIsOffline, permissiveSkip))
+@Test(.engineLifetime, .enabled(if: keychainUsable && permissivePostureIsOffline, permissiveSkip))
 func addingAndRemovingAConnectionRoundTripsTheFileTheKeychainAndTheSecret() async throws {
     let home = newHome()
     _ = try plantConfig(home, RemoteConfig(allowRemote: true))
@@ -422,7 +422,7 @@ func addingAndRemovingAConnectionRoundTripsTheFileTheKeychainAndTheSecret() asyn
 /// no saved connection, so an empty list is not a request to go strict — and because the posture
 /// cannot be narrowed live anyway, an auto-revoke would change the file without changing the engine
 /// and leave the UI saying something untrue.
-@Test func removingTheLastConnectionLeavesAllowRemoteAlone() async throws {
+@Test(.engineLifetime) func removingTheLastConnectionLeavesAllowRemoteAlone() async throws {
     let home = newHome()
     let session = try newSession(home)
     let spec = chainSpec()
@@ -439,7 +439,7 @@ func addingAndRemovingAConnectionRoundTripsTheFileTheKeychainAndTheSecret() asyn
 
 /// Revoking: the file changes, the credentials go away NOW, and the engine stays permissive until
 /// the next launch. Three separate claims, and only the middle one is immediate.
-@Test(.enabled(if: permissivePostureIsOffline, permissiveSkip))
+@Test(.engineLifetime, .enabled(if: permissivePostureIsOffline, permissiveSkip))
 func revokingDropsTheSecretsButLeavesTheEnginePermissiveUntilRelaunch() async throws {
     let home = newHome()
     _ = try plantConfig(home, RemoteConfig(allowRemote: true, connections: [chainSpec()]))
@@ -472,7 +472,7 @@ func revokingDropsTheSecretsButLeavesTheEnginePermissiveUntilRelaunch() async th
 /// rather than on the text, because the failure was a real message about a real missing extension:
 /// asserting it is absent is the only thing that separates "nothing was attempted" from "something
 /// was attempted and happened to succeed".
-@Test func turningRemoteOnFromAStrictSessionReportsTheRelaunchAndNothingElse() async throws {
+@Test(.engineLifetime) func turningRemoteOnFromAStrictSessionReportsTheRelaunchAndNothingElse() async throws {
     let home = newHome()
     _ = try plantConfig(home, RemoteConfig(allowRemote: false, connections: [chainSpec()]))
     let session = try newSession(home)
@@ -492,7 +492,7 @@ func revokingDropsTheSecretsButLeavesTheEnginePermissiveUntilRelaunch() async th
 /// connection is saved under exactly this posture, so the save most likely to contain a typo is the
 /// one that must not accept it in silence. `credentialChain` with no account name is the shape that
 /// fails before DuckDB is asked anything, which is precisely the half `register: false` keeps.
-@Test func aConnectionTheUserGotWrongStillSaysSoOnAStrictSession() async throws {
+@Test(.engineLifetime) func aConnectionTheUserGotWrongStillSaysSoOnAStrictSession() async throws {
     let session = try newSession(newHome())
     let broken = ConnectionSpec(
         kind: .azure, name: "no-account", accountName: nil, azureAuth: .credentialChain)
@@ -508,13 +508,13 @@ func revokingDropsTheSecretsButLeavesTheEnginePermissiveUntilRelaunch() async th
 }
 
 /// Asking for the posture the engine already has is `.active` — there is nothing to relaunch for.
-@Test func settingTheSwitchToThePostureTheEngineAlreadyHasIsActive() async throws {
+@Test(.engineLifetime) func settingTheSwitchToThePostureTheEngineAlreadyHasIsActive() async throws {
     let session = try newSession(newHome())
     #expect(try await session.setAllowRemote(false) == .active)
     #expect(try await session.setAllowRemote(true) == .activeAfterRelaunch)
 }
 
-@Test func aDuplicateConnectionIdIsRefusedWithASentence() async throws {
+@Test(.engineLifetime) func aDuplicateConnectionIdIsRefusedWithASentence() async throws {
     let session = try newSession(newHome())
     let spec = chainSpec()
     _ = try await session.addConnection(spec, secret: nil)
@@ -532,7 +532,7 @@ func revokingDropsTheSecretsButLeavesTheEnginePermissiveUntilRelaunch() async th
 
 /// An unnamed connection would file a Keychain item labelled "Sift — ", which is the anonymous item
 /// `Keychain.set`'s `label` exists to prevent.
-@Test func aConnectionWithNoNameIsRefused() async throws {
+@Test(.engineLifetime) func aConnectionWithNoNameIsRefused() async throws {
     let session = try newSession(newHome())
     var message = ""
     do {
@@ -545,7 +545,7 @@ func revokingDropsTheSecretsButLeavesTheEnginePermissiveUntilRelaunch() async th
     #expect(await session.connections().connections.isEmpty)
 }
 
-@Test func removingAConnectionThatIsNotThereSaysSo() async throws {
+@Test(.engineLifetime) func removingAConnectionThatIsNotThereSaysSo() async throws {
     let session = try newSession(newHome())
     var message = ""
     do {
@@ -563,7 +563,7 @@ func revokingDropsTheSecretsButLeavesTheEnginePermissiveUntilRelaunch() async th
 /// the storage accounts and access key ids a user reaches. The key itself is in the Keychain, but
 /// MEASURED (§6c) `duckdb_secrets()` prints `account_name` and `key_id` in the clear, so identity is
 /// exactly what leaks when this is world-readable.
-@Test func theConfigIsWrittenAt0600() async throws {
+@Test(.engineLifetime) func theConfigIsWrittenAt0600() async throws {
     let home = newHome()
     let session = try newSession(home)
     _ = try await session.addConnection(chainSpec(), secret: nil)
@@ -576,7 +576,7 @@ func revokingDropsTheSecretsButLeavesTheEnginePermissiveUntilRelaunch() async th
 /// The round trip that matters at launch: what one session writes, the next one reads. Written by
 /// the real `addConnection` and read by the real `loadRemoteConfig`, so a change to either end
 /// breaks this rather than only breaking on a user's machine.
-@Test func whatOneSessionSavesTheNextOneReads() async throws {
+@Test(.engineLifetime) func whatOneSessionSavesTheNextOneReads() async throws {
     let home = newHome()
     let s3 = s3Spec(name: "warehouse")
     let azure = ConnectionSpec(
@@ -597,7 +597,7 @@ func revokingDropsTheSecretsButLeavesTheEnginePermissiveUntilRelaunch() async th
 
 /// A failed save must not strand a credential for a connection nobody can see. Pointed at a home
 /// whose config path has been turned into a DIRECTORY, so the atomic rename cannot land.
-@Test(.enabled(if: keychainUsable))
+@Test(.engineLifetime, .enabled(if: keychainUsable))
 func aConfigThatCannotBeSavedTakesTheCredentialBackOut() async throws {
     let home = newHome()
     let session = try newSession(home)
@@ -620,7 +620,8 @@ func aConfigThatCannotBeSavedTakesTheCredentialBackOut() async throws {
 
 /// The two states that cost nothing to reach. `.unavailable` is the third and it is below, gated —
 /// see that test for why it cannot live here.
-@Test func installExtensionReportsTheLoadedAndRejectedStates() async throws {
+@Test(.engineLifetime, .enabled(if: extensionIsAvailable("delta"), "duckdb delta extension not installed"))
+func installExtensionReportsTheLoadedAndRejectedStates() async throws {
     let session = try newSession(newHome())
     let before = session.database.networkInstalls
 
@@ -643,7 +644,7 @@ func aConfigThatCannotBeSavedTakesTheCredentialBackOut() async throws {
 ///
 /// The `remoteFact` prefix is the `--filter` CI's canary step selects on, so this is a rename with a
 /// job, not a label.
-@Test(.enabled(if: remoteFacts))
+@Test(.engineLifetime, .enabled(if: remoteFacts))
 func remoteFactInstall_aLegalNameWithNoBinaryAnywhereIsUnavailableWithAReason() async throws {
     let session = try newSession(newHome())
 

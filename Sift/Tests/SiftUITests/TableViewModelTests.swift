@@ -1,3 +1,4 @@
+import TestSupport
 import DuckDBKit
 import Foundation
 import SiftCore
@@ -17,7 +18,7 @@ import Testing
 // MARK: - the extent
 
 @MainActor
-@Test func theScrollExtentIsTheRowCountAndRowsArriveWhereTheyAreAskedFor() async throws {
+@Test(.engineLifetime) func theScrollExtentIsTheRowCountAndRowsArriveWhereTheyAreAskedFor() async throws {
     let (_, model) = try await openedFixture(rows: 1_200)
 
     #expect(model.scrollExtent == 1_200)
@@ -43,7 +44,7 @@ import Testing
 /// here would put 73 MB and a second and a half into a UI test to re-learn what the engine's own
 /// suite already pins.
 @MainActor
-@Test func aTableStillCountingSizesItsGridFromTheEstimateInsteadOfShowingNothing() async throws {
+@Test(.engineLifetime) func aTableStillCountingSizesItsGridFromTheEstimateInsteadOfShowingNothing() async throws {
     let (_, model) = try await openedFixture(rows: 12)
 
     let spec = SourceSpec(
@@ -69,7 +70,7 @@ import Testing
 /// Task 6's grid geometry needs a 100M-row extent without 100M rows, and there is no fixture for
 /// that. The override is that seam, and `nil` must put the real table back in charge.
 @MainActor
-@Test func theExtentCanBeOverriddenForAGridWithNoFileBehindIt() async throws {
+@Test(.engineLifetime) func theExtentCanBeOverriddenForAGridWithNoFileBehindIt() async throws {
     let (_, model) = try await openedFixture(rows: 12)
     model.overrideScrollExtentForTest(100_000_000)
     #expect(model.scrollExtent == 100_000_000)
@@ -78,7 +79,7 @@ import Testing
 }
 
 @MainActor
-@Test func theThreeRowBasisSentencesAreTheOnesPythonPrinted() {
+@Test(.engineLifetime) func theThreeRowBasisSentencesAreTheOnesPythonPrinted() {
     #expect(rowsBasisText(.counted) == "counted exactly")
     #expect(rowsBasisText(.estimated("3x256KiB sample, no quotes seen")) == "3x256KiB sample, no quotes seen")
     #expect(rowsBasisText(.pending) == "counting…")
@@ -90,7 +91,7 @@ import Testing
 /// row not show a placeholder. Both directions: the viewport here sits wholly inside one block, and
 /// only the overscan reaches the neighbours.
 @MainActor
-@Test func ensureVisibleFetchesTheOverscanEitherSideOfTheViewport() async throws {
+@Test(.engineLifetime) func ensureVisibleFetchesTheOverscanEitherSideOfTheViewport() async throws {
     let (_, model) = try await openedFixture(rows: 1_500)
 
     // Rows 1,000-1,019 are all in block 2. Without the leading overscan, block 1 is not needed.
@@ -109,7 +110,7 @@ import Testing
 // MARK: - spec changes
 
 @MainActor
-@Test func aFilterDropsTheCachedRowsAndSendsTheViewportBackToRowZero() async throws {
+@Test(.engineLifetime) func aFilterDropsTheCachedRowsAndSendsTheViewportBackToRowZero() async throws {
     let (_, model) = try await openedFixture(rows: 1_200)
     model.ensureVisible(firstRow: 1_090, rowsOnScreen: 20)
     await model.drainForTest()
@@ -129,7 +130,7 @@ import Testing
 }
 
 @MainActor
-@Test func aSortRebuildsTheRowsRatherThanKeepingTheOldOrder() async throws {
+@Test(.engineLifetime) func aSortRebuildsTheRowsRatherThanKeepingTheOldOrder() async throws {
     let (_, model) = try await openedFixture(rows: 1_200)
     guard case .loaded(let before) = model.rowSlot(at: 0) else {
         Issue.record("the first page never loaded"); return
@@ -153,7 +154,7 @@ import Testing
 /// fallback forever and the Schema tab rendered empty rows. Delete `kickProfile()`'s call in
 /// `loadFirstPage` and this goes red.
 @MainActor
-@Test func theFirstPageKicksAProfileAndTheColumnsGetTheirStats() async throws {
+@Test(.engineLifetime) func theFirstPageKicksAProfileAndTheColumnsGetTheirStats() async throws {
     let (_, model) = try await openedFixture(rows: 300)
     #expect(await waitFor { !model.profile.isEmpty })
 
@@ -168,7 +169,7 @@ import Testing
 /// (`session.py:454`). Point the table at a 30 GB spec and the kick must come back empty, on a
 /// table whose profile is otherwise perfectly computable.
 @MainActor
-@Test func aSourceTooBigToProfileUnaskedIsLeftAlone() async throws {
+@Test(.engineLifetime) func aSourceTooBigToProfileUnaskedIsLeftAlone() async throws {
     let (state, model) = try await openedFixture(rows: 300, name: "huge.csv")
     #expect(await waitFor { !model.profile.isEmpty }, "small: profiled")
 
@@ -199,7 +200,7 @@ import Testing
 /// with no suspension between them — which is the whole point, since a suspension would let the
 /// first finish and the second would be turned away by `profile.isEmpty` instead.
 @MainActor
-@Test func twoKicksInARowProduceOneProfile() async throws {
+@Test(.engineLifetime) func twoKicksInARowProduceOneProfile() async throws {
     let (_, model) = try await openedFixture(rows: 300)
     var arrived = 0
     model.onProfileArrived = { arrived += 1 }
@@ -223,7 +224,7 @@ import Testing
 /// (`web/index.html:1838-1843`); with polling instead of SSE, `apply` is the only place that can
 /// see the edge.
 @MainActor
-@Test func aStagedSwapDropsTheCachedRowsAndReRequestsThem() async throws {
+@Test(.engineLifetime) func aStagedSwapDropsTheCachedRowsAndReRequestsThem() async throws {
     let (state, model) = try await openedFixture(rows: 1_200, name: "stageme.csv")
     model.ensureVisible(firstRow: 1_090, rowsOnScreen: 20)
     await model.drainForTest()

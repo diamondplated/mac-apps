@@ -1,3 +1,4 @@
+import TestSupport
 import Testing
 @testable import SiftUI
 
@@ -17,7 +18,7 @@ import Testing
 // so the test fails by timing out rather than by reading a value that had not been written yet.
 
 @MainActor
-@Test func aFetchThatFinishesInsideTheDelayNeverDrawsAnything() async throws {
+@Test(.engineLifetime) func aFetchThatFinishesInsideTheDelayNeverDrawsAnything() async throws {
     let busy = BusyState(delay: .milliseconds(10))
     busy.begin("Loading rows…")
     // Synchronously false: the whole point of the delay is that an ordinary page — which comes back
@@ -32,7 +33,7 @@ import Testing
 }
 
 @MainActor
-@Test func workOutstandingPastTheDelayRaisesTheOverlay() async throws {
+@Test(.engineLifetime) func workOutstandingPastTheDelayRaisesTheOverlay() async throws {
     let busy = BusyState(delay: .milliseconds(10))
     busy.begin("Loading rows…")
     // 🔴 `await` the timer this `begin` armed, rather than polling a clock for its effect. Both
@@ -48,7 +49,7 @@ import Testing
 }
 
 @MainActor
-@Test func aSecondBeginWhileVisibleSwapsTheMessageWithoutBlinkingTheOverlay() async throws {
+@Test(.engineLifetime) func aSecondBeginWhileVisibleSwapsTheMessageWithoutBlinkingTheOverlay() async throws {
     let busy = BusyState(delay: .milliseconds(10))
     busy.begin("Loading rows…")
     // Same seam as above: this test is about the *second* begin, so getting to a visible overlay
@@ -65,7 +66,7 @@ import Testing
 }
 
 @MainActor
-@Test func endAlwaysClearsBothHalves() {
+@Test(.engineLifetime) func endAlwaysClearsBothHalves() {
     let busy = BusyState(delay: .milliseconds(10))
     busy.begin("Sorting 1,000,000 rows…", immediately: true)
     #expect(busy.visible)
@@ -80,7 +81,7 @@ import Testing
 /// out. A 30-second delay makes the claim unfalsifiable any other way — if this passes, no timer
 /// was involved.
 @MainActor
-@Test func aKnownStallShowsTheOverlayWithNoWaitAtAll() {
+@Test(.engineLifetime) func aKnownStallShowsTheOverlayWithNoWaitAtAll() {
     let busy = BusyState(delay: .seconds(30))
     busy.begin("Sorting 1,000,000 rows…", immediately: true)
     #expect(busy.visible)
@@ -88,7 +89,7 @@ import Testing
 }
 
 @MainActor
-@Test func theShippedDelayIsStill400ms() {
+@Test(.engineLifetime) func theShippedDelayIsStill400ms() {
     #expect(BusyState().delay == .milliseconds(400))
 }
 
@@ -102,7 +103,7 @@ import Testing
 /// guaranteed to have started inside it, which is precisely the "passes for the wrong reason" shape
 /// this suite's `waitFor` exists to avoid. Both halves are pinned here; the join was checked by
 /// eye, over a live `NSTableView` (task-10-report.md).
-@Test func onlyASortBigEnoughToBlockTheActorAnnouncesItself() {
+@Test(.engineLifetime) func onlyASortBigEnoughToBlockTheActorAnnouncesItself() {
     #expect(sortBusyMessage(rows: nil) == nil, "a table with no count yet has nothing to promise")
     #expect(sortBusyMessage(rows: 250_000) == nil, "the threshold is exclusive")
     #expect(sortBusyMessage(rows: 250_001) == "Sorting 250,001 rows…")

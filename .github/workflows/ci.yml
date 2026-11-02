@@ -7,6 +7,11 @@ on:
   pull_request:
     paths-ignore: ['.github/workflows/latent.yml', '.github/workflows/sift.yml']
   workflow_dispatch:
+    inputs:
+      headless_core_only:
+        description: Run only the headless Mac Tools package tests
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -17,27 +22,41 @@ concurrency:
 
 jobs:
   verify:
+    name: ${{ inputs.headless_core_only && 'Manager core (headless)' || 'Full suite' }}
     # The runner is Andrew's laptop and this repository is public, so a fork's
     # pull request must never reach it. Fork PRs skip the job; same-repo
     # branches, pushes to main and manual runs still build.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     # Andrew's own macOS runner must have macOS 26+ and Swift 6.2+ / matching Xcode.
     runs-on: [self-hosted, macOS, ARM64, air]
-    # Latent and Sift build twice each (arm64 and x86_64) as Mac Tools payloads.
+    # Sift builds for both architectures; Latent's Float16 pipeline is arm64 only.
     timeout-minutes: 75
     env:
       SCREENWREN_SIGNING_IDENTITY: '-'
       SCREENWREN_SIGNING_TIMESTAMP: none
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Same-owner native checkout: keep Git ownership checks and avoid copying the user global config.
+          set-safe-directory: false
+      - name: Configure compiler caches
+        shell: bash
+        run: |
+          printf 'CLANG_MODULE_CACHE_PATH=%s\n' "$RUNNER_TEMP/clang-module-cache" >> "$GITHUB_ENV"
+          printf 'SWIFTPM_MODULECACHE_OVERRIDE=%s\n' "$RUNNER_TEMP/swiftpm-module-cache" >> "$GITHUB_ENV"
       - name: Check toolchain
         run: |
           test "$(sw_vers -productVersion | cut -d. -f1)" -ge 26
           xcrun swift --version
           xcrun --sdk macosx --show-sdk-path
+      - name: Test manager core without app windows
+        if: ${{ inputs.headless_core_only }}
+        run: swift test --package-path MacTools
       - name: Test and package every app
+        if: ${{ !inputs.headless_core_only }}
         run: ./verify.sh
       - name: Upload verified suite
+        if: ${{ !inputs.headless_core_only }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: Mac-Tools

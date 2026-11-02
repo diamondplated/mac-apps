@@ -1,3 +1,4 @@
+import TestSupport
 import AppKit
 import DuckDBKit
 import Foundation
@@ -26,7 +27,7 @@ private func appKitReady() { _ = NSApplication.shared }
 // MARK: - the extent
 
 @MainActor
-@Test func theGridAsksForTheCappedExtentAndNotTheRawRowCount() async throws {
+@Test(.engineLifetime) func theGridAsksForTheCappedExtentAndNotTheRawRowCount() async throws {
     appKitReady()
     let view = NSTableView(frame: .zero)
     let (_, model) = try await openedFixture(rows: 1_200)
@@ -47,7 +48,7 @@ private func appKitReady() { _ = NSApplication.shared }
 // MARK: - the three states, and the fourth thing that is none of them
 
 @MainActor
-@Test func aPendingRowIsDistinctFromARowOfNullsAndBecomesLoadedWhenItsBlockArrives() async throws {
+@Test(.engineLifetime) func aPendingRowIsDistinctFromARowOfNullsAndBecomesLoadedWhenItsBlockArrives() async throws {
     appKitReady()
     let (_, model) = try await openedFixture(rows: 1_200)
 
@@ -79,7 +80,7 @@ private func appKitReady() { _ = NSApplication.shared }
 /// are needed — a `CellGlyph` router that is perfect and a cell view that renders `.null` and
 /// `.empty` identically collapses them just as thoroughly, and only this test would notice.
 @MainActor
-@Test func nullAnEmptyStringAndTheLiteralTextNAAreThreeDifferentCells() async throws {
+@Test(.engineLifetime) func nullAnEmptyStringAndTheLiteralTextNAAreThreeDifferentCells() async throws {
     appKitReady()
     let (_, model) = try await openedFixture(rows: 12)
     let view = NSTableView(frame: .zero)
@@ -133,7 +134,7 @@ private func appKitReady() { _ = NSApplication.shared }
 /// in the one place design spec §9 calls non-negotiable. Found by looking at a PNG, so the guard
 /// against it looks at one too.
 @MainActor
-@Test func theEmptyStringCellDrawsAnActualDottedRuleAndNotAnEmptyCell() async throws {
+@Test(.engineLifetime) func theEmptyStringCellDrawsAnActualDottedRuleAndNotAnEmptyCell() async throws {
     appKitReady()
     let (_, model) = try await openedFixture(rows: 12)
     let view = NSTableView(frame: .zero)
@@ -184,7 +185,7 @@ private func appKitReady() { _ = NSApplication.shared }
 /// font and the empty-string rule both persist unless something clears them, and the second value
 /// then renders wearing the first one's styling.
 @MainActor
-@Test func aRecycledCellDoesNotKeepThePreviousRowsStyling() async throws {
+@Test(.engineLifetime) func aRecycledCellDoesNotKeepThePreviousRowsStyling() async throws {
     appKitReady()
     let (_, model) = try await openedFixture(rows: 12)
     let view = NSTableView(frame: .zero)
@@ -224,7 +225,7 @@ private func isItalic(_ field: NSTextField?) -> Bool {
 
 /// A row whose block has not arrived is neither of the three: it is a bar that reads as *coming*.
 @MainActor
-@Test func aRowWhoseBlockIsStillInFlightDrawsASkeletonAndNotAValue() async throws {
+@Test(.engineLifetime) func aRowWhoseBlockIsStillInFlightDrawsASkeletonAndNotAValue() async throws {
     appKitReady()
     let (_, model) = try await openedFixture(rows: 1_200)
     let view = NSTableView(frame: .zero)
@@ -253,7 +254,7 @@ private func isItalic(_ field: NSTextField?) -> Bool {
 /// rebuild keyed only on the columns changing identity never fires again — so every column sits on
 /// the 120-pt fallback forever with the numbers to do better sitting right there in the model.
 @MainActor
-@Test func aProfileArrivingRebuildsTheColumnsAndTakesTheWidthsOffTheFallback() async throws {
+@Test(.engineLifetime) func aProfileArrivingRebuildsTheColumnsAndTakesTheWidthsOffTheFallback() async throws {
     appKitReady()
     let (_, model) = try await gridWidthFixture()
     let view = NSTableView(frame: .zero)
@@ -285,7 +286,7 @@ private func isItalic(_ field: NSTextField?) -> Bool {
 /// by `Kind`, which comes from the type — so a grid that skipped the rebuild would go on
 /// right-aligning a column that is now text, and reading its numbers through the wrong branch.
 @MainActor
-@Test func theColumnStampCarriesTypesAndNotJustNames() async throws {
+@Test(.engineLifetime) func theColumnStampCarriesTypesAndNotJustNames() async throws {
     appKitReady()
     let state = AppState(session: try Session(home: tempHome()))
     let dir = tempDir("grid-stamp")
@@ -309,7 +310,7 @@ private func isItalic(_ field: NSTextField?) -> Bool {
 // MARK: - the gutter
 
 @MainActor
-@Test func theRowNumberGutterIsGroupedByTheEnginesOwnFunction() async throws {
+@Test(.engineLifetime) func theRowNumberGutterIsGroupedByTheEnginesOwnFunction() async throws {
     appKitReady()
     let (_, model) = try await openedFixture(rows: 12)
     let view = NSTableView(frame: .zero)
@@ -335,7 +336,7 @@ private func isItalic(_ field: NSTextField?) -> Bool {
 /// one column whose only job is being right. MEASURED at 120,000 rows against the flat 62 pt this
 /// shipped with for an hour: `119,974` rendered `119,9…`.
 @MainActor
-@Test func theGutterIsWideEnoughForTheLargestRowNumberItWillDraw() async throws {
+@Test(.engineLifetime) func theGutterIsWideEnoughForTheLargestRowNumberItWillDraw() async throws {
     appKitReady()
     let (_, model) = try await openedFixture(rows: 12)
     let view = NSTableView(frame: .zero)
@@ -375,7 +376,7 @@ private func truncated(_ field: NSTextField) -> Bool {
 /// full extent — would pull every row of a 2.5M-row table through a 500-row cache to draw twenty of
 /// them.
 @MainActor
-@Test func onlyTheRowsInTheVisibleRectangleAreAskedFor() async throws {
+@Test(.engineLifetime) func onlyTheRowsInTheVisibleRectangleAreAskedFor() async throws {
     appKitReady()
     let (_, model) = try await openedFixture(rows: 3_000)
     let bridge = GridBridge(model: model)
@@ -390,7 +391,7 @@ private func truncated(_ field: NSTextField) -> Bool {
 }
 
 @MainActor
-@Test func theVisibleRectangleMapsToRowsTheWayTheWebGridDid() {
+@Test(.engineLifetime) func theVisibleRectangleMapsToRowsTheWayTheWebGridDid() {
     // `firstRow = scrollTop / ROW_H` and `visibleRows = ceil(clientHeight / ROW_H)`.
     let exact = GridBridge.viewport(
         CGRect(x: 0, y: 1_000 * gridRowHeight, width: 900, height: 20 * gridRowHeight),
@@ -415,7 +416,7 @@ private func truncated(_ field: NSTextField) -> Bool {
 /// `reloadData(forRowIndexes:)` past the end of the table is an exception, not a no-op, and the last
 /// block of any table that is not an exact multiple of 500 goes past it.
 @MainActor
-@Test func aDeliveredBlockReloadsItsOwnRowsAndStopsAtTheEndOfTheTable() async throws {
+@Test(.engineLifetime) func aDeliveredBlockReloadsItsOwnRowsAndStopsAtTheEndOfTheTable() async throws {
     appKitReady()
     let (_, model) = try await openedFixture(rows: 1_200)
     let bridge = GridBridge(model: model)
@@ -429,7 +430,7 @@ private func truncated(_ field: NSTextField) -> Bool {
 // MARK: - which of the empty states
 
 @MainActor
-@Test func theEmptyStatesAreTheOnesTheWebGridChoseBetween() async throws {
+@Test(.engineLifetime) func theEmptyStatesAreTheOnesTheWebGridChoseBetween() async throws {
     // `renderGrid`'s fan-out (web/index.html:660-666).
     #expect(gridState(columnCount: 0, scrollExtent: 0, rowCountKnown: true) == .noColumns)
     #expect(gridState(columnCount: 3, scrollExtent: 0, rowCountKnown: true) == .noRows)

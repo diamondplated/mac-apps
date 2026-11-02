@@ -1,3 +1,4 @@
+import TestSupport
 import Testing
 import DuckDBKit
 @testable import SiftUI
@@ -38,7 +39,7 @@ final class FetchGate {
 // MARK: - PageLoader
 
 @MainActor
-@Test func theLoaderFetchesTheBlockNearestTheViewportFirst() async {
+@Test(.engineLifetime) func theLoaderFetchesTheBlockNearestTheViewportFirst() async {
     var order: [Int] = []
     let loader = PageLoader<[[Cell]]> { block in
         order.append(block)
@@ -52,7 +53,7 @@ final class FetchGate {
 }
 
 @MainActor
-@Test func aBlockScrolledPastBeforeItsTurnIsNeverFetched() async {
+@Test(.engineLifetime) func aBlockScrolledPastBeforeItsTurnIsNeverFetched() async {
     var fetched: [Int] = []
     let gate = FetchGate()
     let loader = PageLoader<[[Cell]]> { block in
@@ -69,7 +70,7 @@ final class FetchGate {
 }
 
 @MainActor
-@Test func aDeliveryFromAPreviousGenerationIsDiscarded() async {
+@Test(.engineLifetime) func aDeliveryFromAPreviousGenerationIsDiscarded() async {
     var delivered: [Int] = []
     let gate = FetchGate()
     let loader = PageLoader<[[Cell]]> { block in
@@ -86,7 +87,7 @@ final class FetchGate {
 }
 
 @MainActor
-@Test func theBlockAlreadyInFlightIsNotQueuedAgain() async {
+@Test(.engineLifetime) func theBlockAlreadyInFlightIsNotQueuedAgain() async {
     var fetched: [Int] = []
     let gate = FetchGate()
     let loader = PageLoader<[[Cell]]> { block in
@@ -105,7 +106,7 @@ final class FetchGate {
 }
 
 @MainActor
-@Test func aBlockStillWantedAfterInvalidateIsFetchedAgain() async {
+@Test(.engineLifetime) func aBlockStillWantedAfterInvalidateIsFetchedAgain() async {
     var fetched: [Int] = []
     var delivered: [Int] = []
     let gate = FetchGate()
@@ -126,7 +127,7 @@ final class FetchGate {
 }
 
 @MainActor
-@Test func aFailedBlockIsReportedAndThePumpKeepsGoing() async {
+@Test(.engineLifetime) func aFailedBlockIsReportedAndThePumpKeepsGoing() async {
     struct Boom: Error {}
     var fetched: [Int] = []
     var delivered: [Int] = []
@@ -148,7 +149,7 @@ final class FetchGate {
 // MARK: - PageCache
 
 @MainActor
-@Test func theCacheEvictsInInsertionOrderAndReadingABlockDoesNotSaveIt() {
+@Test(.engineLifetime) func theCacheEvictsInInsertionOrderAndReadingABlockDoesNotSaveIt() {
     let cache = PageCache(limit: 3)
     for b in 0..<3 { cache.store([[.int(Int64(b))]], at: b) }
     _ = cache[0]   // an LRU would promote block 0 here; FIFO does not
@@ -159,7 +160,7 @@ final class FetchGate {
 }
 
 @MainActor
-@Test func reStoringABlockMovesItToTheTailAndKeepsTheCacheFull() {
+@Test(.engineLifetime) func reStoringABlockMovesItToTheTailAndKeepsTheCacheFull() {
     let cache = PageCache(limit: 3)
     for b in 0..<3 { cache.store([[.int(Int64(b))]], at: b) }
     cache.store([[.int(11)]], at: 1)   // a re-store IS a new insertion
@@ -171,7 +172,7 @@ final class FetchGate {
 }
 
 @MainActor
-@Test func removeAllForgetsTheInsertionOrderToo() {
+@Test(.engineLifetime) func removeAllForgetsTheInsertionOrderToo() {
     let cache = PageCache(limit: 3)
     for b in 0..<3 { cache.store([[.int(Int64(b))]], at: b) }
     cache.removeAll()

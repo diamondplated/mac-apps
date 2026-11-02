@@ -8,7 +8,7 @@
 #                                        universal, hardened runtime, signed with the monorepo's
 #                                        persistent identity, not registered with LaunchServices
 #
-# No Xcode required: swift build, PlistBuddy, sips, iconutil, osascript, install_name_tool,
+# Full Xcode 27 or newer required: swift build, PlistBuddy, sips, iconutil, osascript, install_name_tool,
 # codesign and lsregister all ship with the Command Line Tools. Gatekeeper: quarantine is applied
 # by whatever *downloads* a file, so a locally built app just launches; zip it to a teammate and
 # they get "Apple could not verify…" — the install path for others is

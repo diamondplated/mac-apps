@@ -1,3 +1,4 @@
+import TestSupport
 import AppKit
 import DuckDBKit
 import Foundation
@@ -26,7 +27,7 @@ private func appKitReady() { _ = NSApplication.shared }
 // MARK: - running a query
 
 @MainActor
-@Test func runningASelectPagesItsOwnColumnsAndRowsAndNotTheTables() async throws {
+@Test(.engineLifetime) func runningASelectPagesItsOwnColumnsAndRowsAndNotTheTables() async throws {
     let (_, model) = try await openedFixture(rows: 12)
     #expect(model.columns.map(\.name) == ["id", "label", "note"])
 
@@ -49,7 +50,7 @@ private func appKitReady() { _ = NSApplication.shared }
 /// "DROP"`, which is exactly the parser dump the guard exists to replace. So the assertion is the
 /// sentence, character for character.
 @MainActor
-@Test func aNonSelectComesBackAsTheGuardsOwnSentence() async throws {
+@Test(.engineLifetime) func aNonSelectComesBackAsTheGuardsOwnSentence() async throws {
     let (_, model) = try await openedFixture(rows: 12)
     model.typeSQL("DROP TABLE t")
 
@@ -76,7 +77,7 @@ private func appKitReady() { _ = NSApplication.shared }
 /// semicolon, and a second statement hidden behind a comment. Both are counted by DuckDB's own
 /// parser inside `assertSingleSelectStatement`, and both must still arrive as a sentence.
 @MainActor
-@Test func aSecondStatementIsRefusedEvenWhenACommentHidesIt() async throws {
+@Test(.engineLifetime) func aSecondStatementIsRefusedEvenWhenACommentHidesIt() async throws {
     let (_, model) = try await openedFixture(rows: 12)
 
     func message(_ sql: String) async -> String {
@@ -119,7 +120,7 @@ private func appKitReady() { _ = NSApplication.shared }
 /// `GuardStatements.swift` exists to close. The engine lets it through and reports the catalog
 /// error; the console must not turn that into a refusal, and must not swallow it either.
 @MainActor
-@Test func aPrepareFailureReportsTheEnginesErrorAndNotARefusal() async throws {
+@Test(.engineLifetime) func aPrepareFailureReportsTheEnginesErrorAndNotARefusal() async throws {
     let (_, model) = try await openedFixture(rows: 12)
     model.typeSQL("SELECT * FROM definitely_not_a_table")
 
@@ -144,7 +145,7 @@ private func appKitReady() { _ = NSApplication.shared }
 // MARK: - the one-way door
 
 @MainActor
-@Test func takingOverTheBoxIsAOneWayDoorAndResetIsTheOnlyExit() async throws {
+@Test(.engineLifetime) func takingOverTheBoxIsAOneWayDoorAndResetIsTheOnlyExit() async throws {
     let (state, model) = try await openedFixture(rows: 12)
     let session = state.session
     try await model.mirrorRenderedSQL()
@@ -186,7 +187,7 @@ private func appKitReady() { _ = NSApplication.shared }
 /// The status line is the one-way-door warning, and it says one of exactly two things
 /// (`web/index.html:1762, 1770`).
 @MainActor
-@Test func theStatusLineSaysWhichOfTheTwoThingsTheBoxIs() async throws {
+@Test(.engineLifetime) func theStatusLineSaysWhichOfTheTwoThingsTheBoxIs() async throws {
     #expect(sqlStatusText(owned: false) == "mirrors the filters above")
     #expect(sqlStatusText(owned: true) == "your SQL — filters and header controls are frozen")
 
@@ -209,7 +210,7 @@ private func appKitReady() { _ = NSApplication.shared }
 
 /// `fetchBlock`'s three-way (`web/index.html:846-855`) as a function, at every edge. A SQL result
 /// has no exact count, so a FULL block can only promise one more row and a SHORT one is the end.
-@Test func theSQLExtentGrowsOnAFullBlockAndIsPinnedByAShortOne() {
+@Test(.engineLifetime) func theSQLExtentGrowsOnAFullBlockAndIsPinnedByAShortOne() {
     #expect(sqlModeExtent(0, block: 0, rows: 3) == 3, "a short first block IS the whole result")
     #expect(sqlModeExtent(0, block: 0, rows: 0) == 0, "…and an empty one is an empty grid")
     #expect(sqlModeExtent(0, block: 0, rows: pageRows) == pageRows + 1, "full: at least one more row")
@@ -231,7 +232,7 @@ private func appKitReady() { _ = NSApplication.shared }
 /// The same rule against a real query, through the real block pump: in SQL mode the grid pages the
 /// user's own text at an offset, and the extent it can reach grows to meet each block.
 @MainActor
-@Test func sqlModeBlocksArePagedFromTheUsersQueryAndTheExtentGrowsToMeetThem() async throws {
+@Test(.engineLifetime) func sqlModeBlocksArePagedFromTheUsersQueryAndTheExtentGrowsToMeetThem() async throws {
     let (_, model) = try await openedFixture(rows: 1_200)
     model.typeSQL("SELECT id FROM t ORDER BY id")
     try await model.runSQL()
@@ -262,7 +263,7 @@ private func appKitReady() { _ = NSApplication.shared }
 /// words. Under `Session.page` the same text still fails — as a DuckDB parse error out of the wrap,
 /// which is a `SessionError` and a parser dump, and is why this asserts the type AND the sentence.
 @MainActor
-@Test func everyBlockInSQLModeGoesBackThroughTheGate() async throws {
+@Test(.engineLifetime) func everyBlockInSQLModeGoesBackThroughTheGate() async throws {
     let (_, model) = try await openedFixture(rows: 1_200)
     var forged = model.table
     forged.sqlMode = true
@@ -295,7 +296,7 @@ private func appKitReady() { _ = NSApplication.shared }
 /// unfiltered table it is indistinguishable. With a filter set it silently ANDs the abandoned
 /// `WHERE` back onto the user's query, and the guard stops being re-run per block into the bargain.
 @MainActor
-@Test func enteringSQLModeAbandonsTheFiltersRatherThanComposingWithThem() async throws {
+@Test(.engineLifetime) func enteringSQLModeAbandonsTheFiltersRatherThanComposingWithThem() async throws {
     let (_, model) = try await openedFixture(rows: 1_200)
     try await model.setFilters([Filter(col: "id", op: .lt, values: [.int(12)])])
     await model.drainForTest()
@@ -363,7 +364,7 @@ private func appKitReady() { _ = NSApplication.shared }
 /// only have come from the state that changed. A renderer too unstable for that fails the CONTROL,
 /// loudly, instead of making the real assertion flaky.
 @MainActor
-@Test func theStatusLineRedrawsWhenTheBoxIsClaimed() async throws {
+@Test(.engineLifetime) func theStatusLineRedrawsWhenTheBoxIsClaimed() async throws {
     let (_, model) = try await openedFixture(rows: 12)
     try await model.mirrorRenderedSQL()
     let mirroredText = model.sqlText
@@ -401,7 +402,7 @@ private func appKitReady() { _ = NSApplication.shared }
 /// check is there because "dark" is also what a bitmap that was never drawn into looks like — that
 /// is the vacuous pass this would otherwise have.
 @MainActor
-@Test func theConsoleDrawsOnADarkSurfaceAndNotADocumentOne() async throws {
+@Test(.engineLifetime) func theConsoleDrawsOnADarkSurfaceAndNotADocumentOne() async throws {
     appKitReady()
     let (_, model) = try await openedFixture(rows: 12)
     try await model.mirrorRenderedSQL()
@@ -449,7 +450,7 @@ private func appKitReady() { _ = NSApplication.shared }
 /// versions and a fallback to Helvetica moves them by about 5%. What can consume 9% is a longer
 /// sentence, which is exactly what this is here to catch.
 @MainActor
-@Test func theOneWayDoorSentenceFitsTheBarWithoutEliding() {
+@Test(.engineLifetime) func theOneWayDoorSentenceFitsTheBarWithoutEliding() {
     appKitReady()
     let field = NSTextField(labelWithString: sqlStatusText(owned: true))
     field.font = .systemFont(ofSize: 11, weight: .bold)

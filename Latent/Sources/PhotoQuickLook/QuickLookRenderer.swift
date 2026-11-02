@@ -18,9 +18,8 @@ public enum QuickLookRendererError: Error, CustomStringConvertible {
 }
 
 /// Renders a preview image for a given URL — the same code a Quick Look
-/// extension would call. Lives here as a library so a future QL extension
-/// target (added during the Xcode-project migration) can import it directly
-/// without copying logic. CommandLineTools-only builds reach it via
+/// extension calls. The extension target compiles this same source file,
+/// while the library makes it available to tests without loading an extension. CommandLineTools-only builds reach it via
 /// `pv-pipeline` for verification.
 ///
 /// Uses ImageIO's `CGImageSourceCreateThumbnailAtIndex` fast path:
@@ -74,24 +73,3 @@ public struct QuickLookRenderer: Sendable {
         "cr2", "cr3", "nef", "arw", "raf", "dng", "orf", "rw2",
     ]
 }
-
-// MARK: - QL extension shim
-//
-// When the project migrates to an Xcode workspace, the Quick Look extension
-// target subclasses `QLPreviewProvider` and calls into `QuickLookRenderer`.
-// Sketch (cannot compile here without the QuickLookUI framework hooked up
-// to an extension target):
-//
-// import QuickLookUI
-// final class PreviewProvider: QLPreviewProvider, QLPreviewingController {
-//     private let renderer = QuickLookRenderer(maxDimension: 1600)
-//     func providePreview(for request: QLFilePreviewRequest) async throws -> QLPreviewReply {
-//         let cg = try renderer.render(url: request.fileURL)
-//         return QLPreviewReply(contextSize: CGSize(width: cg.width, height: cg.height),
-//                               isBitmap: true,
-//                               drawingBlock: { ctx in
-//             ctx.draw(cg, in: CGRect(origin: .zero, size: CGSize(width: cg.width, height: cg.height)))
-//             return true
-//         })
-//     }
-// }

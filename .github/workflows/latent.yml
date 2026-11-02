@@ -33,26 +33,50 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Same-owner native checkout: keep Git ownership checks and avoid copying the user global config.
+          set-safe-directory: false
           persist-credentials: false
 
+      - name: Configure compiler caches
+        shell: bash
+        run: |
+          printf 'CLANG_MODULE_CACHE_PATH=%s\n' "$RUNNER_TEMP/clang-module-cache" >> "$GITHUB_ENV"
+          printf 'SWIFTPM_MODULECACHE_OVERRIDE=%s\n' "$RUNNER_TEMP/swiftpm-module-cache" >> "$GITHUB_ENV"
       - name: Show toolchain
         run: |
           sw_vers
           swift --version
 
+      - name: Converter supply-chain tests (offline)
+        run: python3 -m unittest discover -s scripts/tests -v
+
       - name: Build
         run: swift build
 
-      # The pv-pipeline runner asserts the same scenarios as the XCTest target but
-      # runs anywhere, including on a CommandLineTools-only machine. It covers cache
+      # The pv-pipeline runner asserts the same scenarios as the XCTest targets but
+      # also runs on a macOS CommandLineTools-only machine. It covers cache
       # behaviour, sidecars, image I/O, tiling, search primitives, vim state, GPS,
-      # Quick Look and archive extraction. No model weights required — the stages
+      # Quick Look, archive extraction, and LAN HTTP parsing, address gating, pairing,
+      # authorization and phone actions. No model weights required — the stages
       # degrade to identity or a classical fallback when a model is absent.
+      # PV_MODELS_DIR is exclusive: empty private stores exercise missing-model
+      # fallbacks without consulting the runner's installed models or user data.
       - name: Run the self-verifier
-        run: swift run pv-pipeline
+        run: |
+          PV_MODELS_DIR=$(mktemp -d)
+          export PV_MODELS_DIR
+          trap 'rm -rf "$PV_MODELS_DIR"' EXIT
+          swift run pv-pipeline
 
-      - name: XCTest target
-        run: swift test
+      - name: XCTest targets
+        run: |
+          PV_MODELS_DIR=$(mktemp -d)
+          export PV_MODELS_DIR
+          trap 'rm -rf "$PV_MODELS_DIR"' EXIT
+          swift test
+
+      - name: Native Trash and undo (isolated disposable volume)
+        run: python3 scripts/test_native_trash.py --mutation
 
       - name: Build app bundle
         run: ./scripts/build_app.sh

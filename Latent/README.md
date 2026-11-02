@@ -232,7 +232,8 @@ swift test                 # XCTest suites, needs Xcode
 
 `pv-pipeline` exercises cache behaviour, sidecar round-trips, image I/O and EXIF orientation,
 tiling, search indexing, durable vim state, recursive folder watching, GPS extraction, Quick Look,
-and archive extraction.
+archive extraction, and LAN server behaviour (HTTP parsing, address gating, pairing, authorization,
+and phone actions).
 
 ---
 
@@ -254,7 +255,7 @@ latent/
 │   └── PipelineCLI/           pv-pipeline
 ├── Resources/Models/          .mlpackage files land here (gitignored)
 ├── scripts/                   model conversion + app packaging
-└── Tests/                     XCTest targets (PipelineCoreTests, PhotoViewerCoreTests)
+└── Tests/                     XCTest targets (PipelineCoreTests, PhotoViewerCoreTests, PhotoServeTests)
 ```
 
 > **On naming:** the SwiftPM package and most modules are still `PhotoViewer` / `Photo*` from before
@@ -315,12 +316,22 @@ forget in five places.
 
 Latent is pre-1.0. It is a working app, not a finished distribution:
 
-- Packaging is SwiftPM plus a script. `scripts/build_app.sh` produces and verifies a usable `.app`
-  with ad-hoc signing by default, or Developer ID signing when you supply an identity. Notarization,
-  stapling, sandbox entitlements, and App Store packaging are not automated yet.
-- The Quick Look extension target isn't built yet — `PhotoQuickLook.QuickLookRenderer` is written
-  and ready for it.
-- Display is not yet Metal-backed, so HDR and wide-gamut rendering aren't what they could be.
+- Packaging uses SwiftPM for the app and a small extension-only Xcode project for Quick Look.
+  `scripts/build_app.sh` embeds `Contents/PlugIns/LatentPreview.appex` in standalone and Mac Tools
+  payload builds, signs the read-only sandboxed extension first, then signs and verifies the host.
+  Local builds use ad-hoc signing; a supplied identity enables Developer ID signing. Notarization,
+  stapling, whole-app sandboxing, and App Store packaging are not automated yet.
+- The Quick Look provider shares `PhotoQuickLook` rendering and generates bounded, oriented PNG
+  previews. Builds do not register or enable it. Finder discovery and preference over built-in
+  image handlers still require verification after installation; bundled presence alone does not
+  establish that Finder will select Latent.
+- The detail viewer requests HDR source decoding and displays through a floating-point Metal EDR
+  surface, retaining the SwiftUI image fallback when Metal is unavailable. Native source profiles
+  survive display; unusually large previews are downsampled before decode to respect a memory
+  ceiling. macOS 26 uses system tone mapping and macOS 15 uses source headroom metadata; macOS 14
+  relies on the display compositor's EDR clipping. Enhancement processing/export and its separate
+  comparison panel retain their existing working-color-space behavior. Synthetic offscreen pixel
+  checks do not replace the remaining HDR HEIC/Preview side-by-side check on an XDR display.
 - Semantic search is optional rather than turnkey: OpenCLIP assets are not shipped, are never
   downloaded automatically, and must be supplied or generated locally. Each folder must also be
   indexed explicitly from the `⌘F` search panel before it can be queried.

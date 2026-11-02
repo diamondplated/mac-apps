@@ -1,4 +1,5 @@
 import Foundation
+import PhotoIO
 
 /// Trash and undo logic extracted from AppState. Manages the trash history
 /// ring, optimistic UI removal, bulk/folder trash, and ⌘Z undo.
@@ -96,10 +97,9 @@ final class TrashManager {
             var entries: [TrashRecord.Entry] = []
             var failed: [URL] = []
             for url in ordered {
-                var resultURL: NSURL?
                 do {
-                    try FileManager.default.trashItem(at: url, resultingItemURL: &resultURL)
-                    entries.append(.init(originalURL: url, trashURL: resultURL as URL?))
+                    let receipt = try RecoverableTrash().trash(url)
+                    entries.append(.init(originalURL: url, trashURL: receipt.trashURL))
                 } catch {
                     failed.append(url)
                 }
@@ -128,9 +128,9 @@ final class TrashManager {
         ))
 
         Task.detached(priority: .userInitiated) { [weak self] in
-            var resultURL: NSURL?
+            let trashedAt: URL?
             do {
-                try FileManager.default.trashItem(at: url, resultingItemURL: &resultURL)
+                trashedAt = try RecoverableTrash().trash(url).trashURL
             } catch {
                 await MainActor.run { [weak self] in
                     self?.completeTrashRecord(id: recordID, trashedEntries: [], failedURLs: [url])
@@ -138,7 +138,6 @@ final class TrashManager {
                 }
                 return
             }
-            let trashedAt = resultURL as URL?
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 if self.lastError == Self.pendingFolderMessage { self.lastError = nil }
@@ -251,14 +250,13 @@ final class TrashManager {
         lastError = nil
         var restored: [URL] = []
         var failed: [String] = []
-        let fm = FileManager.default
         for entry in record.entries {
             guard let trashURL = entry.trashURL else {
                 failed.append(entry.originalURL.lastPathComponent)
                 continue
             }
             do {
-                try fm.moveItem(at: trashURL, to: entry.originalURL)
+                try RecoverableTrash().restore(originalURL: entry.originalURL, trashURL: trashURL)
                 restored.append(entry.originalURL)
             } catch {
                 failed.append(entry.originalURL.lastPathComponent)

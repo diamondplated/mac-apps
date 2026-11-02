@@ -65,9 +65,15 @@ let package = Package(
             path: "Sources/PhotoServe",
             resources: [.embedInCode("Resources/client.html")]
         ),
+        .target(
+            name: "VerificationSupport",
+            dependencies: ["PipelineCore", "PhotoIO"],
+            path: "VerificationSupport",
+            resources: [.copy("Resources/oversized-20000.png")]
+        ),
         .executableTarget(
             name: "PipelineCLI",
-            dependencies: ["PipelineCore", "EnhancementStages", "PhotoIO", "PhotoML", "PhotoSearch", "PhotoViewerCore", "PhotoGeo", "PhotoQuickLook", "PhotoServe"],
+            dependencies: ["PipelineCore", "EnhancementStages", "PhotoIO", "PhotoML", "PhotoSearch", "PhotoViewerCore", "PhotoGeo", "PhotoQuickLook", "PhotoServe", "VerificationSupport"],
             path: "Sources/PipelineCLI"
         ),
         .executableTarget(
@@ -77,7 +83,7 @@ let package = Package(
         ),
         .testTarget(
             name: "PipelineCoreTests",
-            dependencies: ["PipelineCore", "EnhancementStages", "PhotoIO", "PhotoML", "PhotoSearch"],
+            dependencies: ["PipelineCore", "EnhancementStages", "PhotoIO", "PhotoML", "PhotoSearch", "PhotoQuickLook", "VerificationSupport"],
             path: "Tests/PipelineCoreTests"
         ),
         .testTarget(

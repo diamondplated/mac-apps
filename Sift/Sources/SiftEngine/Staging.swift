@@ -138,6 +138,7 @@ extension Session {
     /// returns the job id, or `nil` when nothing was started.
     @discardableResult
     public func stageNow(_ name: String, force: Bool = false) throws -> String? {
+        try requireOpen()
         var t = try table(name)
         if t.staged || t.staging != nil { return nil }
 
@@ -169,7 +170,11 @@ extension Session {
 
         let spec = t.spec
         let openedAt = t.openedAt
+        let barrier = stageBarrierForTest
+        ownedWork.begin()
         Task.detached { [self] in
+            defer { ownedWork.finish() }
+            await barrier?()
             await runStage(name: name, spec: spec, jobID: jobID, job: job, openedAt: openedAt)
         }
         return jobID
@@ -189,7 +194,7 @@ extension Session {
             // `openedAt`, not just presence: a table closed and reopened under the same name
             // during the dwell is a different table, and this job is not about it (Session.swift's
             // `runAfterOpen` doc comment has the measurement behind that guard).
-            guard let t = tables[name], t.openedAt == openedAt else { return }
+            guard !isClosing, let t = tables[name], t.openedAt == openedAt else { return }
             if t.firstAggregateAt != nil { break }
             try? await Task.sleep(nanoseconds: 100_000_000)
         }
@@ -223,9 +228,11 @@ extension Session {
     /// otherwise unreachable — `database.connect()` does not fail on demand. Production passes
     /// nothing. It is a parameter rather than a mutable flag on the actor so the seam is visible
     /// in the signature and carries no state between jobs.
+    /// The metadata hooks let tests break SQL dependencies inside the transaction and prove rollback.
     nonisolated func runStage(
         name: String, spec: SourceSpec, jobID: String, job: StageJob, openedAt: Int,
-        connect: (() throws -> Connection)? = nil
+        connect: (() throws -> Connection)? = nil,
+        beforeCount: ((Connection) throws -> Void)? = nil, beforeRecord: ((Connection) throws -> Void)? = nil
     ) async {
         // FIRST STATEMENT IN THE FUNCTION, above the `do`/`catch` below, and that placement is the
         // whole point: Swift registers a `defer` when control REACHES it, so one written below an
@@ -280,23 +287,26 @@ extension Session {
             return
         }
 
+        // CHECKPOINT cannot run inside the write transaction. Measure the completed
+        // staging table before renaming it; the same blocks survive the swap.
+        let bytes = stagedBytes(con, table: stagingName(name))
+        var physical = 0
         do {
-            try swapStaged(con, name: name, lock: await tlock(name))
+            try swapStaged(con, name: name, lock: await tlock(name)) {
+                try beforeCount?(con)
+                let rows = try con.query("SELECT count(*) FROM \(q(name))").allRows()
+                guard let cell = rows.first?.first else { throw DuckDBError("staged row count is unavailable") }
+                physical = cellInt(cell)
+                try beforeRecord?(con)
+                // Count, metadata and swap commit together, or the original view survives.
+                try self.recordStaged(con, spec: spec, table: name, rowCount: physical, bytes: bytes)
+            }
         } catch {
             try? con.execute(dropStagingSQL(name))
             let message = (error as? DuckDBError)?.firstLine ?? "\(error)"
             await finishStage(name, jobID: jobID, openedAt: openedAt, error: "staging failed: \(message)")
             return
         }
-
-        let physical = (try? con.query("SELECT count(*) FROM \(q(name))").allRows().first)
-            .flatMap { $0.first }.map(cellInt) ?? 0
-        let bytes = stagedBytes(con, table: name)
-
-        // Recorded BEFORE the copy is published, not after (review M2): a process that dies in
-        // between must leave a catalog row with no table — which the next purge collects — rather
-        // than a table with no row, which nothing can ever reach.
-        try? recordStaged(con, spec: spec, table: name, rowCount: physical, bytes: bytes)
 
         switch await applyStaged(name, physicalRows: physical, openedAt: openedAt, jobID: jobID) {
         case .applied(let rowCount):
@@ -547,6 +557,7 @@ extension Session {
     /// opened, which is the plausible-wrong-value failure this product exists to avoid — in Sift's
     /// own UI.
     public func stagedEntries() throws -> [StagedSource] {
+        try requireOpen()
         let rows: [[Cell]]
         do {
             let con = try database.connect()
@@ -695,6 +706,7 @@ extension Session {
     /// exists here, so it is not ported.
     @discardableResult
     public func purgeStaged(tables names: [String]? = nil, all: Bool = false) throws -> PurgeResult {
+        try requireOpen()
         do {
             let con = try database.connect()
             let dropped = try Self.purgeStagedTables(
@@ -814,6 +826,9 @@ extension Session {
     /// Drop a staged table and go back to reading the source in place. Ported from `unstage`.
     @discardableResult
     public func unstage(_ name: String) async throws -> Table {
+        try requireOpen()
+        ownedWork.begin()
+        defer { ownedWork.finish() }
         var t = try table(name)
         guard t.staged else { return t }
 
@@ -862,14 +877,17 @@ extension Session {
 /// locked it is undefined — exactly what an `await` inside this scope could arrange. The 0.15 s
 /// backoff is therefore `Thread.sleep`, on a task that has just spent seconds inside a blocking
 /// CTAS on this same thread.
-func swapStaged(_ con: Connection, name: String, lock: NSLock) throws {
+func swapStaged(_ con: Connection, name: String, lock: NSLock, beforeCommit: () throws -> Void = {}) throws {
     lock.lock()
     defer { lock.unlock() }
 
     var lastError: Error?
     for attempt in 0..<3 {
         do {
-            for statement in swapSQL(table: name) { try con.execute(statement) }
+            for statement in swapSQL(table: name) {
+                if statement == "COMMIT" { try beforeCommit() }
+                try con.execute(statement)
+            }
             return
         } catch {
             lastError = error

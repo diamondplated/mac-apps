@@ -1,3 +1,4 @@
+import TestSupport
 import DuckDBKit
 import Foundation
 import SiftCore
@@ -16,7 +17,7 @@ private func inRegion(_ values: [SQLValue]) -> Filter {
     Filter(col: "region", op: .inList, values: values)
 }
 
-@Test func aPlainClickFiltersToJustThatValueAndReplacesTheColumnsPreviousList() {
+@Test(.engineLifetime) func aPlainClickFiltersToJustThatValueAndReplacesTheColumnsPreviousList() {
     let first = applyDistinctClick(
         col: "region", value: west, label: "West", modifier: .plain, current: [])
     #expect(first == [inRegion([west])])
@@ -27,7 +28,7 @@ private func inRegion(_ values: [SQLValue]) -> Filter {
     #expect(second == [inRegion([east])])
 }
 
-@Test func aClickLeavesEveryOtherColumnsFiltersExactlyWhereTheyWere() {
+@Test(.engineLifetime) func aClickLeavesEveryOtherColumnsFiltersExactlyWhereTheyWere() {
     for modifier in [DistinctClick.plain, .command, .exclude] {
         let out = applyDistinctClick(
             col: "region", value: west, label: "West", modifier: modifier, current: [amount])
@@ -40,7 +41,7 @@ private func inRegion(_ values: [SQLValue]) -> Filter {
     #expect(nulled == [amount, Filter(col: "region", op: .isNull)])
 }
 
-@Test func aClickReplacesOnlyTheSameOpAndLeavesTheColumnsOtherFiltersAlone() {
+@Test(.engineLifetime) func aClickReplacesOnlyTheSameOpAndLeavesTheColumnsOtherFiltersAlone() {
     // `addFilter` drops filters matching on BOTH col and op (`web/index.html:890`), so an exclusion
     // already on this column survives a plain click on it.
     let excluded = Filter(col: "region", op: .notIn, values: [east])
@@ -49,7 +50,7 @@ private func inRegion(_ values: [SQLValue]) -> Filter {
     #expect(out == [excluded, inRegion([west])])
 }
 
-@Test func commandClickTogglesMembershipOfTheColumnsInList() {
+@Test(.engineLifetime) func commandClickTogglesMembershipOfTheColumnsInList() {
     let one = applyDistinctClick(
         col: "region", value: west, label: "West", modifier: .plain, current: [])
     let two = applyDistinctClick(
@@ -61,7 +62,7 @@ private func inRegion(_ values: [SQLValue]) -> Filter {
     #expect(back == [inRegion([east])], "⌘-clicking a selected value removes it")
 }
 
-@Test func removingTheLastCommandClickedValueDropsEveryFilterOnThatColumn() {
+@Test(.engineLifetime) func removingTheLastCommandClickedValueDropsEveryFilterOnThatColumn() {
     // Not just the `in`: `web/index.html:1279-1280` drops the whole column
     // (`filters.filter(f => f.col !== col)`). An empty `in` left behind is invisible in the
     // generated SQL — `whereClause` skips a value-taking op with no values — while still sitting in
@@ -72,13 +73,13 @@ private func inRegion(_ values: [SQLValue]) -> Filter {
     #expect(out == [amount])
 }
 
-@Test func aRightClickExcludesTheValueRatherThanSelectingIt() {
+@Test(.engineLifetime) func aRightClickExcludesTheValueRatherThanSelectingIt() {
     let out = applyDistinctClick(
         col: "region", value: west, label: "West", modifier: .exclude, current: [])
     #expect(out == [Filter(col: "region", op: .notIn, values: [west])])
 }
 
-@Test func theTwoSentinelsAreDetectedByLabelAndBecomeNullaryOps() {
+@Test(.engineLifetime) func theTwoSentinelsAreDetectedByLabelAndBecomeNullaryOps() {
     // Detected by LABEL, exactly as the web does (`:1271-1272`) — the labels are the engine's, from
     // `topNSQL`'s CASE. A one-element `IN (NULL)` matches nothing at all, which is the bug the
     // nullary op exists to avoid.
@@ -110,7 +111,7 @@ private func inRegion(_ values: [SQLValue]) -> Filter {
     #expect(excluded == [Filter(col: "region", op: .notIn, values: [.null])])
 }
 
-@Test func clickingTheSameValueTwiceReplacesRatherThanAccumulating() {
+@Test(.engineLifetime) func clickingTheSameValueTwiceReplacesRatherThanAccumulating() {
     let once = applyDistinctClick(
         col: "region", value: west, label: "West", modifier: .plain, current: [])
     let twice = applyDistinctClick(
@@ -118,7 +119,7 @@ private func inRegion(_ values: [SQLValue]) -> Filter {
     #expect(twice == once)
 }
 
-@Test func everyCellCaseBecomesTheFilterValueThatBindsBackToIt() {
+@Test(.engineLifetime) func everyCellCaseBecomesTheFilterValueThatBindsBackToIt() {
     #expect(filterValue(for: .null) == .null)
     #expect(filterValue(for: .bool(true)) == .bool(true))
     #expect(filterValue(for: .int(7)) == .int(7))

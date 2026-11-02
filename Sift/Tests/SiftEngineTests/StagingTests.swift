@@ -113,7 +113,7 @@ private func isNativeTable(_ session: Session, _ probe: String, _ name: String) 
 
 // MARK: - 🔴 the cancel hammer
 
-@Test func aSingleInterruptIsSwallowedButAStageJobsHammeringIsNot() throws {
+@Test(.engineLifetime) func aSingleInterruptIsSwallowedButAStageJobsHammeringIsNot() throws {
     // The landmine, both halves, against the real library. MEASURED (Plan 1, re-confirmed here):
     // `duckdb_interrupt` issued BEFORE execution begins is swallowed — the flag is cleared as
     // execution starts — so Python's single `con.interrupt()` in `cancel` does not port. This is
@@ -152,7 +152,7 @@ private func isNativeTable(_ session: Session, _ probe: String, _ name: String) 
     #expect(recovered.count == 1, "the hammer must stop when the window closes, not keep firing")
 }
 
-@Test func cancellingAStagingJobLeavesNoCopyAndNoCatalogRow() async throws {
+@Test(.engineLifetime) func cancellingAStagingJobLeavesNoCopyAndNoCatalogRow() async throws {
     let session = try newSession()
     await session.setStageDwellForTest(3600)     // only the explicit job below may run
     let t = try await session.openPath(bigCSV)
@@ -170,14 +170,14 @@ private func isNativeTable(_ session: Session, _ probe: String, _ name: String) 
             "the half-built copy must be dropped, not left behind")
 }
 
-@Test func cancelIsFalseForAJobThatIsNotRunning() async throws {
+@Test(.engineLifetime) func cancelIsFalseForAJobThatIsNotRunning() async throws {
     let session = try newSession()
     #expect(await session.cancel("stage-999") == false)
 }
 
 // MARK: - staging is the SECOND step, never the first
 
-@Test func theDwellAloneStagesAndRecordsWhatTheCopyCost() async throws {
+@Test(.engineLifetime) func theDwellAloneStagesAndRecordsWhatTheCopyCost() async throws {
     let session = try newSession()
     await session.setStageDwellForTest(0.05)
     let t = try await session.openPath(bigCSV)
@@ -209,7 +209,7 @@ private func isNativeTable(_ session: Session, _ probe: String, _ name: String) 
     #expect(page.rows.count == 10)
 }
 
-@Test func aDriveByPeekDoesNotPayForTheCopyUntilAnAggregate() async throws {
+@Test(.engineLifetime) func aDriveByPeekDoesNotPayForTheCopyUntilAnAggregate() async throws {
     let session = try newSession()
     await session.setStageDwellForTest(3600)   // the dwell will not fire during this test
     let t = try await session.openPath(bigCSV)
@@ -229,7 +229,7 @@ private func isNativeTable(_ session: Session, _ probe: String, _ name: String) 
     #expect(staged.rowCount == bigCSVRows)
 }
 
-@Test func stageNowRefusesASmallSourceUnlessForced() async throws {
+@Test(.engineLifetime) func stageNowRefusesASmallSourceUnlessForced() async throws {
     let session = try newSession()
     let t = try await session.openPath(try makeSmallCSV())
 
@@ -246,7 +246,7 @@ private func isNativeTable(_ session: Session, _ probe: String, _ name: String) 
 
 // MARK: - row counts after the swap
 
-@Test func stagedRowCountAddsBackTheRowsTheParserDropped() async throws {
+@Test(.engineLifetime) func stagedRowCountAddsBackTheRowsTheParserDropped() async throws {
     // A compressed CSV always samples only the first 20,480 rows, so a bad value past that window
     // is invisible to the sniffer and `ignore_errors` silently drops the row — the same fixture
     // shape SessionTests uses for `gridRowsExcludesBadRowsOnACompressedDirtyCSV`. The materialized
@@ -281,7 +281,7 @@ private func isNativeTable(_ session: Session, _ probe: String, _ name: String) 
 
 // MARK: - failure reporting
 
-@Test func aStagingFailureIsReportedOnTheTable() async throws {
+@Test(.engineLifetime) func aStagingFailureIsReportedOnTheTable() async throws {
     let session = try newSession()
     let path = try makeSmallCSV()
     let t = try await session.openPath(path)
@@ -297,7 +297,7 @@ private func isNativeTable(_ session: Session, _ probe: String, _ name: String) 
     #expect(try await session.stagedEntries().isEmpty, "a failed copy must not be recorded")
 }
 
-@Test func aCopyFinishedForAClosedAndReopenedTableIsRejected() async throws {
+@Test(.engineLifetime) func aCopyFinishedForAClosedAndReopenedTableIsRejected() async throws {
     // The staging half of SessionTests' `closeAndReopenRejectsAStaleBackgroundResult`, and the
     // reason `runStage` repairs the catalog on `.stale`: the copy is published by RENAMING it over
     // the table's name, so a job that finishes after its table was closed and a DIFFERENT file
@@ -329,7 +329,7 @@ private func isNativeTable(_ session: Session, _ probe: String, _ name: String) 
 
 // MARK: - the catalog
 
-@Test func lastUsedRoundTripsThroughTheCatalogInTheSameClockFrame() async throws {
+@Test(.engineLifetime) func lastUsedRoundTripsThroughTheCatalogInTheSameClockFrame() async throws {
     // `now()` is a TIMESTAMPTZ stored into a naive TIMESTAMP column, so it lands in the session's
     // LOCAL time; reading it back with a bare `epoch_ms` yields an instant off by the machine's
     // UTC offset (MEASURED: 5 h on this machine, America/Chicago). Everything downstream compares
@@ -348,7 +348,7 @@ private func isNativeTable(_ session: Session, _ probe: String, _ name: String) 
     #expect(abs(entries[0].stagedAt.timeIntervalSinceNow) < 300)
 }
 
-@Test func stagedEntriesFlagsAChangedOrMissingSource() async throws {
+@Test(.engineLifetime) func stagedEntriesFlagsAChangedOrMissingSource() async throws {
     let session = try newSession()
     let path = try makeSmallCSV()
     let t = try await session.openPath(path)
@@ -372,7 +372,7 @@ private func isNativeTable(_ session: Session, _ probe: String, _ name: String) 
 
 // MARK: - purge
 
-@Test func purgeNeverYanksATableOutFromUnderAnOpenTab() async throws {
+@Test(.engineLifetime) func purgeNeverYanksATableOutFromUnderAnOpenTab() async throws {
     let session = try newSession()
     let t = try await session.openPath(try makeSmallCSV())
     _ = try await session.stageNow(t.name, force: true)
@@ -391,7 +391,7 @@ private func isNativeTable(_ session: Session, _ probe: String, _ name: String) 
     #expect(try await session.stagedEntries().isEmpty)
 }
 
-@Test func purgeDropsACopyWhoseSourceChangedOnDisk() async throws {
+@Test(.engineLifetime) func purgeDropsACopyWhoseSourceChangedOnDisk() async throws {
     let session = try newSession()
     let path = try makeSmallCSV()
     let t = try await session.openPath(path)
@@ -412,7 +412,7 @@ private func isNativeTable(_ session: Session, _ probe: String, _ name: String) 
     #expect(try await session.stagedEntries().isEmpty)
 }
 
-@Test func purgeSelectsAgedOutThenOverBudgetAndSkipsWhatIsOpen() throws {
+@Test(.engineLifetime) func purgeSelectsAgedOutThenOverBudgetAndSkipsWhatIsOpen() throws {
     // The policy itself, against a bare store: `Session.purgeStagedTables` is `static` precisely
     // so this needs no live session, no 20 GB of real disk, and no clock manipulation.
     let db = try Database.inMemory()
@@ -454,7 +454,7 @@ private func isNativeTable(_ session: Session, _ probe: String, _ name: String) 
 
 // MARK: - unstage
 
-@Test func unstageGoesBackToReadingTheFileInPlace() async throws {
+@Test(.engineLifetime) func unstageGoesBackToReadingTheFileInPlace() async throws {
     let session = try newSession()
     let t = try await session.openPath(try makeSmallCSV())
     _ = try await session.stageNow(t.name, force: true)
@@ -474,7 +474,7 @@ private func isNativeTable(_ session: Session, _ probe: String, _ name: String) 
     #expect(again.staged == false)
 }
 
-@Test func reopeningAStagedFileReusesTheCopyItAlreadyPaidFor() async throws {
+@Test(.engineLifetime) func reopeningAStagedFileReusesTheCopyItAlreadyPaidFor() async throws {
     // Staging leaves a real TABLE in a persistent store, so the copy outlives the tab — which is
     // what the `_sift_sources` catalog is for. Python never reads that catalog back on open: its
     // `open_path` runs `CREATE OR REPLACE VIEW` unconditionally, and MEASURED against DuckDB
@@ -498,7 +498,7 @@ private func isNativeTable(_ session: Session, _ probe: String, _ name: String) 
     #expect(try await session.stagedEntries().count == 1, "still exactly one copy, not a second")
 }
 
-@Test func reopeningAChangedFileThrowsAwayTheStaleCopy() async throws {
+@Test(.engineLifetime) func reopeningAChangedFileThrowsAwayTheStaleCopy() async throws {
     // The other half of adoption: a copy is only the file if the source token still matches.
     // Serving a stale copy would be the "confidently wrong numbers" failure this tool exists to
     // avoid, so the copy is dropped and the file is read in place again.
@@ -527,7 +527,7 @@ private func isNativeTable(_ session: Session, _ probe: String, _ name: String) 
 
 // MARK: - C1: what a staged copy is a copy OF
 
-@Test(.enabled(if: extensionIsAvailable("excel"), "duckdb excel extension not installed"))
+@Test(.engineLifetime, .enabled(if: extensionIsAvailable("excel"), "duckdb excel extension not installed"))
 func aCopyOfOneSheetIsNeverServedAsAnother() async throws {
     // REPRODUCED before the fix: every sheet of one workbook shares one path, mtime and size, so
     // `SourceKey.token()` matched across sheets. Staging `Summary` (1 row, metric/value) and then
@@ -557,7 +557,7 @@ func aCopyOfOneSheetIsNeverServedAsAnother() async throws {
     #expect(again.rowCount == 50)
 }
 
-@Test func aCopyOfAFolderIsNotServedAfterAMemberIsRewrittenInPlace() async throws {
+@Test(.engineLifetime) func aCopyOfAFolderIsNotServedAfterAMemberIsRewrittenInPlace() async throws {
     // REPRODUCED before the fix, and this was the one with no way back: a directory's mtime and
     // size do not move when a member file is rewritten in place, so the copy was adopted with the
     // pre-edit values AND reported `sourceChanged: false`. The staleness sweep does the same
@@ -602,7 +602,7 @@ func aCopyOfOneSheetIsNeverServedAsAnother() async throws {
     #expect(third.staged == true, "an unchanged folder must reuse the copy it already paid for")
 }
 
-@Test func theStagingTokenSeparatesSheetsAndFolderContents() throws {
+@Test(.engineLifetime) func theStagingTokenSeparatesSheetsAndFolderContents() throws {
     // The identity itself, unit-level: the same file, two sheets -> two tokens; a folder whose
     // member changed -> a different token. This is what `SourceKey.token()` could not do.
     let key = SourceKey(path: "/tmp/book.xlsx", mtimeNs: 111, size: 222)
@@ -631,7 +631,7 @@ func aCopyOfOneSheetIsNeverServedAsAnother() async throws {
 
 // MARK: - I2: the swap retries through a real write-write conflict
 
-@Test func theSwapRetriesThroughAWriteWriteConflict() throws {
+@Test(.engineLifetime) func theSwapRetriesThroughAWriteWriteConflict() throws {
     // The retry, the ROLLBACK and the backoff could all be deleted with the suite green. This
     // forces the conflict the mechanism exists for, with no timing: a second connection holds an
     // open transaction that has written the view being swapped away.
@@ -678,7 +678,7 @@ func aCopyOfOneSheetIsNeverServedAsAnother() async throws {
 
 // MARK: - I3: the two unpinned openedAt guards
 
-@Test func aFailedJobForAClosedAndReopenedTableIsNotReportedOnTheNewOne() async throws {
+@Test(.engineLifetime) func aFailedJobForAClosedAndReopenedTableIsNotReportedOnTheNewOne() async throws {
     // Without `finishStage`'s guard, a job that dies for table `x` after `x` was closed and a
     // different file reopened under that name writes "staging failed: …" onto the innocent new
     // table and clears its own in-flight progress. Same shape as the regression this branch
@@ -698,7 +698,7 @@ func aCopyOfOneSheetIsNeverServedAsAnother() async throws {
     #expect(after.staging == inFlight, "and its own job must not be cleared by a stranger")
 }
 
-@Test func theDwellDropsAStaleGenerationImmediatelyInsteadOfWaiting() async throws {
+@Test(.engineLifetime) func theDwellDropsAStaleGenerationImmediatelyInsteadOfWaiting() async throws {
     // `maybeStageAfterDwell`'s two guards. With them removed this call sits in the dwell loop for
     // the full (here: hour-long) deadline instead of returning at once, and then stages a table
     // its job was never about — so the assertion is that it comes back promptly AND stages nothing.
@@ -722,7 +722,7 @@ func aCopyOfOneSheetIsNeverServedAsAnother() async throws {
 
 // MARK: - I4: two copies in flight must not charge each other
 
-@Test func twoCopiesStagingAtOnceEachGetTheirOwnHonestByteCount() async throws {
+@Test(.engineLifetime) func twoCopiesStagingAtOnceEachGetTheirOwnHonestByteCount() async throws {
     // A whole-store delta cross-charges: MEASURED in review, two equal files staging together
     // recorded 524,288 and 900,839 B, and a 3-row CSV recorded 413 B beside a 30 MB copy. Two
     // byte-identical files must cost exactly the same, whatever else is happening in the store.
@@ -748,7 +748,7 @@ func aCopyOfOneSheetIsNeverServedAsAnother() async throws {
 
 // MARK: - I5: one row per staged table, not per source token
 
-@Test func twoTabsOfOneFileEachKeepTheirOwnCatalogRow() async throws {
+@Test(.engineLifetime) func twoTabsOfOneFileEachKeepTheirOwnCatalogRow() async throws {
     // The old PRIMARY KEY was `source_token`, which both tabs of one file share, so the second
     // INSERT OR REPLACE replaced the first tab's row. REPRODUCED: catalog `["small_2"]` against
     // real tables `["small", "small_2"]`, and `purgeStaged(all: true)` then dropped only
@@ -781,7 +781,7 @@ func aCopyOfOneSheetIsNeverServedAsAnother() async throws {
 
 // MARK: - I6: closing a tab while its copy is being swapped in
 
-@Test func closingATabMidSwapDoesNotThrow() async throws {
+@Test(.engineLifetime) func closingATabMidSwapDoesNotThrow() async throws {
     // Between `swapStaged`'s rename and `applyStaged`'s publish the name is a real TABLE while the
     // flags still say "not staged" — and `DROP VIEW` on a table is a hard Catalog Error, so
     // closing the tab in that window failed while the `defer` removed it from the catalog anyway.
@@ -799,7 +799,7 @@ func aCopyOfOneSheetIsNeverServedAsAnother() async throws {
 
 // MARK: - M1: one bad row must not disable the purge forever
 
-@Test func aCatalogRowWhoseObjectIsAViewIsCollectedInsteadOfAbortingThePurge() throws {
+@Test(.engineLifetime) func aCatalogRowWhoseObjectIsAViewIsCollectedInsteadOfAbortingThePurge() throws {
     // `DROP TABLE` on a view throws, and inside the purge loop that throw aborted every later
     // target — age and budget enforcement silently dead from then on. The path in is real: a
     // catalog row outliving its table, then `openPath` creating a view under the same name.
@@ -823,7 +823,7 @@ func aCopyOfOneSheetIsNeverServedAsAnother() async throws {
 
 // MARK: - M3 / M4: the cancel job's own edges
 
-@Test func aCancelThatCannotLandReportsFalse() throws {
+@Test(.engineLifetime) func aCancelThatCannotLandReportsFalse() throws {
     // Once the interruptible query has returned, the job is committed to publishing. Saying "yes,
     // cancelled" there and then publishing the copy anyway is the lie this closes.
     let con = try Database.inMemory().connect()
@@ -834,7 +834,7 @@ func aCopyOfOneSheetIsNeverServedAsAnother() async throws {
     #expect(job.requestCancel() == false, "a job past the interrupt window cannot")
 }
 
-@Test func aCancelBeforeTheConnectionExistsStillStopsItsThread() throws {
+@Test(.engineLifetime) func aCancelBeforeTheConnectionExistsStillStopsItsThread() throws {
     // `cancel` can arrive with the job id `stageNow` just returned, before `runStage` has
     // connected. The hammer starts anyway (so it catches the CTAS the moment it begins), and it
     // must still stop — otherwise it spins at ~5 kHz on a nil target for the life of the process.
@@ -865,7 +865,7 @@ private struct ConnectionBox: @unchecked Sendable {
 
 // MARK: - M6: the timestamp round trip, pinned rather than left to the host's zone
 
-@Test func theCatalogsTimestampsAreReadBackInTheFrameTheyWereWrittenIn() throws {
+@Test(.engineLifetime) func theCatalogsTimestampsAreReadBackInTheFrameTheyWereWrittenIn() throws {
     // The end-to-end version of this ("last_used is close to now") is VACUOUS on a UTC host: with
     // the `::TIMESTAMPTZ` cast removed it still passes under `TZ=UTC`. This one pins the session
     // zone itself, so it is the same test on every machine: `now()` is a TIMESTAMPTZ landing in a
@@ -892,7 +892,7 @@ private struct ConnectionBox: @unchecked Sendable {
 
 // MARK: - M8: the size half of "mtime or size"
 
-@Test func theStalenessSweepFiresOnSizeAloneAsWellAsMtimeAlone() throws {
+@Test(.engineLifetime) func theStalenessSweepFiresOnSizeAloneAsWellAsMtimeAlone() throws {
     // Every end-to-end test rewrites a file, which moves BOTH fields, so either half of this
     // condition could be deleted with the suite green. Here the stored values are planted so that
     // exactly one field disagrees with the file on disk.
@@ -921,7 +921,7 @@ private struct ConnectionBox: @unchecked Sendable {
 
 // MARK: - the startup purge, and a second Session in the same process
 
-@Test func aFreshSessionCollectsWhatTheLastOneLeftStale() async throws {
+@Test(.engineLifetime) func aFreshSessionCollectsWhatTheLastOneLeftStale() async throws {
     // My round-0 report claimed this test was impossible because "a second Session on the same
     // home cannot be opened in-process". That was FALSE — DuckDB's file lock is cross-process
     // only. (What two live in-process Sessions actually are is worse than sharing and is written
@@ -956,7 +956,7 @@ private struct ConnectionBox: @unchecked Sendable {
 
 // MARK: - a store written by an older build
 
-@Test func aStoreFromAnOlderBuildIsResetRatherThanMisread() async throws {
+@Test(.engineLifetime) func aStoreFromAnOlderBuildIsResetRatherThanMisread() async throws {
     // The catalog's key moved (I5) and the token format changed (C1). Neither can be patched in
     // place, so a legacy store is reset: its copies are DROPPED — not left stranded where nothing
     // can reach them — and the catalog is recreated with the current schema.
@@ -1000,7 +1000,7 @@ private struct ConnectionBox: @unchecked Sendable {
     #expect(try await session.stagedEntries().count == 1)
 }
 
-@Test func aCopyWhoseShapeDisagreesWithTheFileIsNotAdoptedEvenWhenTheTokenMatches() async throws {
+@Test(.engineLifetime) func aCopyWhoseShapeDisagreesWithTheFileIsNotAdoptedEvenWhenTheTokenMatches() async throws {
     // The backstop for the one hole the token cannot close (review C1(c)): a file replaced by a
     // different file of the same size with the same mtime — a restore that preserves timestamps —
     // produces a MATCHING token for content that is not the same. Constructed directly, because
@@ -1031,7 +1031,7 @@ private struct ConnectionBox: @unchecked Sendable {
 
 // MARK: - N1: the hammer stops on EVERY exit from runStage, including a failed connect
 
-@Test func aJobThatCannotEvenConnectStillStopsItsHammer() async throws {
+@Test(.engineLifetime) func aJobThatCannotEvenConnectStillStopsItsHammer() async throws {
     // The M4 `defer` spent round 1 sitting BELOW the `catch { … return }` it was written for, with
     // a comment claiming it covered that case. Swift registers a `defer` when control reaches it,
     // so it never ran on that path and the hammer thread spun at ~5 kHz for the life of the
@@ -1056,7 +1056,7 @@ private struct ConnectionBox: @unchecked Sendable {
 
 // MARK: - N2: closing a tab mid-copy must not leak the view
 
-@Test func closingATabMidCopyLeavesNoViewBehind() async throws {
+@Test(.engineLifetime) func closingATabMidCopyLeavesNoViewBehind() async throws {
     // `closeTable` leaves the name alone while a job is in flight, because a copy may already have
     // renamed a TABLE over it. Every pre-swap exit then lands in `finishStage`, which used to find
     // no table and simply return — so nobody dropped the view. `~/.sift` is persistent and no
@@ -1087,7 +1087,7 @@ private struct ConnectionBox: @unchecked Sendable {
 
 // MARK: - N3: the column check admits exactly one provenance column, not any number
 
-@Test func aCopyWithAnUnexpectedExtraColumnIsNotAdopted() async throws {
+@Test(.engineLifetime) func aCopyWithAnUnexpectedExtraColumnIsNotAdopted() async throws {
     // `starts(with:)` fixed the folder case but admitted ANY number of extra trailing columns for
     // ANY source kind. A plain CSV's copy must match its spec exactly.
     let session = try newSession()
@@ -1108,7 +1108,7 @@ private struct ConnectionBox: @unchecked Sendable {
 
 // MARK: - N4: a rewrite that forges the mtime cannot forge the ctime
 
-@Test func aCopyIsNotAdoptedWhenTheFileWasRewrittenWithItsTimestampRestored() async throws {
+@Test(.engineLifetime) func aCopyIsNotAdoptedWhenTheFileWasRewrittenWithItsTimestampRestored() async throws {
     // The realistic route is not an exotic restore: any toolchain that stamps a constant mtime on
     // its outputs (SOURCE_DATE_EPOCH, Nix/Bazel, unzip of a fixed-timestamp archive) plus a
     // fixed-width export gives an identical mtime AND size for different content — and identical
@@ -1146,7 +1146,7 @@ private struct ConnectionBox: @unchecked Sendable {
 
 // MARK: - M6: the purge cutoff read in the wrong timezone deletes the user's data
 
-@Test func thePurgeCutoffIsImmuneToTheSessionTimezone() throws {
+@Test(.engineLifetime) func thePurgeCutoffIsImmuneToTheSessionTimezone() throws {
     // `stagedEntries` merely mislabels a string if the cast is dropped; THIS site deletes cached
     // data. A row 13 h 21 m short of the 14-day cutoff is read 5 h older without the cast on a
     // Chicago-zoned connection — over the line, and gone. The zone is pinned inside the test, so
@@ -1168,7 +1168,7 @@ private struct ConnectionBox: @unchecked Sendable {
 
 // MARK: - N5: two sheets of one workbook that only the identity can tell apart
 
-@Test(.enabled(if: extensionIsAvailable("excel"), "duckdb excel extension not installed"))
+@Test(.engineLifetime, .enabled(if: extensionIsAvailable("excel"), "duckdb excel extension not installed"))
 func aCopyOfOneMonthsSheetIsNeverServedAsAnother() async throws {
     // `book.xlsx`'s two sheets have different columns, so the shape backstop rejects the wrong
     // copy even when the identity itself is broken — which left the sheet component with no
@@ -1197,7 +1197,7 @@ func aCopyOfOneMonthsSheetIsNeverServedAsAnother() async throws {
     #expect(again.staged == true)
 }
 
-@Test func aCopyWhoseTokenFormatPredatesThisBuildIsCollected() throws {
+@Test(.engineLifetime) func aCopyWhoseTokenFormatPredatesThisBuildIsCollected() throws {
     // `migrateCatalog` resets a store whose catalog KEY is also old. This is the lighter case: the
     // schema is current but the token format bumped (v2 -> v3, when ctime joined the identity).
     // Such a row can never be adopted again, so leaving it is disk nothing will ever reach.
@@ -1227,7 +1227,7 @@ func aCopyOfOneMonthsSheetIsNeverServedAsAnother() async throws {
 
 // MARK: - N4 (folder half): a member rewritten with its timestamp restored
 
-@Test func aCopyIsNotAdoptedWhenAFolderMemberWasRewrittenWithItsTimestampRestored() async throws {
+@Test(.engineLifetime) func aCopyIsNotAdoptedWhenAFolderMemberWasRewrittenWithItsTimestampRestored() async throws {
     // The file half of this is `aCopyIsNotAdopted…TimestampRestored`; this is the per-member half,
     // which was unpinned — removing ctime from the digest left all 320 green. Written by the
     // round-2 reviewer, delivered as-is apart from naming and these comments.

@@ -1,0 +1,422 @@
+[
+  {
+    "path": "Sources/DuckDBKit/Database.swift",
+    "code": "guard let con = try? connect() else {",
+    "count": 1,
+    "reason": "Configuration records unsuccessful setup in status; Session validates hardening before opening."
+  },
+  {
+    "path": "Sources/DuckDBKit/Database.swift",
+    "code": "guard let con = try? connect() else { return }",
+    "count": 1,
+    "reason": "Existing debt: extension setup returns without recording per-extension failures if connecting fails; callers see no loaded extension."
+  },
+  {
+    "path": "Sources/DuckDBKit/Database.swift",
+    "code": "let succeeded = (try? con.execute(\"SET \\(name)=\\(value)\")) != nil",
+    "count": 1,
+    "reason": "A failed SET is recorded as false under the state lock; strict Session initialization refuses any failed required setting."
+  },
+  {
+    "path": "Sources/DuckDBKit/Database.swift",
+    "code": "if (try? con.execute(\"LOAD \\(name)\")) != nil {",
+    "count": 1,
+    "reason": "LOAD is a presence probe; failure selects INSTALL or reports the extension unavailable."
+  },
+  {
+    "path": "Sources/SiftEngine/Connections.swift",
+    "code": "for spec in next.connections { try? con.execute(dropSecretSQL(spec)) }",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/Connections.swift",
+    "code": "guard let data = try? encoder.encode(config) else {",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/Connections.swift",
+    "code": "if hasCredential { try? Keychain.delete(account: spec.id.uuidString, in: keychainService) }",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/Connections.swift",
+    "code": "try? FileManager.default.removeItem(atPath: temporary)",
+    "count": 1,
+    "reason": "Best-effort cleanup after completion or failure; the primary operation retains its own result."
+  },
+  {
+    "path": "Sources/SiftEngine/Connections.swift",
+    "code": "try? con.execute(dropSecretSQL(spec))",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/Export.swift",
+    "code": "if claimed && !wrote { try? FileManager.default.removeItem(atPath: path) }",
+    "count": 1,
+    "reason": "Best-effort cleanup after completion or failure; the primary operation retains its own result."
+  },
+  {
+    "path": "Sources/SiftEngine/RemoteProbe.swift",
+    "code": "defer { try? con.execute(\"DROP TABLE IF EXISTS \\(q(downloadTable))\") }",
+    "count": 1,
+    "reason": "Best-effort cleanup after completion or failure; the primary operation retains its own result."
+  },
+  {
+    "path": "Sources/SiftEngine/RemoteProbe.swift",
+    "code": "guard let (_, response) = try? await session.data(for: request),",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/RemoteProbe.swift",
+    "code": "if (try? con.query(\"DESCRIBE SELECT * FROM \\(expr)\", [.text(wire)]).allRows()) != nil {",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/RemoteProbe.swift",
+    "code": "try? manager.removeItem(atPath: path)",
+    "count": 1,
+    "reason": "Best-effort cleanup after completion or failure; the primary operation retains its own result."
+  },
+  {
+    "path": "Sources/SiftEngine/Session.swift",
+    "code": "_ = try? Self.purgeStagedTables(con, open: [], tables: nil, all: false)",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/Session.swift",
+    "code": "guard let attributes = try? manager.attributesOfItem(atPath: cache),",
+    "count": 1,
+    "reason": "Cleanup fails closed if parent metadata cannot establish that the cache is a directory, not a symlink."
+  },
+  {
+    "path": "Sources/SiftEngine/Session.swift",
+    "code": "guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),",
+    "count": 1,
+    "reason": "Existing metadata fallback: unavailable metadata selects the current absent/default path; retained for focused contract review."
+  },
+  {
+    "path": "Sources/SiftEngine/Session.swift",
+    "code": "guard let connection = try? database.connect() else { return }",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/Session.swift",
+    "code": "guard let names = try? FileManager.default.contentsOfDirectory(atPath: home) else { return }",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/Session.swift",
+    "code": "if let raw = rawRelationExpr(spec), let scan = try? detectBadRows(connection, spec: spec, raw: raw) {",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/Session.swift",
+    "code": "rowCount = try? exactCount(connection, spec: spec)",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/Session.swift",
+    "code": "try? FileManager.default.removeItem(atPath: (home as NSString).appendingPathComponent(name))",
+    "count": 1,
+    "reason": "Best-effort cleanup after completion or failure; the primary operation retains its own result."
+  },
+  {
+    "path": "Sources/SiftEngine/Session.swift",
+    "code": "try? FileManager.default.removeItem(atPath: path)",
+    "count": 1,
+    "reason": "Best-effort cleanup after completion or failure; the primary operation retains its own result."
+  },
+  {
+    "path": "Sources/SiftEngine/Session.swift",
+    "code": "try? manager.removeItem(atPath: (cache as NSString).appendingPathComponent(\"stage-\\(pid)\"))",
+    "count": 1,
+    "reason": "Best-effort cleanup of a private cache directory only after its PID is proven dead by ESRCH and its parent is verified not to be a symlink."
+  },
+  {
+    "path": "Sources/SiftEngine/Session.swift",
+    "code": "try? pagingConnection.execute(\"DROP TABLE IF EXISTS \\(q(key))\")",
+    "count": 1,
+    "reason": "Best-effort cleanup after completion or failure; the primary operation retains its own result."
+  },
+  {
+    "path": "Sources/SiftEngine/SessionQueries.swift",
+    "code": "guard let con = try? database.connect(),",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/SessionQueries.swift",
+    "code": "guard let con = try? database.connect(), let rows = try? con.query(sql),",
+    "count": 2,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/SessionQueries.swift",
+    "code": "let fetched = try? rows.allRows()",
+    "count": 2,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/SessionQueries.swift",
+    "code": "let rows = try? con.query(\"SELECT \\(q(col)) FROM \\(rel) USING SAMPLE \\(limit) ROWS\"),",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/SourceProbe.swift",
+    "code": "let sn = try? sniffCSV(con, path: first) {",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/SourceProbe.swift",
+    "code": "return try? sniffCSV(con, path: path, sampleSize: sampleSize, nullPadding: true).columns.count",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/Staging.swift",
+    "code": "_ = try? await computeProfile(name)",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/Staging.swift",
+    "code": "_ = try? con.query(",
+    "count": 2,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/Staging.swift",
+    "code": "_ = try? con.query(\"DELETE FROM _sift_sources WHERE table_name = ?\", [.text(name)])",
+    "count": 4,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/Staging.swift",
+    "code": "_ = try? stageNow(name)",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/Staging.swift",
+    "code": "guard let member = try? statInfo((path as NSString).appendingPathComponent(entry)) else {",
+    "count": 1,
+    "reason": "Existing metadata fallback: unavailable metadata selects the current absent/default path; retained for focused contract review."
+  },
+  {
+    "path": "Sources/SiftEngine/Staging.swift",
+    "code": "guard let names = try? FileManager.default.contentsOfDirectory(atPath: dir) else { return 0 }",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/Staging.swift",
+    "code": "guard let names = try? FileManager.default.contentsOfDirectory(atPath: dir) else { return }",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/Staging.swift",
+    "code": "guard let result = try? con.query(\"SELECT * FROM \\(q(table)) LIMIT 0\") else { return false }",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/Staging.swift",
+    "code": "guard let row = try? con.query(",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/Staging.swift",
+    "code": "guard let stat = try? statInfo(cellText(row[1])) else { continue }",
+    "count": 1,
+    "reason": "Existing metadata fallback: unavailable metadata selects the current absent/default path; retained for focused contract review."
+  },
+  {
+    "path": "Sources/SiftEngine/Staging.swift",
+    "code": "if (try? con.execute(\"DROP TABLE IF EXISTS \\(q(name))\")) != nil { return true }",
+    "count": 1,
+    "reason": "Best-effort cleanup after completion or failure; the primary operation retains its own result."
+  },
+  {
+    "path": "Sources/SiftEngine/Staging.swift",
+    "code": "if let ctime = try? statInfo(spec.key.path).ctimeNs { parts.append(\"ctime=\\(ctime)\") }",
+    "count": 1,
+    "reason": "Existing metadata fallback: unavailable metadata selects the current absent/default path; retained for focused contract review."
+  },
+  {
+    "path": "Sources/SiftEngine/Staging.swift",
+    "code": "if let row = try? con.query(sql).allRows().first, checkpointed || cellInt(row[0]) > 0 {",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/Staging.swift",
+    "code": "let attributes = try? manager.attributesOfItem(atPath: path)",
+    "count": 1,
+    "reason": "Existing metadata fallback: unavailable metadata selects the current absent/default path; retained for focused contract review."
+  },
+  {
+    "path": "Sources/SiftEngine/Staging.swift",
+    "code": "let checkpointed = (try? con.execute(\"CHECKPOINT\")) != nil",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/Staging.swift",
+    "code": "let matched = try? con.query(",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/Staging.swift",
+    "code": "let rows = (try? con.query(\"SELECT source_token, path FROM _sift_sources\").allRows()) ?? []",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/Staging.swift",
+    "code": "let stale = (try? con.query(\"SELECT table_name FROM _sift_sources\").allRows()) ?? []",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/Staging.swift",
+    "code": "let stat = remote ? nil : try? statInfo(path)",
+    "count": 1,
+    "reason": "Existing metadata fallback: unavailable metadata selects the current absent/default path; retained for focused contract review."
+  },
+  {
+    "path": "Sources/SiftEngine/Staging.swift",
+    "code": "let tableExists = (try? con.query(",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/Staging.swift",
+    "code": "return (try? con.execute(\"DROP VIEW IF EXISTS \\(q(name))\")) != nil",
+    "count": 1,
+    "reason": "Best-effort cleanup after completion or failure; the primary operation retains its own result."
+  },
+  {
+    "path": "Sources/SiftEngine/Staging.swift",
+    "code": "try? await Task.sleep(nanoseconds: 100_000_000)",
+    "count": 1,
+    "reason": "Cancellation is handled by the surrounding loop or task; sleep failure itself needs no user error."
+  },
+  {
+    "path": "Sources/SiftEngine/Staging.swift",
+    "code": "try? con.execute(\"DROP TABLE IF EXISTS _sift_sources\")",
+    "count": 1,
+    "reason": "Best-effort cleanup after completion or failure; the primary operation retains its own result."
+  },
+  {
+    "path": "Sources/SiftEngine/Staging.swift",
+    "code": "try? con.execute(\"ROLLBACK\")",
+    "count": 1,
+    "reason": "Best-effort cleanup after completion or failure; the primary operation retains its own result."
+  },
+  {
+    "path": "Sources/SiftEngine/Staging.swift",
+    "code": "try? con.execute(catalogDDL)",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/Staging.swift",
+    "code": "try? con.execute(createViewSQL(name: name, spec: replacement))",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/Staging.swift",
+    "code": "try? con.execute(dropStagingSQL(name))",
+    "count": 4,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/Staging.swift",
+    "code": "try? manager.removeItem(atPath: path)",
+    "count": 2,
+    "reason": "Best-effort cleanup after completion or failure; the primary operation retains its own result."
+  },
+  {
+    "path": "Sources/SiftEngine/Staging.swift",
+    "code": "try? pagingConnection.execute(\"DROP TABLE IF EXISTS \\(q(key))\")",
+    "count": 2,
+    "reason": "Best-effort cleanup after completion or failure; the primary operation retains its own result."
+  },
+  {
+    "path": "Sources/SiftEngine/Staging.swift",
+    "code": "try? pagingConnection.execute(\"DROP VIEW IF EXISTS \\(q(name))\")",
+    "count": 1,
+    "reason": "Best-effort cleanup after completion or failure; the primary operation retains its own result."
+  },
+  {
+    "path": "Sources/SiftEngine/Verification.swift",
+    "code": "((try? FileManager.default.attributesOfItem(atPath: member(name)))?[.size] as? Int) ?? 0",
+    "count": 1,
+    "reason": "Existing metadata fallback: unavailable metadata selects the current absent/default path; retained for focused contract review."
+  },
+  {
+    "path": "Sources/SiftEngine/Verification.swift",
+    "code": "(try? String(contentsOfFile: Session.connectionsPath(in: ws.home), encoding: .utf8)) ?? \"\"",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/Verification.swift",
+    "code": "defer { try? FileManager.default.removeItem(at: root) }",
+    "count": 1,
+    "reason": "Best-effort cleanup after completion or failure; the primary operation retains its own result."
+  },
+  {
+    "path": "Sources/SiftEngine/Verification.swift",
+    "code": "guard Database.isExtensionName(name), let con = try? scratchDatabase().connect() else {",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/Verification.swift",
+    "code": "guard let t = try? await session.table(name) else { return nil }",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/Verification.swift",
+    "code": "let attributes = (try? FileManager.default.attributesOfItem(atPath: path)) ?? [:]",
+    "count": 1,
+    "reason": "Existing metadata fallback: unavailable metadata selects the current absent/default path; retained for focused contract review."
+  },
+  {
+    "path": "Sources/SiftEngine/Verification.swift",
+    "code": "return ((try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []).sorted()",
+    "count": 1,
+    "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
+  },
+  {
+    "path": "Sources/SiftEngine/Verification.swift",
+    "code": "return (try? con.execute(\"LOAD \\(name)\")) != nil",
+    "count": 1,
+    "reason": "LOAD is a presence probe; failure selects INSTALL or reports the extension unavailable."
+  },
+  {
+    "path": "Sources/SiftEngine/Verification.swift",
+    "code": "try? await Task.sleep(nanoseconds: 20_000_000)",
+    "count": 1,
+    "reason": "Cancellation is handled by the surrounding loop or task; sleep failure itself needs no user error."
+  }
+]

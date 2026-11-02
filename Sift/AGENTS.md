@@ -28,8 +28,8 @@ verdict from — which binds 127.0.0.1 on an ephemeral port, is started only by 
 
 ## The one rule: tests are the spec
 
-`Tests/**` is the source of truth for behavior — **939** declared across `DuckDBKitTests`,
-`SiftCoreTests`, `SiftEngineTests`, `SiftUITests`. **39** of them carry the `remoteFact` prefix and
+`Tests/**` is the source of truth for behavior — tests declared across `DuckDBKitTests`,
+`SiftCoreTests`, `SiftEngineTests`, `SiftUITests`. The remote tests carry the `remoteFact` prefix and
 are gated behind `SIFT_REMOTE_FACTS=1`: those are the ones allowed to `INSTALL` an extension over
 the network, and CI runs them as a separate step.
 
@@ -44,12 +44,19 @@ records every name an `INSTALL` was issued for, so a test can assert what the pr
 than what is on disk afterwards; "the extension is present" has two provenances and a warm cache
 makes them indistinguishable, which is exactly how a strict session's install survived the phase.
 
-**The one thing the default run can still install is `delta`/`excel`.** `Session.init` loads
-`sessionExtensions` in every posture, LOAD→INSTALL→LOAD, so a machine that has never had them
-fetches them the first time any test opens a `Session` — and so does the app, at launch, and so does
-`--verify`. That is pre-existing, it is what makes the gated xlsx/delta tests runnable on a cold CI
-runner, and closing it means installing lazily at the point a `.xlsx` or a `_delta_log/` is opened
-rather than at launch. Worth doing; it is a product change, not a test fix.
+**Session startup never installs `delta` or `excel`.** It attempts LOAD only. Opening an
+Excel workbook (`.xlsx`/`.xlsm`) or Delta directory when its extension is missing produces a
+typed download request. The app asks **Download and Open** or **Cancel**, names the extension
+and `extensions.duckdb.org`, and explains that local file contents are not uploaded. Only
+explicit approval downloads that extension and retries the queued open. Installed extensions
+need no prompt. The CLI refuses by default; `--allow-extension-download` explicitly permits the
+required first-use download. `--verify` never accepts that permission and skips absent formats.
+Default test helpers also LOAD only; cold extension installs belong to gated `remoteFact` tests.
+Engine/UI tests carry `.engineLifetime`, a parallel `TestScoping` trait. It awaits scoped
+`Session.shutdown()` before the test reports, including on failure or cancellation. Never remove
+that scope: CI caught all tests passing while detached staging raced DuckDB's C++ static teardown.
+Shutdown closes admission, interrupts owned work, and joins it before releasing the home or store.
+`--verify` and the CLI use the same scope. Native quit awaits shutdown before allowing termination.
 **Never weaken a test to make a change pass.** If a test pins a symbol or an output string, that
 is a contract, not an accident. The suite runs fully **in parallel** and nothing is
 `.serialized`; a test that only passes serialized is a bug in the test.
@@ -63,25 +70,24 @@ optional. Temp paths go through `Tests/TestSupport`'s `TestTemp` — a bare
 
 ```bash
 ./scripts/fetch-duckdb.sh          # once, needs network — the pinned prebuilt libduckdb
-swift build && swift test          # 939 declared, 39 gated off, ~30 s; warning-free is the bar
+swift build && swift test          # warning-free is the bar
 swift run sift --verify            # the engine end to end: 26 checks, every format
-SIFT_REMOTE_FACTS=1 swift test     # + the 39 that may INSTALL an extension over the network
+SIFT_REMOTE_FACTS=1 swift test     # includes tests that may INSTALL an extension over the network
 ./build-app.sh                     # -> ./Sift.app; verify by MOVING it away from the repo
 ```
 
-`--verify`'s five remote checks reach nothing off the machine: they run against
-`LoopbackHTTPServer`, each caps its own `http_timeout`/`http_retries`, and each skips with a
-sentence when `httpfs` is not already installed rather than reaching for it. A check that cannot
-run is not a check that passed. The command as a whole is not airtight — every workspace `Session`
-it builds can `INSTALL delta`/`excel`, per the note above — and unlike `swift test` that is
-defensible: `--verify` is what a user runs to check their own install.
+`--verify` has six remote checks: five use `LoopbackHTTPServer`, while cache sweep uses
+local files. Four skip when `httpfs` is not installed; strict posture and cache sweep
+always run. HTTP checks cap their own `http_timeout`/`http_retries`. A check that cannot
+run is not a check that passed. The verifier never installs missing local-format or remote
+extensions; its scratch sessions only use extensions already present on disk.
 
 After any engine or UI change, exercise it end to end against a **multi-million-row file** —
 several real bugs here were invisible on small files. The window cannot be screenshotted on this
 machine (no Screen Recording); the working capture is `cacheDisplay(in:to:)` on a live `NSView`,
 control-render-first. `ImageRenderer` is measurably unstable for pixel comparison — don't.
 
-**CI is a self-hosted MacBook Air on the macOS 26 SDK**, not GitHub's `macos-15` any more, so
+**CI is a self-hosted MacBook Air; its toolchain step records the selected SDK**, not GitHub's `macos-15` any more, so
 nothing now catches a break only an older SDK would reject (hosted macos-15 caught Sendable
 inference and system-color resolution breaks multiple times). It runs on PRs and on pushes to
 `main`; loopback-HTTP tests flake when the Air is busy (#5). Push and read CI anyway.
@@ -103,6 +109,12 @@ inference and system-color resolution breaks multiple times). It runs on PRs and
   (the CLI): logic lives in `SiftEngine/Verification.swift`.
 
 ## Frozen contracts — changing these breaks the app silently
+
+Run `python3 scripts/check-contracts.py` for the formatter ban and no-new-`try?` gate.
+The reasoned `scripts/optional-try-baseline.json` records existing sites, including
+unresolved debt; it does not certify that every suppressed failure is safe. New sites or
+copies need explicit review, and removed sites must be removed from the baseline.
+`python3 scripts/test-contracts.py` proves the gate rejects representative mutations.
 
 - Security/safety: the SELECT-only guard **plus** the newline subquery-wrap (the wrap is the
   real enforcement — a keyword blocklist is not); `harden()`'s settings, whose deny list names
@@ -127,9 +139,15 @@ inference and system-color resolution breaks multiple times). It runs on PRs and
 - Every engine error is **one clean sentence** (`SiftError.description`) — never a parser dump,
   never swallowed with `try?`. That contract was broken and repaired four times; don't be five.
 
-## DuckDB 1.5.5 facts this code depends on (re-verify before bumping the pin)
+## DuckDB facts this code depends on (re-verify before bumping the pin)
 
-Pinned executable in `Tests/DuckDBKitTests/DuckDB155FactsTests.swift` and re-verified against
+The current library pin is **2.0.0**. `Database.openingSettings` preserves 1.5.6 storage
+compatibility and bounds the new async I/O pool at four workers; SQL worker defaults stay intact. The observations below were first measured on
+1.5.5; `DuckDB155FactsTests.swift` keeps that historical name while enforcing them
+against the current library. `linkedLibraryIsThePinnedDuckDBVersion` checks the loaded pin.
+
+Executable pins live in `Tests/DuckDBKitTests/DuckDB155FactsTests.swift`; extension loading
+is also covered by `SmokeTests.swift` and the gated `RemoteFactsTests.swift`. Re-verify against
 the vendored dylib — not folklore:
 
 - `sniff_csv` reports an absent quote/escape/comment as the literal string `'(empty)'` —
@@ -141,9 +159,10 @@ the vendored dylib — not folklore:
 - `read_xlsx` takes `sheet =>` (not `sheet_name`) and can't list sheets — hence
   `XLSXSheets.swift` parsing the OOXML directly.
 - Delta time travel is `version => n`; `AT (VERSION => n)` does not parse.
-- The `delta` and `excel` extensions need one online `INSTALL` (`loadExtensions` does
-  LOAD→INSTALL→LOAD); autoloading is deliberately off.
-- `approx_count_distinct` overshoots (340 for 300 distinct) — clamped in the profile.
+- The `delta` and `excel` extensions need one approved online `INSTALL` when missing;
+  `loadExtensions(..., installMissing: false)` performs LOAD only. Explicitly authorized
+  installs use LOAD→INSTALL→LOAD; autoloading is deliberately off.
+- `approx_count_distinct` overshoots (102 for 100 distinct on 2.0.0; historically 340 for 300 on 1.5.6) — clamped in the profile.
 - `duckdb_tables().estimated_size` is a **row count, not bytes** — staged bytes are measured
   from storage blocks instead.
 - `duckdb_interrupt` before execution starts is **swallowed**; cancelling means hammering it
@@ -151,8 +170,9 @@ the vendored dylib — not folklore:
 - `sortedRelation`'s TEMP TABLE is visible only to the connection that created it — the reason
   `pagingConnection` exists at all.
 
-Eleven more, all remote, are in
-`docs/superpowers/specs/2026-08-16-duckdb-remote-facts.md` and pinned in
+The remote measurement document has twelve sections (including CI and shipped-path
+observations), rather than twelve independent test cases:
+`docs/superpowers/specs/2026-08-16-duckdb-remote-facts.md` with executable pins for sections 1–9 and 11 in
 `Tests/DuckDBKitTests/RemoteFactsTests.swift`. The four the rest of the engine is built on:
 `disabled_filesystems` only ever GROWS inside a `Database` and reads back `''`, so a posture is
 chosen at open and never toggled; `CREATE SECRET` binds every value but not its own name, and

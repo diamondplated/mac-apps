@@ -55,6 +55,15 @@ func sortTruncationText(rows: Int) -> String {
         + "\(groupDigits(String(rows))). Clear the sort to page the rest."
 }
 
+/// Missing optional file readers are normal until first use; that open offers consent.
+/// Rejected names and remote-extension failures remain diagnostics.
+func extensionsNeedingWarning(_ extensions: [String: ExtensionState]) -> [String: ExtensionState] {
+    extensions.filter { name, state in
+        if (name == "excel" || name == "delta"), case .unavailable = state { return false }
+        return true
+    }
+}
+
 /// The extension warnings: one row per *kind* of failure, empty when everything loaded.
 ///
 /// 🔴 **Two rows, because `ExtensionState` is two different sentences.** `.unavailable` is the
@@ -171,7 +180,7 @@ public struct BannerStack: View {
             // Indexed for the same reason the notes loop below is: these are plain tuples with
             // nothing on them to be identified by.
             ForEach(
-                Array(missingExtensionsBanner(state.engine.extensions).enumerated()), id: \.offset
+                Array(missingExtensionsBanner(extensionsNeedingWarning(state.currentExtensions)).enumerated()), id: \.offset
             ) { _, row in
                 BannerRow(.warning) {
                     Text(row.message).textSelection(.enabled)

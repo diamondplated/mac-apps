@@ -112,18 +112,22 @@ public struct Upscale: Stage {
 
     public let id: StageID = "upscale"
     public let displayName = "Upscale"
-    public init() {}
+    private let maxWorkingMemoryBytes: UInt64
+    public init(maxWorkingMemoryBytes: UInt64 = ImageMemoryPolicy.defaultLimit) {
+        self.maxWorkingMemoryBytes = maxWorkingMemoryBytes
+    }
 
     public func process(input: ImageBuffer, params: Params, progress: PipelineCore.ProgressReporter) async throws -> ImageBuffer {
         progress.report(0.0)
         defer { progress.report(1.0) }
 
+        _ = try ImageMemoryPolicy.validate(width: input.width, height: input.height, scale: params.scale, maxBytes: maxWorkingMemoryBytes)
         let modelID = modelID(for: params)
 
         let model = try await ModelManager.shared.model(for: modelID, spec: .realESRGANx2)
 
         if let model {
-            let executor = TileExecutor(tileSize: params.tileSize, overlap: 32, scale: params.scale)
+            let executor = TileExecutor(tileSize: params.tileSize, overlap: 32, scale: params.scale, maxWorkingMemoryBytes: maxWorkingMemoryBytes)
             return try await executor.execute(input: input, progress: progress) { tile in
                 try await model.predict(tile)
             }
@@ -136,14 +140,15 @@ public struct Upscale: Stage {
 
     private func lanczosResize(input: ImageBuffer, scale: Int) throws -> ImageBuffer {
         guard scale > 1 else { return input }
+        let dimensions = try ImageMemoryPolicy.validate(width: input.width, height: input.height, scale: scale, maxBytes: maxWorkingMemoryBytes)
         let inputCG = try input.makeCGImage()
         let ciImage = CIImage(cgImage: inputCG)
         let scaled = ciImage.applyingFilter("CILanczosScaleTransform", parameters: [
             kCIInputScaleKey: Double(scale),
             kCIInputAspectRatioKey: 1.0,
         ])
-        let outW = input.width * scale
-        let outH = input.height * scale
+        let outW = dimensions.width
+        let outH = dimensions.height
         let workingSpace = CGColorSpace(name: CGColorSpace.linearSRGB)!
         let context = CIContext(options: [.workingColorSpace: workingSpace])
         guard let outCG = context.createCGImage(

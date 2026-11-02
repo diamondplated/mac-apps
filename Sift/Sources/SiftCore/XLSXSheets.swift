@@ -19,7 +19,7 @@ import Foundation
 /// can't fill a pipe buffer and block the child before it exits. (An earlier version of this
 /// function used two `DispatchQueue.global().async` drains plus a `DispatchGroup` — that pattern
 /// is what caused a measured deadlock in the test suite, which shared a GCD-thread-hungry
-/// subprocess fixture across many parallel tests; see task-9-report.md's review-fix section.
+/// subprocess fixture across many parallel tests.
 /// This function ships in the app, so it needed the same fix even though nothing here was ever
 /// observed hanging directly — the exhaustion risk was real regardless.)
 private func runUnzip(path: String, entry: String) throws -> Data {

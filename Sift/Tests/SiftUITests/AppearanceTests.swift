@@ -152,7 +152,7 @@ private func asAppearance<T>(_ name: NSAppearance.Name, _ body: () -> T) -> T {
 /// Contrast were a property of the appearance, and MEASURED, it is not: `systemOrange` reads
 /// `(255,141,40)` under both `.aqua` and `.accessibilityAqua` headlessly.
 @MainActor
-@Test func theBannerInkIsReadableOnItsOwnStripInBothAppearances() {
+@Test(.engineLifetime) func theBannerInkIsReadableOnItsOwnStripInBothAppearances() {
     // kind, name, (light floor, light exact), (dark floor, dark exact)
     let rows: [(kind: BannerKind, name: String, light: (Double, Double), dark: (Double, Double))] = [
         (.warning, "warning", (4.5, 4.62), (5.0, 5.81)),
@@ -179,7 +179,7 @@ private func asAppearance<T>(_ name: NSAppearance.Name, _ body: () -> T) -> T {
 /// …and the strip really does draw two different pictures in the two appearances. Arithmetic over
 /// colours cannot see a view that ignores the appearance entirely; this can.
 @MainActor
-@Test func theBannerStripDrawsDifferentlyInLightAndDark() throws {
+@Test(.engineLifetime) func theBannerStripDrawsDifferentlyInLightAndDark() throws {
     let strip = VStack(spacing: 0) {
         BannerRow(.warning) { Text("Staging into native storage."); Spacer(); Button("Cancel") {} }
         BannerRow(.info) { Text("Folder read as one table."); Spacer(); Button("Re-open") {} }
@@ -210,7 +210,7 @@ private func asAppearance<T>(_ name: NSAppearance.Name, _ body: () -> T) -> T {
 /// control that has not been told what it is sitting on. A "these two differ" test here would pass
 /// for exactly the broken state — which is how the defect survived eight render suites.
 @MainActor
-@Test func theSQLConsoleIsOneDarkSurfaceInBothAppearances() async throws {
+@Test(.engineLifetime) func theSQLConsoleIsOneDarkSurfaceInBothAppearances() async throws {
     let (_, model) = try await openedFixture(rows: 12)
     let console = SQLConsole(model: model) { _ in }
 

@@ -271,6 +271,9 @@ func pairingCodeExpires() async throws {
 }
 
 func pairingRejectsWrongCodeAndRateLimits() async throws {
+    try await pairingIsolatesPeerBudgets()
+    try require(LocalServer.selectLANAddress([(name: "utun0", address: "10.0.0.1")]) == nil, "VPN must not become LAN fallback")
+    try require(LocalServer.selectLANAddress([(name: "en5", address: "192.168.1.2")]) == "192.168.1.2", "Ethernet fallback must remain available")
     let now = Date(timeIntervalSince1970: 1_770_000_000)
     let mgr = PairingManager()
     _ = await mgr.issueCode(now: now)
@@ -521,4 +524,29 @@ func routerPreservesSearchRankOrder() async throws {
     let json = try JSONSerialization.jsonObject(with: res.body) as? [String: Any]
     let ids = json?["photoIDs"] as? [String]
     try require(ids == ranked, "rank order lost on the wire: \(ids ?? [])")
+}
+
+func pairingIsolatesPeerBudgets() async throws {
+    let mgr = PairingManager()
+    let now = Date(timeIntervalSince1970: 1_770_000_000)
+    for _ in 0..<10 {
+        do { try await mgr.validate(code: "bad", host: "A", now: now) }
+        catch PairingError.noActiveCode { continue }
+        throw VerifyError(message: "no-code traffic must not spend pairing budget")
+    }
+    let code = await mgr.issueCode(now: now)
+    for _ in 0..<5 {
+        do { try await mgr.validate(code: "bad", host: "A", now: now) }
+        catch PairingError.wrongCode { continue }
+        throw VerifyError(message: "wrong peer guess accepted or limited early")
+    }
+    do { try await mgr.validate(code: code, host: "A", now: now) }
+    catch PairingError.rateLimited {
+        try await mgr.validate(code: code, host: "B", now: now)
+        let later = now.addingTimeInterval(60)
+        let next = await mgr.issueCode(now: later)
+        try await mgr.validate(code: next, host: "A", now: later)
+        return
+    }
+    throw VerifyError(message: "peer A was not limited")
 }

@@ -61,7 +61,13 @@ import SiftCore
 /// DuckDBKit by design (see Package.swift's comment on this target).
 func withGuardScratchConnection<T>(_ body: (duckdb_connection) throws -> T) rethrows -> T? {
     var db: duckdb_database?
-    guard duckdb_open(nil, &db) == DuckDBSuccess else { return nil }
+    var config: duckdb_config?
+    guard duckdb_create_config(&config) == DuckDBSuccess else { return nil }
+    defer { duckdb_destroy_config(&config) }
+    for (name, value) in Database.openingSettings {
+        guard duckdb_set_config(config, name, value) == DuckDBSuccess else { return nil }
+    }
+    guard duckdb_open_ext(nil, &db, config, nil) == DuckDBSuccess else { return nil }
     defer { duckdb_close(&db) }
 
     var con: duckdb_connection?
