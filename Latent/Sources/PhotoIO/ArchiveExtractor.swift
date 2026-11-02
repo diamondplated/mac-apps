@@ -377,7 +377,7 @@ public actor ArchiveExtractor {
             }
         }
         if normalized.split(separator: "/").contains(where: {
-            $0 == ".latent-extraction-lease-v1" || $0 == ".latent-extraction-complete-v1"
+            $0.hasPrefix(".latent-extraction-")
         }) {
             throw ArchiveError.unsafeArchive(archiveURL, "reserved extraction lease name")
         }
@@ -448,7 +448,11 @@ public actor ArchiveExtractor {
         environment["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin:/opt/local/bin"
         environment["LC_ALL"] = "C"
         process.environment = environment
-        process.standardInput = FileHandle.nullDevice
+        if let destination {
+            try ArchiveProcessLease.configure(process, tool: tool, arguments: process.arguments ?? [], directory: destination)
+        } else {
+            process.standardInput = FileHandle.nullDevice
+        }
 
         let stderrPipe = Pipe()
         let stderrCollector = BoundedDataCollector(limit: limits.maximumDiagnosticBytes)
@@ -512,7 +516,7 @@ public actor ArchiveExtractor {
                 try await Task.sleep(nanoseconds: pollNanoseconds)
             }
         } catch {
-            await Self.terminateAndWait(processBox)
+            await Self.terminateAndWait(processBox, supervised: destination != nil)
             treeMonitor?.stop(flushPendingEvents: false)
             await stderrTask.value
             await stdoutTask?.value
@@ -555,7 +559,7 @@ public actor ArchiveExtractor {
         }
     }
 
-    private static func terminateAndWait(_ processBox: SendableProcess) async {
+    private static func terminateAndWait(_ processBox: SendableProcess, supervised: Bool) async {
         await Task.detached(priority: .utility) {
             let process = processBox.process
             if process.isRunning {
@@ -566,7 +570,8 @@ public actor ArchiveExtractor {
                 usleep(50_000)
                 attempts += 1
             }
-            if process.isRunning {
+            // Never kill the lease holder before its signal trap reaps the tool group.
+            if process.isRunning && !supervised {
                 Darwin.kill(process.processIdentifier, SIGKILL)
             }
             if process.isRunning {
