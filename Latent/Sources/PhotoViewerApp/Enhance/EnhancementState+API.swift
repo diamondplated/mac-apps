@@ -226,6 +226,12 @@ extension EnhancementState {
         modelCache.refresh()
         let steps = buildSteps()
         let pipeline = Pipeline(steps: steps, cache: cache)
+        let observer: any PipelineObserver
+        if ProcessInfo.processInfo.environment["LATENT_PIPELINE_CACHE_TRACE"] == "1" {
+            observer = PipelineCacheTraceObserver()
+        } else {
+            observer = NullObserver()
+        }
         let myGen = loadGeneration
 
         isProcessing = true
@@ -243,7 +249,7 @@ extension EnhancementState {
             guard !Task.isCancelled else { return }
             let runResult: Result<ImageBuffer, Error>
             do {
-                runResult = .success(try await pipeline.run(input: input))
+                runResult = .success(try await pipeline.run(input: input, observer: observer))
             } catch {
                 runResult = .failure(error)
             }
