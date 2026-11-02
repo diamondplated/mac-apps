@@ -142,6 +142,9 @@ final class AppState {
     }
 
     init() {
+        Task.detached(priority: .utility) {
+            try? ArchiveTemporaryStorage.sweepInactiveDirectories()
+        }
         // Set backing fields directly so didSet doesn't re-write the value
         // we just read. (didSet still fires on init; the re-write is
         // harmless but pointless.)

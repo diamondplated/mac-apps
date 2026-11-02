@@ -262,12 +262,22 @@ extension AppState {
         return candidatePath == directoryPath || candidatePath.hasPrefix(prefix)
     }
 
+    /// Complete cleanup before process exit; unfinished extractions retain their lease
+    /// until process death and are reclaimed at the next launch.
+    func cleanUpArchiveOnTermination() {
+        archiveExtractionTask?.cancel()
+        if let directory = extractedArchiveDir {
+            try? ArchiveTemporaryStorage.remove(directory)
+            extractedArchiveDir = nil
+        }
+    }
+
     /// Large archive previews can contain tens of thousands of entries. Once
     /// the main actor has severed every reference, delete that private tree on
     /// a utility task so closing or switching albums never freezes the window.
     nonisolated static func removeArchiveExtractionInBackground(_ directory: URL) {
         Task.detached(priority: .utility) {
-            try? FileManager.default.removeItem(at: directory)
+            try? ArchiveTemporaryStorage.remove(directory)
         }
     }
 }
