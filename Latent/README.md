@@ -325,7 +325,13 @@ Latent is pre-1.0. It is a working app, not a finished distribution:
   previews. Builds do not register or enable it. Finder discovery and preference over built-in
   image handlers still require verification after installation; bundled presence alone does not
   establish that Finder will select Latent.
-- Display is not yet Metal-backed, so HDR and wide-gamut rendering aren't what they could be.
+- The detail viewer requests HDR source decoding and displays through a floating-point Metal EDR
+  surface, retaining the SwiftUI image fallback when Metal is unavailable. Native source profiles
+  survive display; unusually large previews are downsampled before decode to respect a memory
+  ceiling. macOS 26 uses system tone mapping and macOS 15 uses source headroom metadata; macOS 14
+  relies on the display compositor's EDR clipping. Enhancement processing/export and its separate
+  comparison panel retain their existing working-color-space behavior. Synthetic offscreen pixel
+  checks do not replace the remaining HDR HEIC/Preview side-by-side check on an XDR display.
 - Semantic search is optional rather than turnkey: OpenCLIP assets are not shipped, are never
   downloaded automatically, and must be supplied or generated locally. Each folder must also be
   indexed explicitly from the `⌘F` search panel before it can be queried.

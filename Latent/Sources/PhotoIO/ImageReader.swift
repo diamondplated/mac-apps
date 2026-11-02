@@ -55,8 +55,7 @@ public struct ImageReader: Sendable {
         let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] ?? [:]
         let width = properties[kCGImagePropertyPixelWidth] as? Int ?? 0
         let height = properties[kCGImagePropertyPixelHeight] as? Int ?? 0
-        let maxDimension = max(width, height)
-        guard maxDimension > 0 else {
+        guard let maxDimension = ImageMemoryPolicy.previewMaxDimension(width: width, height: height) else {
             return nil
         }
 
@@ -66,7 +65,13 @@ public struct ImageReader: Sendable {
             kCGImageSourceThumbnailMaxPixelSize: maxDimension,
             kCGImageSourceShouldCacheImmediately: true,
         ]
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        // Ask ImageIO to expand supported HDR/gain-map sources before display.
+        // The thumbnail path still applies EXIF orientation and keeps the
+        // source profile. SDR files retain their normal rendition.
+        var hdrOptions = options
+        hdrOptions[kCGImageSourceDecodeRequest] = kCGImageSourceDecodeToHDR
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, hdrOptions as CFDictionary)
+            ?? CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     }
 
     public func read(url: URL) throws -> (ImageBuffer, ImageMetadata) {

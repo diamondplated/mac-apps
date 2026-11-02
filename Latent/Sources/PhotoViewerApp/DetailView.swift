@@ -189,7 +189,7 @@ struct DetailView: View {
         switch (enhanceState.displayMode, currentURL.flatMap(MediaTyping.detect)) {
         case (.sideBySide, .staticImage):
             HStack(spacing: 1) {
-                paneView(image: enhanceState.originalDisplayImage, label: "ORIGINAL")
+                paneView(image: nativeOriginalDisplayImage, label: "ORIGINAL")
                 Rectangle().fill(Color.gray.opacity(0.4)).frame(width: 1)
                 paneView(image: enhanceState.enhancedDisplayImage, label: "ENHANCED")
             }
@@ -232,9 +232,16 @@ struct DetailView: View {
         }
     }
 
+    // The preview reader keeps full source dimensions within its memory budget while
+    // retaining HDR and the native profile. Do not replace this original with
+    // the enhancement pipeline's working-color-space rendition after a load.
+    private var nativeOriginalDisplayImage: CGImage? {
+        enhanceState.previewCGImage ?? enhanceState.originalCGImage
+    }
+
     private var imageForDisplay: CGImage? {
         switch enhanceState.displayMode {
-        case .original:    return enhanceState.originalDisplayImage
+        case .original:    return nativeOriginalDisplayImage
         case .enhanced:    return enhanceState.enhancedDisplayImage
         case .sideBySide:  return nil // handled in `content`
         }
@@ -255,10 +262,7 @@ struct DetailView: View {
                 // shadow" double-exposures during rapid arrow nav. Instant
                 // swap matches Preview.app's behavior. .id forces view
                 // identity reset so SwiftUI doesn't try to morph layouts.
-                Image(decorative: cg, scale: 1.0, orientation: .up)
-                    .resizable()
-                    .interpolation(.high)
-                    .aspectRatio(contentMode: .fit)
+                HDRImageView(image: cg)
                     .padding(8)
                     .scaleEffect(zoom * transientZoom)
                     .offset(x: pan.width + transientPan.width,

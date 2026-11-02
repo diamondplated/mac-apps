@@ -52,6 +52,7 @@ struct PipelineCLI {
         failures += await runVerification("enhancement decode and upscale respect memory ceilings", check: enhancementMemoryCeilings)
         failures += await runVerification("model availability invalidates cached fallbacks", check: modelAvailabilityInvalidatesIntermediates)
         failures += await runVerification("newly installed models retry a previous miss", check: newModelRetriesLoad)
+        failures += await runVerification("HDR display preserves extended P3 pixels offscreen", check: hdrDisplayPreservesExtendedPixels)
         failures += await runVerification("image I/O round-trips a JPEG through reader+writer", check: jpegRoundTrip)
         failures += await runVerification("Export Copy atomically keeps concurrent results", check: concurrentExportsKeepBoth)
         failures += await runVerification("reader bakes EXIF orientation into pixels (axes swap for orientation 6)", check: orientationBaking)
