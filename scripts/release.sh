@@ -67,7 +67,7 @@ for tool in generate_appcast generate_keys sign_update; do
     [ -n "$SPARKLE_TOOLS_DIR" ] && [ -x "$SPARKLE_TOOLS_DIR/$tool" ] || fail "Set SPARKLE_TOOLS_DIR to the official Sparkle 2.10.0 bin directory."
 done
 SPARKLE_ACCOUNT=${SPARKLE_KEYCHAIN_ACCOUNT:-mac-tools}
-PUBLIC_KEY=$("$SPARKLE_TOOLS_DIR/generate_keys" --account "$SPARKLE_ACCOUNT" -p) || fail "Existing Sparkle keychain key '$SPARKLE_ACCOUNT' is unavailable."
+PUBLIC_KEY=$("$SPARKLE_TOOLS_DIR/generate_keys" --account "$SPARKLE_ACCOUNT" -p) || fail "Existing Sparkle keychain key '$SPARKLE_ACCOUNT' is unavailable in this process context. Check the runner login session, unlocked keychain/search list, and access for the configured official Sparkle tools (docs/RELEASING.md). Do not regenerate or export the key."
 [ "$PUBLIC_KEY" = "$(plutil -extract SUPublicEDKey raw "$PLIST")" ] || fail "Sparkle keychain public key does not match the app's SUPublicEDKey."
 [ "$(plutil -extract SURequireSignedFeed raw "$PLIST")" = true ] || fail "Signed feeds must be required."
 [ "$(plutil -extract SUVerifyUpdateBeforeExtraction raw "$PLIST")" = true ] || fail "Archive verification before extraction must be required."
