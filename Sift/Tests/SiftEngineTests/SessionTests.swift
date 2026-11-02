@@ -121,7 +121,7 @@ private func gzip(_ sourcePath: String, to destPath: String) throws {
     // end to end: under `fullSniffMaxBytes` (50MB) Sift's sniffer scans the WHOLE file, and
     // correctly widens "amount" to VARCHAR the instant it sees one value that cannot be a
     // number — so nothing gets cast, nothing gets dropped, and there is nothing to detect.
-    // MEASURED directly against DuckDB 1.5.5's `sniff_csv` (see task-4-report.md).
+    // MEASURED directly against DuckDB 1.5.5's `sniff_csv`.
     //
     // A *compressed* CSV always samples only the first 20,480 rows, regardless of file size —
     // so placing the bad row well past that window reproduces the real scenario

@@ -28,8 +28,8 @@ verdict from — which binds 127.0.0.1 on an ephemeral port, is started only by 
 
 ## The one rule: tests are the spec
 
-`Tests/**` is the source of truth for behavior — **939** declared across `DuckDBKitTests`,
-`SiftCoreTests`, `SiftEngineTests`, `SiftUITests`. **39** of them carry the `remoteFact` prefix and
+`Tests/**` is the source of truth for behavior — tests declared across `DuckDBKitTests`,
+`SiftCoreTests`, `SiftEngineTests`, `SiftUITests`. The remote tests carry the `remoteFact` prefix and
 are gated behind `SIFT_REMOTE_FACTS=1`: those are the ones allowed to `INSTALL` an extension over
 the network, and CI runs them as a separate step.
 
@@ -63,15 +63,15 @@ optional. Temp paths go through `Tests/TestSupport`'s `TestTemp` — a bare
 
 ```bash
 ./scripts/fetch-duckdb.sh          # once, needs network — the pinned prebuilt libduckdb
-swift build && swift test          # 939 declared, 39 gated off, ~30 s; warning-free is the bar
+swift build && swift test          # warning-free is the bar
 swift run sift --verify            # the engine end to end: 26 checks, every format
-SIFT_REMOTE_FACTS=1 swift test     # + the 39 that may INSTALL an extension over the network
+SIFT_REMOTE_FACTS=1 swift test     # includes tests that may INSTALL an extension over the network
 ./build-app.sh                     # -> ./Sift.app; verify by MOVING it away from the repo
 ```
 
-`--verify`'s five remote checks reach nothing off the machine: they run against
-`LoopbackHTTPServer`, each caps its own `http_timeout`/`http_retries`, and each skips with a
-sentence when `httpfs` is not already installed rather than reaching for it. A check that cannot
+`--verify` has six remote checks: five use `LoopbackHTTPServer`, while cache sweep uses
+local files. Four skip when `httpfs` is not installed; strict posture and cache sweep
+always run. HTTP checks cap their own `http_timeout`/`http_retries`. A check that cannot
 run is not a check that passed. The command as a whole is not airtight — every workspace `Session`
 it builds can `INSTALL delta`/`excel`, per the note above — and unlike `swift test` that is
 defensible: `--verify` is what a user runs to check their own install.
@@ -81,7 +81,7 @@ several real bugs here were invisible on small files. The window cannot be scree
 machine (no Screen Recording); the working capture is `cacheDisplay(in:to:)` on a live `NSView`,
 control-render-first. `ImageRenderer` is measurably unstable for pixel comparison — don't.
 
-**CI is a self-hosted MacBook Air on the macOS 26 SDK**, not GitHub's `macos-15` any more, so
+**CI is a self-hosted MacBook Air; its toolchain step records the selected SDK**, not GitHub's `macos-15` any more, so
 nothing now catches a break only an older SDK would reject (hosted macos-15 caught Sendable
 inference and system-color resolution breaks multiple times). It runs on PRs and on pushes to
 `main`; loopback-HTTP tests flake when the Air is busy (#5). Push and read CI anyway.
@@ -103,6 +103,12 @@ inference and system-color resolution breaks multiple times). It runs on PRs and
   (the CLI): logic lives in `SiftEngine/Verification.swift`.
 
 ## Frozen contracts — changing these breaks the app silently
+
+Run `python3 scripts/check-contracts.py` for the formatter ban and no-new-`try?` gate.
+The reasoned `scripts/optional-try-baseline.json` records existing sites, including
+unresolved debt; it does not certify that every suppressed failure is safe. New sites or
+copies need explicit review, and removed sites must be removed from the baseline.
+`python3 scripts/test-contracts.py` proves the gate rejects representative mutations.
 
 - Security/safety: the SELECT-only guard **plus** the newline subquery-wrap (the wrap is the
   real enforcement — a keyword blocklist is not); `harden()`'s settings, whose deny list names
@@ -129,7 +135,8 @@ inference and system-color resolution breaks multiple times). It runs on PRs and
 
 ## DuckDB 1.5.5 facts this code depends on (re-verify before bumping the pin)
 
-Pinned executable in `Tests/DuckDBKitTests/DuckDB155FactsTests.swift` and re-verified against
+Executable pins live in `Tests/DuckDBKitTests/DuckDB155FactsTests.swift`; extension loading
+is also covered by `SmokeTests.swift` and the gated `RemoteFactsTests.swift`. Re-verify against
 the vendored dylib — not folklore:
 
 - `sniff_csv` reports an absent quote/escape/comment as the literal string `'(empty)'` —
@@ -151,8 +158,9 @@ the vendored dylib — not folklore:
 - `sortedRelation`'s TEMP TABLE is visible only to the connection that created it — the reason
   `pagingConnection` exists at all.
 
-Eleven more, all remote, are in
-`docs/superpowers/specs/2026-08-16-duckdb-remote-facts.md` and pinned in
+The remote measurement document has twelve sections (including CI and shipped-path
+observations), rather than twelve independent test cases:
+`docs/superpowers/specs/2026-08-16-duckdb-remote-facts.md` with executable pins for sections 1–9 and 11 in
 `Tests/DuckDBKitTests/RemoteFactsTests.swift`. The four the rest of the engine is built on:
 `disabled_filesystems` only ever GROWS inside a `Database` and reads back `''`, so a posture is
 chosen at open and never toggled; `CREATE SECRET` binds every value but not its own name, and

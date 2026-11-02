@@ -886,9 +886,10 @@ let verificationChecks: [VerificationCheck] = [
 
 // MARK: remote data, proved without a network
 //
-// Six checks, and none of them reaches anything off this machine: the oracle is
+// Six remote checks: five use the loopback oracle, while cache sweep uses local files.
+// Four skip without httpfs; strict posture and cache sweep do not. The HTTP oracle is
 // `LoopbackHTTPServer`, which binds `INADDR_LOOPBACK` on an ephemeral port and lives in `SiftEngine`
-// rather than in the test target for exactly this reason. Every one of them pairs the server with
+// rather than in the test target for exactly this reason. Each HTTP check pairs the server with
 // `defer { server.stop() }` on the line after it is constructed, so a thrown check still releases
 // the port; every one gets its own `~/.sift` from `withWorkspace` and leaves the user's alone; and
 // every permissive one caps its own HTTP clock (see `permissiveSession`).
@@ -933,7 +934,7 @@ func permissiveSession(_ ws: Workspace) throws -> Session {
     guard extensionIsInstalled("httpfs") else {
         throw VerifySkipped(
             message: "the DuckDB httpfs extension is not installed here, so no remote read can be "
-                + "checked \u{2014} Sift installs it the first time you save a connection"
+                + "checked \u{2014} Sift installs it on the next launch after you save a connection"
         )
     }
     try Session.ensureHomeDirectory(ws.home)

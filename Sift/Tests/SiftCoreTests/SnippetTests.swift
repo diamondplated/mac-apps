@@ -8,8 +8,7 @@ import DuckDBKit
 // 11 test functions (all 11 present below, one-to-one — none use @pytest.mark.parametrize).
 //
 // Every Python test builds its context via `_ctx`, which calls `S.build_source(con, path,
-// sheet=...)` — connection-dependent and deferred to Plan 3 (see task-9-report.md's deferred
-// checklist; the same situation SourceTests.swift/SheetsTests.swift already worked around). The
+// sheet=...)` — connection-dependent, as in SourceTests.swift/SheetsTests.swift. The
 // function actually under test here, `snippet()`, takes a `SourceSpec`/`QuerySpec` it never
 // mutates and never opens a connection itself, so each test below builds the SourceSpec by hand
 // instead — via a live DESCRIBE against a freshly-written fixture, which is exactly what

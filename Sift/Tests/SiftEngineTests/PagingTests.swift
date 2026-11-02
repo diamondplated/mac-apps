@@ -12,8 +12,8 @@ import DuckDBKit
 // there is no JSON wire format anymore: `Session` hands `DuckDBKit.Cell` values to an in-process
 // caller. Each of those five is a claim that a value survives the crossing, and here the crossing
 // is a Swift enum, so the equivalent claim is "the decoder produced the right Cell" —
-// Tests/DuckDBKitTests/DecodeTests.swift. The full mapping, test by test, is in
-// .superpowers/sdd/2026-08-09-siftengine/task-9-report.md.
+// Tests/DuckDBKitTests/DecodeTests.swift. The original per-test report was not retained;
+// the surviving mapping and the additional classification case are recorded here.
 //
 // ONE case inside those five had no counterpart anywhere and is written here rather than dropped:
 // column KIND classification (`test_nested_and_blob_columns_are_classified`, and the

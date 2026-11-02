@@ -45,6 +45,11 @@ jobs:
           swift --version
           xcrun --sdk macosx --show-sdk-version
 
+      - name: Check frozen source contracts
+        run: |
+          python3 scripts/check-contracts.py
+          python3 scripts/test-contracts.py
+
       - name: Fetch libduckdb
         run: ./scripts/fetch-duckdb.sh
 

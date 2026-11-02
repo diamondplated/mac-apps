@@ -87,7 +87,7 @@ swift run sift ~/Desktop/orders.csv    # schema + first rows at your terminal
 swift run sift --verify                # the engine proving itself: 26 checks, every format
 ```
 
-**Requirements:** macOS 14+ to run. To build, Xcode 16 or newer: the app is SwiftUI, and from the
+**Requirements:** macOS 14+ to run. To build, use full Xcode 27 or newer (verified with macOS SDK 27.2 and Swift 6.4.2): the app is SwiftUI, and from the
 macOS 27 SDK on, SwiftUI's property-wrapper macros only ship inside Xcode, so the Command Line Tools
 alone no longer compile it. No Python, no Node, no third-party Swift dependencies. None.
 

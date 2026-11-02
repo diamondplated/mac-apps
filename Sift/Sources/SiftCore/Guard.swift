@@ -10,7 +10,7 @@ import Foundation
 // Measured: DuckDB reports `PRAGMA database_list` as StatementType.SELECT, so statement type
 // alone would wave PRAGMA through — hence the explicit keyword check below.
 //
-// ARCHITECTURAL SPLIT (see task-5-report.md for the full writeup): engine/core/guard.py's
+// ARCHITECTURAL SPLIT: engine/core/guard.py's
 // assert_select_only does three things — strip comments, reject a denied leading keyword, and
 // ask DuckDB to parse the SQL (duckdb.extract_statements) to count statements and check the
 // statement type. Only the first two are pure; they live here. The third needs a live connection

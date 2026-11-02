@@ -210,7 +210,7 @@ func makeNDJSON(dir: String, name: String = "events.ndjson", rows: Int = 200) th
 /// a GCD worker thread being free to run one. That dependency was real: the previous
 /// Pipe-plus-background-queue version deadlocked the test suite when enough parallel tests each
 /// built a corpus at once and starved the global concurrent queue of the thread the writer block
-/// needed — MEASURED, not hypothetical; see task-9-report.md's review-fix section. Redirecting
+/// needed — MEASURED, not hypothetical. Redirecting
 /// stdin/stdout to files sidesteps the whole class of failure: the kernel drains both ends, no
 /// GCD thread required.
 func makeGzipCSV(dir: String, name: String = "sales.csv.gz", rows: Int = 500) throws -> String {

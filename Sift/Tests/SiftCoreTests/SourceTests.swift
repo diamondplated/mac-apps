@@ -7,7 +7,7 @@ import DuckDBKit
 // Format detection, glob escaping, hive layout, and row estimation. Ported from
 // engine/tests/test_source.py's pure functions.
 //
-// Skipped, and reported in task-9-report.md's deferred checklist: every test that calls
+// Not ported into this pure-function target: every test that calls
 // `S.sniff_csv`, `S.build_source`, `S._describe`, or `S.exact_count` — all four need a live
 // DuckDB connection and stay behind for Plan 3 (see Source.swift's header). That's 13 of the
 // file's 22 tests: test_sniff_normalizes_the_empty_sentinel, test_sniff_finds_a_semicolon_
@@ -33,7 +33,7 @@ import DuckDBKit
 // parallel tests blocking on the corpus's first-access lock at once could starve that thread —
 // a measured deadlock. `makeGzipCSV` now redirects stdin/stdout to real files instead of a
 // Pipe, which removes the GCD dependency entirely rather than just lowering the odds of hitting
-// it, so serialization is no longer needed here. See task-9-report.md's review-fix section.
+// it, so serialization is no longer needed here.
 
 private let sharedData = try! corpus()
 

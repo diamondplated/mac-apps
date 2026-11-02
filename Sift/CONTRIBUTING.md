@@ -7,17 +7,18 @@ maintenance cost" rather than "is this a nice idea".
 
 ```bash
 ./scripts/fetch-duckdb.sh    # once, needs network — the pinned prebuilt libduckdb
-swift build && swift test    # 939 declared (39 gated off), ~30 s
+swift build && swift test    # default suite; remoteFact tests gated off
 ./build-app.sh               # -> ./Sift.app
 ```
 
-That is the whole setup. No Python, no Node, no Xcode — SwiftPM and the Command Line Tools.
-The `delta` and `excel` DuckDB extensions install themselves from DuckDB's own repository on
-first use (one-time, needs network), and so do `httpfs` and `azure` the first time someone
-saves a remote connection.
+Use full Xcode 27 or newer; macOS SDK 27.2 and Swift 6.4.2 are verified locally.
+The Command Line Tools alone cannot build the SwiftUI app. No Python or Node is needed.
+The `delta` and `excel` DuckDB extensions can install at session startup (one-time, needs
+network). Saving a remote connection installs nothing in a strict session; `httpfs` and
+`azure` load or install on the next launch with remote access enabled.
 
-39 of those tests carry the `remoteFact` prefix and are gated behind `SIFT_REMOTE_FACTS=1` — the
-ones allowed to `INSTALL` an extension, so the default run stays offline; CI runs them as a separate
+The network-install tests carry the `remoteFact` prefix and are gated behind `SIFT_REMOTE_FACTS=1` — the
+ones allowed to `INSTALL` an extension, CI runs them as a separate
 step. If
 you touch anything under `Remote`, `Connections`, `Keychain` or the remote half of `Session`,
 run them and say so in the PR:
@@ -49,17 +50,18 @@ swift test                            # must be green
 swift run sift --verify               # the engine end to end: 26 checks
 ```
 
-`--verify` reaches nothing off your machine — its five remote checks run against a loopback
-HTTP server it starts and stops itself. Four of them skip, with a sentence, on a machine where
+`--verify` has six remote checks. Five use a loopback HTTP server; the cache sweep uses
+local files. The strict-posture check always runs. Four checks skip, with a sentence, where
 `httpfs` is not already installed; they never install it, because a command you ran to check
-your own install has no business making an outbound request.
+your own install has no business making an outbound request for remote extensions.
+Session startup can still install `delta`/`excel`, as described above.
 
 Then actually run it end to end. A green unit run is not evidence the app works — several of the
 subtle bugs in this codebase's history were only visible with a real multi-million-row file open.
 If you touched the grid or the sort, test against a large file with a *non-unique* sort column;
 more than one real bug here was invisible on unique keys.
 
-One more oracle: **CI runs on a self-hosted Mac on the macOS 26 SDK.** When it ran on hosted
+One more oracle: **CI runs on a self-hosted Mac and prints its selected SDK in the toolchain step.** When it ran on hosted
 `macos-15`, code that compiled on a newer local SDK failed there repeatedly (stricter Sendable
 inference, different system-color resolution); nothing catches that class of break now. Treat a
 local green build as provisional until CI agrees.
@@ -109,7 +111,7 @@ inferred and what the engine thinks of the file, with no window in the way.
 ## Security
 
 `SECURITY.md` is the full statement and it is worth reading before you touch the remote path.
-The short version: remote data is **off** until a user saves a connection, credentials live in
+The short version: remote data is **off** until the launch after a user saves a connection, credentials live in
 the Keychain and never in `connections.json` or `stage.duckdb`, a SAS query string is
 memory-only for one open, and the only listener in the program is the loopback test oracle.
 
