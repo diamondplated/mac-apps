@@ -30,10 +30,6 @@ jobs:
 
     timeout-minutes: 20
 
-    env:
-      CLANG_MODULE_CACHE_PATH: ${{ runner.temp }}/clang-module-cache
-      SWIFTPM_MODULECACHE_OVERRIDE: ${{ runner.temp }}/swiftpm-module-cache
-
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -45,6 +41,11 @@ jobs:
       # would reject. Ask for the macOS SDK by name: with Xcode selected and the Command Line
       # Tools also installed, a bare `xcrun --show-sdk-version` resolves the CLT SDK path, then
       # fails to read it through Xcode ("SDK ... cannot be located"). SwiftPM asks by name too.
+      - name: Configure compiler caches
+        shell: bash
+        run: |
+          printf 'CLANG_MODULE_CACHE_PATH=%s\n' "$RUNNER_TEMP/clang-module-cache" >> "$GITHUB_ENV"
+          printf 'SWIFTPM_MODULECACHE_OVERRIDE=%s\n' "$RUNNER_TEMP/swiftpm-module-cache" >> "$GITHUB_ENV"
       - name: Show toolchain
         run: |
           sw_vers
