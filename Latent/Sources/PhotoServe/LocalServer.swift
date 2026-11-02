@@ -40,10 +40,24 @@ public actor LocalServer {
         guard let address = address ?? selectedLAN, address == selectedLAN else {
             throw LocalServerError.noLANInterface
         }
+        return try await startBound(router: router, address: address)
+    }
+
+#if DEBUG
+    /// Internal fixture entry point, unavailable in release builds or public API.
+    /// The extra interface restriction is defense in depth; the fixture still
+    /// verifies the explicit address in the kernel's actual listening socket.
+    func startOnLoopbackForTesting(router: Router) async throws -> UInt16 {
+        try await startBound(router: router, address: "127.0.0.1", loopbackOnly: true)
+    }
+#endif
+
+    private func startBound(router: Router, address: String, loopbackOnly: Bool = false) async throws -> UInt16 {
         stopInternal()
         self.router = router
 
         let params = NWParameters.tcp
+        if loopbackOnly { params.requiredInterfaceType = .loopback }
         params.allowLocalEndpointReuse = true
         params.requiredLocalEndpoint = .hostPort(host: .init(address), port: .any)
         // No point accepting a connection that arrives over a cellular path —
