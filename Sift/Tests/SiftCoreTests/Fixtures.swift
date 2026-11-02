@@ -27,13 +27,12 @@ private func join(_ dir: String, _ name: String) -> String {
 /// treats a temp directory it cannot create as fatal, not as one test's failure.
 private func tempDir() throws -> String { TestTemp.dir("fixtures") }
 
-/// Opens a throwaway in-memory database and tries to load `name`, tolerating failure exactly
-/// like conftest.py's session `con` fixture: a machine without network access on first run
-/// cannot INSTALL a missing extension, and that must not look like a code defect. Cheap enough
-/// to call directly from a `.enabled(if:)` trait.
+/// LOAD-only availability probe. A cold default suite must make no request, not merely
+/// tolerate a failed install. Explicit cold installs belong to remoteFact canaries.
 func extensionIsAvailable(_ name: String) -> Bool {
     guard let db = try? Database.inMemory() else { return false }
-    db.loadExtensions([name])
+    db.harden()
+    db.loadExtensions([name], installMissing: false)
     return db.loadedExtensions[name] == .loaded
 }
 
@@ -287,8 +286,9 @@ func bundledXLSXPath(_ name: String = "book") -> String {
 func corpus() throws -> FixtureCorpus {
     let dir = try tempDir()
     let db = try Database.inMemory()
-    // Tolerated exactly like conftest.py's `con` fixture: LOAD, then INSTALL+LOAD, then give up.
-    db.loadExtensions(["delta", "excel"])
+    // LOAD only: absent extensions disable their format tests without a network request.
+    db.harden()
+    db.loadExtensions(["delta", "excel"], installMissing: false)
     let con = try db.connect()
 
     let empty = join(dir, "empty.csv")
@@ -468,7 +468,8 @@ func corpus() throws -> FixtureCorpus {
 func deltaGlobVsScanRowCountsDiffer() throws {
     let dir = try tempDir()
     let db = try Database.inMemory()
-    db.loadExtensions(["delta"])
+    db.harden()
+    db.loadExtensions(["delta"], installMissing: false)
     let con = try db.connect()
     let root = try makeDelta(con: con, dir: dir, kept: 100, tombstoned: 50)
 

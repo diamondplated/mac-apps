@@ -21,7 +21,8 @@ private func tempDir() throws -> String { TestTemp.dir("engine-fixtures") }
 
 func extensionIsAvailable(_ name: String) -> Bool {
     guard let db = try? Database.inMemory() else { return false }
-    db.loadExtensions([name])
+    db.harden()
+    db.loadExtensions([name], installMissing: false)
     return db.loadedExtensions[name] == .loaded
 }
 
@@ -243,7 +244,8 @@ struct FixtureCorpus: Sendable {
 func corpus() throws -> FixtureCorpus {
     let dir = try tempDir()
     let db = try Database.inMemory()
-    db.loadExtensions(["delta", "excel"])
+    db.harden()
+    db.loadExtensions(["delta", "excel"], installMissing: false)
     let con = try db.connect()
 
     return FixtureCorpus(

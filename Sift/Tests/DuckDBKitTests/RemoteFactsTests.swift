@@ -8,7 +8,7 @@ import TestSupport
 // it means libduckdb's remote behavior moved and the Connections design must move with it.
 //
 // GATED behind SIFT_REMOTE_FACTS=1 and excluded from the default suite on purpose: every test
-// needs `httpfs`/`azure`/`delta` present, and `loadExtensions` does LOAD→INSTALL→LOAD, so a
+// needs `httpfs`/`azure`/`delta` present, and `loadExtensions(..., installMissing: true)` does LOAD→INSTALL→LOAD, so a
 // machine without them reaches for the network. The default `swift test` must stay offline.
 //
 //     SIFT_REMOTE_FACTS=1 swift test --filter remoteFact
@@ -21,7 +21,7 @@ private let remoteFacts = ProcessInfo.processInfo.environment["SIFT_REMOTE_FACTS
 /// tests measure what the engine does when the network filesystems are reachable.
 private func db(_ extensions: [String]) throws -> Database {
     let d = try Database.inMemory()
-    d.loadExtensions(extensions)
+    d.loadExtensions(extensions, installMissing: true)
     for name in extensions {
         try #require(d.loadedExtensions[name] == .loaded, "the \(name) extension must be installed")
     }
@@ -77,7 +77,7 @@ func remoteFact1_azureRegistersTwoFilesystemsAndHardenNowBlocksBoth() throws {
     // saying Permission Error and says "No valid Azure credentials found" instead.
     let hardened = try Database.inMemory()
     hardened.harden()
-    hardened.loadExtensions(["azure"])
+    hardened.loadExtensions(["azure"], installMissing: true)
     try #require(hardened.loadedExtensions["azure"] == .loaded)
     let strict = try hardened.connect()
     for (url, name) in [("az://c/x.parquet", "AzureBlobStorageFileSystem"),
@@ -93,7 +93,7 @@ func remoteFact1_azureRegistersTwoFilesystemsAndHardenNowBlocksBoth() throws {
     // reaches the credential check, which is exactly how far this test can see without an account.
     let open = try Database.inMemory()
     open.harden(allowRemote: true)
-    open.loadExtensions(["azure"])
+    open.loadExtensions(["azure"], installMissing: true)
     try #require(open.loadedExtensions["azure"] == .loaded)
     let permissive = failure(try open.connect(), "SELECT * FROM read_parquet('az://c/x.parquet')")
     #expect(!permissive.contains("Permission Error"), "\(permissive)")
@@ -303,7 +303,7 @@ func remoteFact6c_secretsAreTemporaryByDefaultAndRedactedOnRead() throws {
 
     do {
         let database = try Database(path: store)
-        database.loadExtensions(["azure"])
+        database.loadExtensions(["azure"], installMissing: true)
         try #require(database.loadedExtensions["azure"] == .loaded)
         let c = try database.connect()
         try c.execute("SET secret_directory='\(secretDir)'")
@@ -342,7 +342,7 @@ func remoteFact6c_secretsAreTemporaryByDefaultAndRedactedOnRead() throws {
 
     // Reopening the same file confirms it: the secret is gone.
     let reopened = try Database(path: store)
-    reopened.loadExtensions(["azure"])
+    reopened.loadExtensions(["azure"], installMissing: true)
     let c = try reopened.connect()
     try c.execute("SET secret_directory='\(secretDir)'")
     #expect(try c.query("SELECT count(*) FROM duckdb_secrets()").allRows()[0][0] == .int(0))
@@ -470,7 +470,7 @@ func remoteFact8_httpTimeoutAndRetryKnobsAndTheirRealScope() throws {
         """).allRows()[0][0] == .int(0))
     try before.execute("SET http_retries=7")
     #expect(throws: DuckDBError.self) { try before.execute("SET totally_made_up_setting=1") }
-    pre.loadExtensions(["httpfs"])
+    pre.loadExtensions(["httpfs"], installMissing: true)
     try #require(pre.loadedExtensions["httpfs"] == .loaded)
     #expect(try before.query("SELECT current_setting('http_retries')").allRows()[0][0] == .int(7))
     #expect(try pre.connect().query("SELECT current_setting('http_retries')").allRows()[0][0] == .int(3))
@@ -739,12 +739,12 @@ func remoteFact_deltaAndExcelInstallThenLoadWithAutoloadDisabled() throws {
     for name in ["delta", "excel"] {
         #expect(throws: DuckDBError.self) { try c.execute("LOAD \(name)") }
     }
-    d.loadExtensions(["delta", "excel"])
+    d.loadExtensions(["delta", "excel"], installMissing: true)
     #expect(d.networkInstalls == ["delta", "excel"])
     #expect(d.loadedExtensions["delta"] == .loaded)
     #expect(d.loadedExtensions["excel"] == .loaded)
     #expect(try c.query("SELECT current_setting('autoload_known_extensions')").allRows()[0][0] == .bool(false))
     // Successful LOAD must prevent a second INSTALL.
-    d.loadExtensions(["delta", "excel"])
+    d.loadExtensions(["delta", "excel"], installMissing: true)
     #expect(d.networkInstalls == ["delta", "excel"])
 }

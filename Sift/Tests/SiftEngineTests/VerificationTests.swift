@@ -659,12 +659,9 @@ func deltaOpensAndHonoursTombstones() async throws { try await withWorkspace(che
 // The six remote checks. Two of them run everywhere — a strict session refuses before it reaches
 // for anything, and the cache sweep is files plus one local catalog — and four need `httpfs`.
 //
-// 🔴 The enablement condition is `extensionIsInstalled("httpfs")`, the LOAD-with-no-INSTALL probe,
-// and NOT the `extensionIsAvailable` helper the delta/excel tests use: that one calls
-// `loadExtensions`, which falls through to `INSTALL`, so using it here would put
-// `extensions.duckdb.org` on the critical path of `swift test` — the exact thing
-// `SIFT_REMOTE_FACTS` gates the `remoteFact` tests for. Everything below is loopback-only, so with
-// the extension already present it needs no network at all and no env var either.
+// Availability probes (`extensionIsInstalled` and the delta/excel test helper
+// `extensionIsAvailable`) are LOAD-only. Explicit cold installs belong to the gated
+// remoteFact canaries; the default suite never installs a missing extension.
 
 @Test func aStrictSessionRefusesAUrlAndReachesNothing() async throws {
     try await withWorkspace(checkRemotePosture)

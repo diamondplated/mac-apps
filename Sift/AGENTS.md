@@ -44,12 +44,14 @@ records every name an `INSTALL` was issued for, so a test can assert what the pr
 than what is on disk afterwards; "the extension is present" has two provenances and a warm cache
 makes them indistinguishable, which is exactly how a strict session's install survived the phase.
 
-**The one thing the default run can still install is `delta`/`excel`.** `Session.init` loads
-`sessionExtensions` in every posture, LOAD→INSTALL→LOAD, so a machine that has never had them
-fetches them the first time any test opens a `Session` — and so does the app, at launch, and so does
-`--verify`. That is pre-existing, it is what makes the gated xlsx/delta tests runnable on a cold CI
-runner, and closing it means installing lazily at the point a `.xlsx` or a `_delta_log/` is opened
-rather than at launch. Worth doing; it is a product change, not a test fix.
+**Session startup never installs `delta` or `excel`.** It attempts LOAD only. Opening an
+Excel workbook (`.xlsx`/`.xlsm`) or Delta directory when its extension is missing produces a
+typed download request. The app asks **Download and Open** or **Cancel**, names the extension
+and `extensions.duckdb.org`, and explains that local file contents are not uploaded. Only
+explicit approval downloads that extension and retries the queued open. Installed extensions
+need no prompt. The CLI refuses by default; `--allow-extension-download` explicitly permits the
+required first-use download. `--verify` never accepts that permission and skips absent formats.
+Default test helpers also LOAD only; cold extension installs belong to gated `remoteFact` tests.
 **Never weaken a test to make a change pass.** If a test pins a symbol or an output string, that
 is a contract, not an accident. The suite runs fully **in parallel** and nothing is
 `.serialized`; a test that only passes serialized is a bug in the test.
@@ -72,9 +74,8 @@ SIFT_REMOTE_FACTS=1 swift test     # includes tests that may INSTALL an extensio
 `--verify` has six remote checks: five use `LoopbackHTTPServer`, while cache sweep uses
 local files. Four skip when `httpfs` is not installed; strict posture and cache sweep
 always run. HTTP checks cap their own `http_timeout`/`http_retries`. A check that cannot
-run is not a check that passed. The command as a whole is not airtight — every workspace `Session`
-it builds can `INSTALL delta`/`excel`, per the note above — and unlike `swift test` that is
-defensible: `--verify` is what a user runs to check their own install.
+run is not a check that passed. The verifier never installs missing local-format or remote
+extensions; its scratch sessions only use extensions already present on disk.
 
 After any engine or UI change, exercise it end to end against a **multi-million-row file** —
 several real bugs here were invisible on small files. The window cannot be screenshotted on this
@@ -152,8 +153,9 @@ the vendored dylib — not folklore:
 - `read_xlsx` takes `sheet =>` (not `sheet_name`) and can't list sheets — hence
   `XLSXSheets.swift` parsing the OOXML directly.
 - Delta time travel is `version => n`; `AT (VERSION => n)` does not parse.
-- The `delta` and `excel` extensions need one online `INSTALL` (`loadExtensions` does
-  LOAD→INSTALL→LOAD); autoloading is deliberately off.
+- The `delta` and `excel` extensions need one approved online `INSTALL` when missing;
+  `loadExtensions(..., installMissing: false)` performs LOAD only. Explicitly authorized
+  installs use LOAD→INSTALL→LOAD; autoloading is deliberately off.
 - `approx_count_distinct` overshoots (340 for 300 distinct) — clamped in the profile.
 - `duckdb_tables().estimated_size` is a **row count, not bytes** — staged bytes are measured
   from storage blocks instead.

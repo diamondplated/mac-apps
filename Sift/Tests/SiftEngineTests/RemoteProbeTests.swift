@@ -10,7 +10,7 @@ import SiftCore
 //
 // Almost everything here runs in the DEFAULT suite. Only the tests that need DuckDB to have
 // `httpfs` — the DESCRIBE probes, `read_blob`, the parquet-in-place spec — are gated behind
-// `SIFT_REMOTE_FACTS=1`, because `loadExtensions` does LOAD→INSTALL→LOAD and would put
+// `SIFT_REMOTE_FACTS=1`, because `loadExtensions(..., installMissing: true)` does LOAD→INSTALL→LOAD and would put
 // `extensions.duckdb.org` on the critical path of `swift test`. The HEAD identity tests need no
 // extension at all (they are `URLSession` talking to a socket), and neither do the refusals, which
 // is the point of refusing before the wire.
@@ -66,7 +66,7 @@ private func parquetBytes(rows: Int) throws -> Data {
 private func remoteConnection() throws -> Connection {
     let database = try Database.inMemory()
     database.harden(allowRemote: true)
-    database.loadExtensions(["httpfs"])
+    database.loadExtensions(["httpfs"], installMissing: true)
     try #require(database.loadedExtensions["httpfs"] == .loaded, "httpfs must be installed")
     let con = try database.connect()
     // GLOBAL, not a bare SET (spike §8 — a bare SET configures one connection and no queries), and

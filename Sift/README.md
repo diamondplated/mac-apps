@@ -288,7 +288,10 @@ Sift is a file explorer, not a warehouse client:
 
 Sift bundles no third-party code at all: the only runtime dependency is DuckDB (MIT), vendored as
 the prebuilt `libduckdb` with a pinned checksum. The `delta` and `excel` DuckDB extensions are
-downloaded from DuckDB's own extension repository on first use.
+downloaded from `extensions.duckdb.org` only after you approve **Download and Open**
+for a file that needs a missing extension. **Cancel** leaves it uninstalled; local file
+contents are not uploaded. Startup only loads installed extensions. CLI opens require
+`--allow-extension-download` to permit that first-use download; `--verify` never installs them.
 
 ## Contributing
 

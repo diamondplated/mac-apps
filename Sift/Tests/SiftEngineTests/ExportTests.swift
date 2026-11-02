@@ -38,7 +38,8 @@ private func exists(_ path: String) -> Bool {
 /// "the export worked" cannot be satisfied by a file only this engine's own state can interpret.
 private func rowsIn(_ path: String, reader: String) throws -> Int {
     let db = try Database.inMemory()
-    db.loadExtensions(["excel"])
+    db.harden()
+    db.loadExtensions(["excel"], installMissing: false)
     let con = try db.connect()
     let row = try con.query("SELECT count(*) FROM \(reader)(\(qlit(path)))").allRows()[0][0]
     guard case .int(let n) = row else { return -1 }

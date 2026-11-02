@@ -257,7 +257,8 @@ private func csvCtx(_ con: Connection, path: String, delim: String = ",", size: 
 @Test(.enabled(if: extensionIsAvailable("delta"), "delta extension not installed on this machine"))
 func deltaSnippetsLoadTheExtension() throws {
     let db = try Database.inMemory()
-    db.loadExtensions(["delta"])
+    db.harden()
+    db.loadExtensions(["delta"], installMissing: false)
     let con = try db.connect()
     let root = try makeDelta(con: con, dir: try tempDir(), kept: 100, tombstoned: 50)
     let cols = try describeColumns(con, "delta_scan(\(qlit(root)))")
@@ -281,7 +282,8 @@ func deltaSnippetsLoadTheExtension() throws {
 @Test(.enabled(if: extensionIsAvailable("excel"), "excel extension not installed on this machine"))
 func xlsxSnippetNamesTheSheet() throws {
     let db = try Database.inMemory()
-    db.loadExtensions(["excel"])
+    db.harden()
+    db.loadExtensions(["excel"], installMissing: false)
     let con = try db.connect()
     let path = bundledXLSXPath("book")
     let sheet = "By Store"

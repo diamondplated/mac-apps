@@ -25,7 +25,7 @@ import TestSupport
 // behind `SIFT_REMOTE_FACTS=1`.
 //
 // But a PERMISSIVE `Session` is not offline by itself: `Session.init` asks for `httpfs` (and
-// `azure` when a saved connection needs it), `Database.loadExtensions` does LOAD → INSTALL → LOAD,
+// `azure` when a saved connection needs it), `Database.loadExtensions(..., installMissing: true)` does LOAD → INSTALL → LOAD,
 // and the header this replaced said "nothing here needs the network" while a dozen tests below
 // fetched two binaries from `extensions.duckdb.org` on any machine that did not already have them.
 // That the assertions were all written `!= nil` rather than `== .loaded` meant the suite PASSED
@@ -620,7 +620,8 @@ func aConfigThatCannotBeSavedTakesTheCredentialBackOut() async throws {
 
 /// The two states that cost nothing to reach. `.unavailable` is the third and it is below, gated —
 /// see that test for why it cannot live here.
-@Test func installExtensionReportsTheLoadedAndRejectedStates() async throws {
+@Test(.enabled(if: extensionIsAvailable("delta"), "duckdb delta extension not installed"))
+func installExtensionReportsTheLoadedAndRejectedStates() async throws {
     let session = try newSession(newHome())
     let before = session.database.networkInstalls
 

@@ -18,7 +18,8 @@ private let sharedData = try! corpus()
 
 private func newConnection(extensions: [String] = []) throws -> Connection {
     let db = try Database.inMemory()
-    db.loadExtensions(extensions)
+    db.harden()
+    db.loadExtensions(extensions, installMissing: false)
     return try db.connect()
 }
 

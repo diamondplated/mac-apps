@@ -14,8 +14,11 @@ swift build && swift test    # default suite; remoteFact tests gated off
 Use full Xcode 27 or newer; macOS SDK 27.2 and Swift 6.4.2 are verified locally.
 The Command Line Tools alone cannot build the SwiftUI app. The app needs no Python or Node;
 CI uses Python 3 for the source-contract checks in `scripts/`.
-The `delta` and `excel` DuckDB extensions can install at session startup (one-time, needs
-network). Saving a remote connection installs nothing in a strict session; `httpfs` and
+The `delta` and `excel` DuckDB extensions never install at session startup. The first
+Excel/Delta open asks before downloading its missing extension from `extensions.duckdb.org`;
+cancelling leaves it uninstalled. Local file contents are not uploaded. For the CLI,
+`--allow-extension-download` explicitly permits a required first-use download.
+Saving a remote connection installs nothing in a strict session; `httpfs` and
 `azure` load or install on the next launch with remote access enabled.
 
 The network-install tests carry the `remoteFact` prefix and are gated behind `SIFT_REMOTE_FACTS=1` — the
@@ -56,7 +59,8 @@ swift run sift --verify               # the engine end to end: 26 checks
 local files. The strict-posture check always runs. Four checks skip, with a sentence, where
 `httpfs` is not already installed; they never install it, because a command you ran to check
 your own install has no business making an outbound request for remote extensions.
-Session startup can still install `delta`/`excel`, as described above.
+The verifier also skips Excel/Delta checks when their extensions are absent. It never
+accepts download permission; use the app prompt or an explicitly permitted CLI open first.
 
 Then actually run it end to end. A green unit run is not evidence the app works — several of the
 subtle bugs in this codebase's history were only visible with a real multi-million-row file open.

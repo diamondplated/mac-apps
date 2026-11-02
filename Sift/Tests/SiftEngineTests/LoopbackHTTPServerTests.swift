@@ -407,7 +407,7 @@ private func drain(_ fd: Int32) -> Data {
 /// later remote test copies: run one statement, then read off the log *how* it was served.
 ///
 /// GATED behind `SIFT_REMOTE_FACTS=1` for the same reason as the other remote-facts tests:
-/// `loadExtensions` does LOAD→INSTALL→LOAD, so a machine without `httpfs` reaches for the network,
+/// `loadExtensions(..., installMissing: true)` does LOAD→INSTALL→LOAD, so a machine without `httpfs` reaches for the network,
 /// and the default `swift test` must stay offline.
 ///
 ///     SIFT_REMOTE_FACTS=1 swift test --filter remoteFact
@@ -425,7 +425,7 @@ func remoteFactParquetReadThroughTheOracleIsRangedNotWholeObject() throws {
     server.register(path: "/big.parquet", body: bytes)
 
     let database = try Database.inMemory()
-    database.loadExtensions(["httpfs"])
+    database.loadExtensions(["httpfs"], installMissing: true)
     try #require(database.loadedExtensions["httpfs"] == .loaded, "httpfs must be installed")
     let connection = try database.connect()
     // Everything here is on 127.0.0.1, so 5 s is generous — and it is the difference between a

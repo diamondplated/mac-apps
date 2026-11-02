@@ -73,7 +73,8 @@ private func siftCoreTestsFixture(_ name: String) -> String {
 /// from this target either — test targets don't export to one another in SwiftPM).
 private func extensionIsAvailable(_ name: String) -> Bool {
     guard let db = try? Database.inMemory() else { return false }
-    db.loadExtensions([name])
+    db.harden()
+    db.loadExtensions([name], installMissing: false)
     return db.loadedExtensions[name] == .loaded
 }
 
@@ -86,7 +87,7 @@ func fact4_readXlsxTakesSheetArrowNotSheetName() throws {
     let path = siftCoreTestsFixture("book.xlsx")
     let db = try Database.inMemory()
     db.harden()
-    db.loadExtensions(["excel"])
+    db.loadExtensions(["excel"], installMissing: false)
     let c = try db.connect()
 
     let rows = try c.query("SELECT count(*) FROM read_xlsx('\(path)', sheet => 'By Store')").allRows()
@@ -191,7 +192,7 @@ func fact6_deltaTimeTravelUsesVersionArrowNotAtVersion() throws {
     let dir = TestTemp.dir("fact6")
     let db = try Database.inMemory()
     db.harden()
-    db.loadExtensions(["delta"])
+    db.loadExtensions(["delta"], installMissing: false)
     let c = try db.connect()
     let root = try makeDeltaFixture(con: c, dir: dir, kept: 100, tombstoned: 50)
 

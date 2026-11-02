@@ -233,7 +233,7 @@ func remoteFact_loadExtensionsTellsAMissingBinaryApartFromARejectedName() throws
     let db = try Database.inMemory()
     db.harden()
     #expect(db.networkInstalls.isEmpty)
-    db.loadExtensions(["no_such_extension_zzz", "httpfs; ATTACH 'evil.db'"])
+    db.loadExtensions(["no_such_extension_zzz", "httpfs; ATTACH 'evil.db'"], installMissing: true)
 
     let missing = db.loadedExtensions["no_such_extension_zzz"]
     let rejected = db.loadedExtensions["httpfs; ATTACH 'evil.db'"]
