@@ -23,6 +23,15 @@ public enum ArchiveTemporaryStorage {
             guard copy >= 0 else { throw POSIXError(.EIO) }
             return copy
         }
+        func containsLease(device: dev_t, inode: ino_t) -> Bool {
+            lock.lock(); defer { lock.unlock() }
+            // Directory enumeration can canonicalize /var to /private/var.
+            // Compare the locked file, not a spelling of its parent URL.
+            return descriptors.values.contains { fd in
+                var info = stat()
+                return fstat(fd, &info) == 0 && info.st_dev == device && info.st_ino == inode
+            }
+        }
         func release(at url: URL) {
             lock.lock(); defer { lock.unlock() }
             if let fd = descriptors.removeValue(forKey: url.path) { Darwin.close(fd) }
@@ -77,8 +86,65 @@ public enum ArchiveTemporaryStorage {
     }
 
     public static func sweepInactiveDirectories(root: URL = FileManager.default.temporaryDirectory) throws {
+        _ = try sweepAndSnapshotBusyDirectories(root: root)
+    }
+
+    /// Scan once at launch, then retry only the owned v2 trees whose leases were
+    /// busy in that snapshot. Never enroll later extractions or locally held leases.
+    /// Cancellation leaves any remaining trees intact for the next launch.
+    public static func reclaimOnLaunch(root: URL = FileManager.default.temporaryDirectory) async throws {
+        try Task.checkCancellation()
+        var pending = try sweepAndSnapshotBusyDirectories(root: root, cancellable: true)
+        var delay: UInt64 = 250_000_000
+        while !pending.isEmpty {
+            try await Task.sleep(nanoseconds: delay)
+            var busy: [Candidate] = []
+            for candidate in pending {
+                try Task.checkCancellation()
+                if try retry(candidate) { busy.append(candidate) }
+            }
+            pending = busy
+            delay = min(delay * 2, 30_000_000_000)
+        }
+    }
+
+    private struct Candidate {
+        let directory: URL
+        let directoryDevice: dev_t
+        let directoryInode: ino_t
+        let markerDevice: dev_t
+        let markerInode: ino_t
+    }
+
+    /// True only while the original candidate still has a busy lease. Replaced,
+    /// missing, foreign, or now app-owned paths leave this launch's work set.
+    private static func retry(_ candidate: Candidate) throws -> Bool {
+        let directory = candidate.directory
+        var directoryStat = stat()
+        guard lstat(directory.path, &directoryStat) == 0,
+              directoryStat.st_uid == getuid(), directoryStat.st_mode & S_IFMT == S_IFDIR,
+              directoryStat.st_dev == candidate.directoryDevice,
+              directoryStat.st_ino == candidate.directoryInode else { return false }
+        let fd = Darwin.open(directory.appendingPathComponent(marker).path, O_RDWR | O_NOFOLLOW | O_CLOEXEC)
+        guard fd >= 0 else { return false }
+        defer { Darwin.close(fd) }
+        var markerStat = stat()
+        guard fstat(fd, &markerStat) == 0,
+              markerStat.st_uid == getuid(), markerStat.st_mode & S_IFMT == S_IFREG,
+              markerStat.st_dev == candidate.markerDevice,
+              markerStat.st_ino == candidate.markerInode else { return false }
+        guard !leases.containsLease(device: markerStat.st_dev, inode: markerStat.st_ino) else { return false }
+        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else { return errno == EWOULDBLOCK }
+        try Task.checkCancellation()
+        try FileManager.default.removeItem(at: directory)
+        return false
+    }
+
+    private static func sweepAndSnapshotBusyDirectories(root: URL, cancellable: Bool = false) throws -> [Candidate] {
         let fm = FileManager.default
+        var busy: [Candidate] = []
         for directory in try fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) {
+            if cancellable { try Task.checkCancellation() }
             guard directory.lastPathComponent.hasPrefix("pv-archive-"),
                   UUID(uuidString: String(directory.lastPathComponent.dropFirst("pv-archive-".count))) != nil else { continue }
             var directoryStat = stat()
@@ -98,9 +164,18 @@ public enum ArchiveTemporaryStorage {
             defer { Darwin.close(fd) }
             var markerStat = stat()
             guard fstat(fd, &markerStat) == 0, markerStat.st_uid == getuid(),
-                  markerStat.st_mode & S_IFMT == S_IFREG,
-                  flock(fd, LOCK_EX | LOCK_NB) == 0 else { continue }
+                  markerStat.st_mode & S_IFMT == S_IFREG else { continue }
+            guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+                if errno == EWOULDBLOCK, leasePath.lastPathComponent == marker,
+                   !leases.containsLease(device: markerStat.st_dev, inode: markerStat.st_ino) {
+                    busy.append(Candidate(directory: directory,
+                                          directoryDevice: directoryStat.st_dev, directoryInode: directoryStat.st_ino,
+                                          markerDevice: markerStat.st_dev, markerInode: markerStat.st_ino))
+                }
+                continue
+            }
             try fm.removeItem(at: directory)
         }
+        return busy
     }
 }

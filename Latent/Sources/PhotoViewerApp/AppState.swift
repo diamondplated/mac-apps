@@ -141,9 +141,14 @@ final class AppState {
         }
     }
 
+    @ObservationIgnored
+    private var archiveReclamationTask: Task<Void, Never>?
+
+    deinit { archiveReclamationTask?.cancel() }
+
     init() {
-        Task.detached(priority: .utility) {
-            try? ArchiveTemporaryStorage.sweepInactiveDirectories()
+        archiveReclamationTask = Task.detached(priority: .utility) {
+            try? await ArchiveTemporaryStorage.reclaimOnLaunch()
         }
         // Set backing fields directly so didSet doesn't re-write the value
         // we just read. (didSet still fires on init; the re-write is

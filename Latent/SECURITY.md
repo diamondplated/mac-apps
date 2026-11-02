@@ -57,8 +57,10 @@ timeout, and validates the finished tree (including symbolic links) before showi
 cancelled extractions are removed from their private, mode-0700 temporary directory once the
 supervisor's tool process group can no longer write. If cancellation cannot finish promptly, the
 supervisor retains a kernel lease and cleanup leaves the directory alone until that lease is released.
-A later sweep reclaims unfinished directories created by this lease-aware version; historical
-unfinished directories remain untouched because their tools did not inherit a lease.
+At launch, one sweep reclaims inactive directories and snapshots busy, owned v2 directories for
+cancellable retries with backoff. It tracks only that initial set until their leases release; it does
+not rescan the temporary root or enroll new app extractions. Historical unfinished directories remain
+untouched because their tools did not inherit a lease.
 
 For `.rar` and `.7z`, Latent accepts `unrar` / `7zz` only from fixed Homebrew and MacPorts prefixes;
 it does not execute an arbitrary same-named binary earlier on `PATH`. Helper processes receive a

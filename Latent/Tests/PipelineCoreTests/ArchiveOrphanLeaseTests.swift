@@ -4,7 +4,7 @@ import XCTest
 @testable import PhotoIO
 
 final class ArchiveOrphanLeaseTests: XCTestCase {
-    func testParentDeathPreservesLiveExtractorThenReclaimsUnfinishedTree() throws {
+    func testParentDeathPreservesLiveExtractorThenReclaimsUnfinishedTree() async throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory.appendingPathComponent("latent-orphan-test-\(UUID().uuidString)")
         try fm.createDirectory(at: root, withIntermediateDirectories: false)
@@ -42,15 +42,20 @@ while True: time.sleep(1)
         XCTAssertThrowsError(try ArchiveTemporaryStorage.remove(directory))
         kill(parent.processIdentifier, SIGKILL)
         parent.waitUntilExit()
-        try ArchiveTemporaryStorage.sweepInactiveDirectories(root: root)
+        // One launch invocation must preserve the live orphan and then reclaim
+        // automatically. The test never drives a second sweep after tool exit.
+        let reclaimer = Task { try await ArchiveTemporaryStorage.reclaimOnLaunch(root: root) }
+        defer { reclaimer.cancel() }
+        try await Task.sleep(nanoseconds: 350_000_000)
         XCTAssertTrue(fm.fileExists(atPath: directory.path), "live orphan must retain extraction")
         try Data().write(to: done)
-        let end = Date().addingTimeInterval(10)
+        let end = Date().addingTimeInterval(5)
         while fm.fileExists(atPath: directory.path) && Date() < end {
-            try ArchiveTemporaryStorage.sweepInactiveDirectories(root: root)
-            usleep(10_000)
+            try await Task.sleep(nanoseconds: 10_000_000)
         }
-        XCTAssertFalse(fm.fileExists(atPath: directory.path), "finished orphan must release lease without completion marker")
+        XCTAssertFalse(fm.fileExists(atPath: directory.path), "same launch reclaimer must remove finished orphan without completion marker")
+        reclaimer.cancel()
+        do { try await reclaimer.value } catch is CancellationError {}
     }
 
     func testSupervisorCancellationStopsToolBeforeReleasingLease() throws {
