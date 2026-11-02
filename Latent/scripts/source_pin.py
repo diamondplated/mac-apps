@@ -1,4 +1,4 @@
-"""Fetch architecture source at an audited revision and refuse changed caches."""
+"""Fetch architecture source at a fixed revision and refuse changed caches."""
 from pathlib import Path
 import subprocess
 
@@ -22,7 +22,10 @@ def ensure_pinned_repo(url: str, directory: Path, revision: str) -> None:
     if git("status", "--porcelain", "--untracked-files=no"):
         raise RuntimeError(f"Architecture checkout has tracked changes: {directory}")
     # Include ignored files: an ignored Python module can shadow a pinned module.
-    # CPython's __pycache__ bytecode cannot be imported without its source file.
+    # Cached bytecode can also replace clean source when its timestamp/hash matches.
     extras = git("ls-files", "--others").splitlines()
-    if any(not ("__pycache__" in Path(p).parts and p.endswith(".pyc")) for p in extras):
-        raise RuntimeError(f"Architecture checkout has untracked files: {directory}")
+    if extras:
+        raise RuntimeError(
+            f"Architecture checkout has untracked files (including ignored bytecode): {directory}. "
+            "Inspect or move this checkout aside before retrying; no files were removed."
+        )

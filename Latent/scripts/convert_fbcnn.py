@@ -60,6 +60,8 @@ def download_weights() -> None:
 def build_model():
     import torch
     ensure_repo()
+    # Keep the verified checkout free of executable, untracked bytecode caches.
+    sys.dont_write_bytecode = True
     sys.path.insert(0, str(FBCNN_REPO_DIR))
     # The repo exposes its network in models/network_fbcnn.py.
     from models.network_fbcnn import FBCNN  # type: ignore[import-not-found]

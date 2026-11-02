@@ -60,12 +60,15 @@ class ArchitecturePinTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "untracked files"):
             self.ensure()
 
-    def test_normal_import_bytecode_is_allowed(self):
+    def test_ignored_bytecode_is_refused_without_deleting_user_files(self):
         self.ensure()
         cache = self.destination / "__pycache__"
         cache.mkdir()
-        (cache / "model.cpython-312.pyc").write_bytes(b"cache")
-        self.ensure()
+        bytecode = cache / "model.cpython-312.pyc"
+        bytecode.write_bytes(b"cache")
+        with self.assertRaisesRegex(RuntimeError, "untracked files.*bytecode"):
+            self.ensure()
+        self.assertEqual(bytecode.read_bytes(), b"cache")
 
 
 class CheckpointPinTests(unittest.TestCase):

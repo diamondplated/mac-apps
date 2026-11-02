@@ -84,6 +84,8 @@ def build_model():
     ensure_repo()
     # basicsr on PyPI does NOT contain NAFNet — 1.4.2 ships 19 archs and this
     # is not among them. It lives in NAFNet's own vendored basicsr fork.
+    # Keep the verified checkout free of executable, untracked bytecode caches.
+    sys.dont_write_bytecode = True
     sys.path.insert(0, str(NAFNET_REPO_DIR))
     from basicsr.models.archs.NAFNet_arch import NAFNet  # type: ignore[import-not-found]
 
