@@ -13,9 +13,9 @@
   },
   {
     "path": "Sources/DuckDBKit/Database.swift",
-    "code": "hardened[name] = (try? con.execute(\"SET \\(name)=\\(value)\")) != nil",
+    "code": "let succeeded = (try? con.execute(\"SET \\(name)=\\(value)\")) != nil",
     "count": 1,
-    "reason": "Configuration records unsuccessful setup in status; Session validates hardening before opening."
+    "reason": "A failed SET is recorded as false under the state lock; strict Session initialization refuses any failed required setting."
   },
   {
     "path": "Sources/DuckDBKit/Database.swift",
