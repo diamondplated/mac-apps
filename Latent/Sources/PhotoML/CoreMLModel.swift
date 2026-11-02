@@ -137,9 +137,10 @@ public actor CoreMLImageModel {
     public init(
         id: ModelID,
         spec: TensorSpec,
-        computeUnits: MLComputeUnits = .all
+        computeUnits: MLComputeUnits = .all,
+        resolvedURL: URL? = nil
     ) async throws {
-        guard let url = ModelRegistry.url(for: id) else {
+        guard let url = resolvedURL ?? ModelRegistry.url(for: id) else {
             throw CoreMLModelError.modelNotFound(id)
         }
         self.url = url

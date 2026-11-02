@@ -13,7 +13,7 @@ public enum ModelID: String, Sendable, CaseIterable {
 
 /// Where the registry looks for models. In dev / open-source, models live in
 /// the repo's `Resources/Models/` (gitignored). Released app: in
-/// `~/Library/Application Support/photo-viewer/Models/`, downloaded lazily.
+/// `~/Library/Application Support/photo-viewer/Models/`, installed by user-run setup scripts.
 public enum ModelRegistry {
 
     /// Resolve a model file URL. Returns nil if no .mlpackage exists yet —
@@ -23,7 +23,7 @@ public enum ModelRegistry {
         let fileName = "\(id.rawValue).mlpackage"
 
         // Search order: developer-controlled paths first, then the user-data
-        // location where lazy-downloaded files end up.
+        // location where user-installed files end up.
         for dir in searchDirectories() {
             let candidate = dir.appendingPathComponent(fileName)
             if FileManager.default.fileExists(atPath: candidate.path) {
@@ -38,7 +38,7 @@ public enum ModelRegistry {
         return nil
     }
 
-    /// Directory where lazy-downloaded models are stored.
+    /// Directory where user-installed models are stored.
     public static func userModelsDirectory() throws -> URL {
         let appSupport = try FileManager.default.url(
             for: .applicationSupportDirectory,
@@ -57,7 +57,9 @@ public enum ModelRegistry {
 
         // 1. Override via env var (CI / scripts).
         if let envPath = ProcessInfo.processInfo.environment["PV_MODELS_DIR"] {
-            dirs.append(URL(fileURLWithPath: envPath, isDirectory: true))
+            // An explicit override is exclusive, including when empty.
+            // This keeps tests and custom model stores isolated from user data.
+            return [URL(fileURLWithPath: envPath, isDirectory: true)]
         }
 
         // 2. Repo Resources/Models (when running from a checkout).
@@ -80,7 +82,7 @@ public enum ModelRegistry {
             dirs.append(bundleResources.appendingPathComponent("Models", isDirectory: true))
         }
 
-        // 4. User Application Support (lazy-downloaded location).
+        // 4. User Application Support (user-installed location).
         if let userDir = try? userModelsDirectory() {
             dirs.append(userDir)
         }

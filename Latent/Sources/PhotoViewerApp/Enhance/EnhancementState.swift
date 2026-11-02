@@ -4,6 +4,7 @@ import SwiftUI
 import PipelineCore
 import EnhancementStages
 import PhotoIO
+import PhotoML
 
 /// Single source of truth for the in-app enhancement editor.
 ///
@@ -160,7 +161,8 @@ final class EnhancementState {
     /// Shared across loads — cache keys are content-hashed, so loading a new
     /// image doesn't poison hits for the old one. 256 MiB ceiling is enough
     /// for several intermediates of a typical photo at working format.
-    let cache = IntermediateCache(maxBytes: 256 * 1024 * 1024)
+    let modelCache = EnhancementModelCache(maxBytes: 256 * 1024 * 1024)
+    var cache: IntermediateCache { modelCache.cache }
     let writer = ImageWriter()
     let fullBufferReadCoordinator = FullBufferReadCoordinator()
 

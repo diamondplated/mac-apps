@@ -36,7 +36,11 @@ public enum ImageReadError: Error, CustomStringConvertible {
 /// Display P3, Adobe RGB, etc.). The original color space is recorded in
 /// metadata so writes can target the same gamut.
 public struct ImageReader: Sendable {
-    public init() {}
+    private let maxWorkingMemoryBytes: UInt64
+
+    public init(maxWorkingMemoryBytes: UInt64 = ImageMemoryPolicy.defaultLimit) {
+        self.maxWorkingMemoryBytes = maxWorkingMemoryBytes
+    }
 
     /// Decode the primary image at full resolution with EXIF orientation
     /// applied to the returned pixels.
@@ -78,6 +82,7 @@ public struct ImageReader: Sendable {
 
         let pixelWidth = (propertiesCF[kCGImagePropertyPixelWidth] as? Int) ?? 0
         let pixelHeight = (propertiesCF[kCGImagePropertyPixelHeight] as? Int) ?? 0
+        _ = try ImageMemoryPolicy.validate(width: pixelWidth, height: pixelHeight, maxBytes: maxWorkingMemoryBytes)
         let orientationRaw = (propertiesCF[kCGImagePropertyOrientation] as? Int) ?? 1
         let orientation = ExifOrientation(rawValue: orientationRaw) ?? .up
 
@@ -89,6 +94,9 @@ public struct ImageReader: Sendable {
         guard let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
             throw ImageReadError.primaryImageDecodeFailed(url)
         }
+
+        // Validate decoded dimensions too, before orientation renders another image.
+        _ = try ImageMemoryPolicy.validate(width: cgImage.width, height: cgImage.height, maxBytes: maxWorkingMemoryBytes)
 
         // Bake orientation into pixel data via Core Image.
         let canonical = try bakeOrientation(cgImage: cgImage, orientation: orientation)

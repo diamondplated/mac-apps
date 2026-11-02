@@ -223,6 +223,7 @@ extension EnhancementState {
         let myPipelineGen = pipelineGeneration
         let previousTask = pipelineTask
         previousTask?.cancel()
+        modelCache.refresh()
         let steps = buildSteps()
         let pipeline = Pipeline(steps: steps, cache: cache)
         let myGen = loadGeneration

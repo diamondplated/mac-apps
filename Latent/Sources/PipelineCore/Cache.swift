@@ -60,6 +60,8 @@ public actor IntermediateCache {
 
     public func put(_ buffer: ImageBuffer, for key: CacheKey) {
         let cost = CacheCost(bytes: buffer.pixels.count)
+        // An uncacheable output must not evict useful upstream intermediates.
+        guard cost.bytes <= maxBytes else { return }
         if let existing = entries[key] {
             totalBytes -= existing.cost.bytes
         }

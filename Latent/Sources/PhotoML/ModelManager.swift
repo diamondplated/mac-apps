@@ -7,31 +7,31 @@ import CoreML
 public actor ModelManager {
     public static let shared = ModelManager()
 
+    private let resolve: @Sendable (ModelID) -> URL?
+
+    public init(resolve: @escaping @Sendable (ModelID) -> URL? = { ModelRegistry.url(for: $0) }) {
+        self.resolve = resolve
+    }
+
     private var cache: [ModelID: CoreMLImageModel] = [:]
-    /// Negative cache: model attempted to load but file missing. Avoid
-    /// retrying on every Pipeline.run.
-    private var unavailable: Set<ModelID> = []
 
     /// Returns a loaded model for `id`, or nil if the model file isn't on
     /// disk yet. Subsequent calls hit the cache.
     public func model(for id: ModelID, spec: TensorSpec, computeUnits: MLComputeUnits = .all) async throws -> CoreMLImageModel? {
-        if unavailable.contains(id) { return nil }
         if let existing = cache[id] { return existing }
 
-        guard ModelRegistry.url(for: id) != nil else {
-            unavailable.insert(id)
+        guard let url = resolve(id) else {
             return nil
         }
 
-        let model = try await CoreMLImageModel(id: id, spec: spec, computeUnits: computeUnits)
+        let model = try await CoreMLImageModel(id: id, spec: spec, computeUnits: computeUnits, resolvedURL: url)
         cache[id] = model
         return model
     }
 
-    /// Forget any cached or negatively-cached state. Useful after the user
+    /// Forget any cached model state. Useful after the user
     /// downloads new models so subsequent calls discover them.
     public func reset() {
         cache.removeAll()
-        unavailable.removeAll()
     }
 }

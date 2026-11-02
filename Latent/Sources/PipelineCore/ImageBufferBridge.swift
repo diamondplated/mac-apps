@@ -48,6 +48,7 @@ extension ImageBuffer {
             throw ImageBufferBridgeError.unsupportedFormat(reason: "zero dimension")
         }
 
+        _ = try ImageMemoryPolicy.validate(width: width, height: height)
         let format = ImageFormat.working
         guard let space = format.colorSpace.cgColorSpace else {
             throw ImageBufferBridgeError.workingColorSpaceUnavailable
