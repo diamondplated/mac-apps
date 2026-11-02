@@ -30,6 +30,8 @@ jobs:
     runs-on: [self-hosted, macOS, ARM64, air]
     timeout-minutes: 90
     env:
+      CLANG_MODULE_CACHE_PATH: ${{ runner.temp }}/clang-module-cache
+      SWIFTPM_MODULECACHE_OVERRIDE: ${{ runner.temp }}/swiftpm-module-cache
       # These are certificate/profile names, never private keys or Apple passwords.
       DEVELOPER_ID_APPLICATION_IDENTITY: ${{ vars.DEVELOPER_ID_APPLICATION_IDENTITY }}
       NOTARYTOOL_PROFILE: ${{ vars.NOTARYTOOL_PROFILE }}
@@ -43,6 +45,9 @@ jobs:
       RELEASE_PUBLISH: ${{ inputs.publish }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Same-owner native checkout: keep Git ownership checks and avoid copying the user global config.
+          set-safe-directory: false
       - name: Preflight native signing credentials
         shell: bash
         run: |
