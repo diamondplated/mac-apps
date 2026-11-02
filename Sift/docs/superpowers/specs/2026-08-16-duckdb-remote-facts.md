@@ -714,3 +714,12 @@ Honest list of what this spike could not measure. None of it is guessed above.
    clean sentence, and that mapping cannot be written against errors nobody has seen.
 7. **`abfss://` beyond the VFS gate.** `AzureDfsStorageFileSystem` is confirmed registered; nothing
    past the permission check was reachable without an account.
+
+## Patch upgrade re-verification: 1.5.6 (2026-11-02)
+
+The measurements above describe 1.5.5 and remain as historical evidence. Against
+1.5.6, the loopback server that refuses Range requests records one HEAD (200) and
+one GET (416), instead of the four GET attempts measured on 1.5.5. The request
+still fails with HTTP 416. A server that ignores Range still returns the complete
+2,000-row CSV successfully. `remoteFact7b` pins the new exact count; the retry
+settings default remains separately pinned by `remoteFact8`.

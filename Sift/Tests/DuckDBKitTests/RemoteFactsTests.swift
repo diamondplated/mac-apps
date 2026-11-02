@@ -381,15 +381,16 @@ func remoteFact7a_csvOverHttpDownloadsTheWholeObjectWhateverTheSampleSize() thro
 func remoteFact7b_aServerThatRefusesRangesFailsButOneThatIgnoresThemWorks() throws {
     let csv = try makeCSV(rows: 2000)
 
-    // 416 is fatal, after the initial GET plus `http_retries` (3) more. The retry wait is turned
-    // down so the pin costs milliseconds rather than the default 100/400/1600 ms backoff.
+    // MEASURED on 1.5.6: HTTP 416 is fatal after one GET, without retrying a permanent
+    // response. On 1.5.5 it made 1 + http_retries (four) GETs. Keep the exact pin: a
+    // default retry-policy change must be reviewed, not hidden by a loose bound.
     let rejecting = try LoopbackServer(files: ["/data.csv": csv], mode: .reject)
     defer { rejecting.stop() }
     let strict = try remoteDB().connect()
     try strict.execute("SET http_retry_wait_ms=1")
     let text = failure(strict, "SELECT count(*) FROM read_csv('\(rejecting.base)/data.csv')")
     #expect(text.contains("416"), "\(text)")
-    #expect(rejecting.log.filter { $0.method == "GET" }.count == 4, "1 + http_retries: \(rejecting.log)")
+    #expect(rejecting.log.filter { $0.method == "GET" }.count == 1, "permanent 416 is not retried: \(rejecting.log)")
 
     // A server that IGNORES the Range header and answers 200 with the whole body is handled
     // transparently — no error, right answer. Only an outright refusal breaks the read.
