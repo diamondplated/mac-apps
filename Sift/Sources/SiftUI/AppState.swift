@@ -1,3 +1,4 @@
+import DuckDBKit
 import Observation
 import SiftCore
 import SiftEngine
@@ -13,6 +14,7 @@ import SwiftUI
 public final class AppState {
     public let session: Session
     public let engine: EngineInfo
+    public private(set) var currentExtensions: [String: ExtensionState]
 
     /// Mirror of the actor's catalog, refreshed by `poll()`. Read-only for views.
     ///
@@ -48,9 +50,17 @@ public final class AppState {
     @ObservationIgnored private var models: [String: TableViewModel] = [:]
     @ObservationIgnored private var pollTask: Task<Void, Never>?
 
+    private var extensionPrompts: [ExtensionDownloadPrompt] = []
+    private(set) var downloadingExtension = false
+    var extensionDownloadPrompt: ExtensionDownloadPrompt? { extensionPrompts.first }
+    // Narrow test seams exercise consent without installing extensions or opening a window.
+    @ObservationIgnored var beforeOpenForTest: ((String) async throws -> Void)?
+    @ObservationIgnored var downloadExtensionForTest: ((ExtensionDownloadRequest) async throws -> Void)?
+
     public init(session: Session) {
         self.session = session
         self.engine = session.engineInfo()   // nonisolated
+        self.currentExtensions = engine.extensions
     }
 
     public var active: SiftEngine.Table? { tables.first { $0.name == activeName } }
@@ -68,11 +78,50 @@ public final class AppState {
         path: String, sheet: String? = nil, nullPadding: Bool = false, skipPreamble: Bool = true
     ) async {
         do {
+            try await beforeOpenForTest?(path)
             let t = try await session.openPath(
                 path, sheet: sheet, nullPadding: nullPadding, skipPreamble: skipPreamble)
             await refresh()
             activeName = t.name
+        } catch let error as SessionError where error.extensionDownload != nil {
+            guard let request = error.extensionDownload else { return }
+            let pending = PendingExtensionOpen(request: request, path: path, sheet: sheet,
+                nullPadding: nullPadding, skipPreamble: skipPreamble)
+            if let index = extensionPrompts.firstIndex(where: { $0.extensionName == request.extensionName }) {
+                extensionPrompts[index].opens.append(pending)
+            } else {
+                extensionPrompts.append(ExtensionDownloadPrompt(opens: [pending]))
+            }
         } catch {
+            banner = error.localizedDescription
+        }
+    }
+
+    func cancelExtensionDownload(_ id: UUID) {
+        guard !downloadingExtension else { return }
+        extensionPrompts.removeAll { $0.id == id }
+    }
+
+    func approveExtensionDownload(_ id: UUID) async {
+        guard !downloadingExtension, let prompt = extensionPrompts.first, prompt.id == id else { return }
+        downloadingExtension = true
+        defer { downloadingExtension = false }
+        do {
+            if let downloadExtensionForTest {
+                try await downloadExtensionForTest(prompt.opens[0].request)
+            } else {
+                try await session.downloadExtension(prompt.opens[0].request)
+            }
+            currentExtensions = session.engineInfo().extensions
+            // Include opens that arrived while the download was in flight. Other extensions
+            // stay queued and need their own explicit approval.
+            let pending = extensionPrompts.removeFirst().opens
+            for item in pending {
+                await open(path: item.path, sheet: item.sheet,
+                    nullPadding: item.nullPadding, skipPreamble: item.skipPreamble)
+            }
+        } catch {
+            extensionPrompts.removeAll { $0.id == id }
             banner = error.localizedDescription
         }
     }
@@ -540,4 +589,23 @@ public func openArguments(_ urls: [URL]) -> [String] {
 /// drop, Finder "Open With" and Open Recent itself all get the same rule from the same place.
 public func recentDocuments(_ urls: [URL]) -> [URL] {
     urls.filter(\.isFileURL)
+}
+
+
+struct PendingExtensionOpen {
+    let request: ExtensionDownloadRequest
+    let path: String
+    let sheet: String?
+    let nullPadding: Bool
+    let skipPreamble: Bool
+}
+
+struct ExtensionDownloadPrompt: Identifiable {
+    let id = UUID()
+    var opens: [PendingExtensionOpen]
+    var extensionName: String { opens[0].request.extensionName }
+    var message: String {
+        let format = extensionName == "excel" ? "Excel" : "Delta"
+        return "Opening this \(format) file requires the \(extensionName) extension, downloaded from extensions.duckdb.org. Your file data is not uploaded. Once installed, this extension can be used without another download prompt."
+    }
 }
