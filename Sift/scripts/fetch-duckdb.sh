@@ -5,9 +5,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="1.5.6"
-SHA256="e0bc007d9b0094c0970ac1847a8601d10aad07cbd2910ce586ec810f77b638d6"
-URL="https://github.com/duckdb/duckdb/releases/download/v${VERSION}/libduckdb-osx-universal.zip"
+VERSION="2.0.0"
+SHA256="14cd63180614cfd961f7959146ecd9087527ff20b67311efdc3fa1c29c18204d"
+URL="https://github.com/duckdb/duckdb/releases/download/v${VERSION}/duckdb-shared-libs-osx-universal.tar.gz"
 
 # Skip only when the files on disk are the pinned version. Presence alone isn't enough: after a
 # bump, an existing checkout would keep the old dylib and header while this reported the new one.
@@ -22,10 +22,10 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
 echo "Downloading libduckdb ${VERSION}…"
-curl -fsSL -o "$tmp/libduckdb.zip" "$URL"
+curl -fsSL -o "$tmp/libduckdb.tar.gz" "$URL"
 
 echo "Verifying checksum…"
-actual="$(shasum -a 256 "$tmp/libduckdb.zip" | cut -d' ' -f1)"
+actual="$(shasum -a 256 "$tmp/libduckdb.tar.gz" | cut -d' ' -f1)"
 if [ "$actual" != "$SHA256" ]; then
   echo "CHECKSUM MISMATCH" >&2
   echo "  expected: $SHA256" >&2
@@ -33,7 +33,8 @@ if [ "$actual" != "$SHA256" ]; then
   exit 1
 fi
 
-unzip -oq "$tmp/libduckdb.zip" -d "$tmp/out"
+mkdir -p "$tmp/out"
+tar -xzf "$tmp/libduckdb.tar.gz" -C "$tmp/out"
 mkdir -p Vendor/duckdb Sources/CDuckDB
 cp "$tmp/out/libduckdb.dylib" Vendor/duckdb/
 # The header lives beside the module map so the module map needs no -I flag.

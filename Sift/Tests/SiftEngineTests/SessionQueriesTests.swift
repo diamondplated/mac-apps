@@ -74,7 +74,8 @@ private func orderID(_ row: [Cell]) -> Int {
 
 /// A single-column CSV of `count` distinct integers, one each, 0..<count — the identical shape
 /// `DuckDB155FactsTests.fact8_approxCountDistinctIsAnEstimate` measured `approx_count_distinct`
-/// overshooting for (340 reported for 300 real distinct values).
+/// overshooting for (102 reported for 100 real distinct values on DuckDB 2.0;
+/// historically 340 for 300 on 1.5.5/1.5.6).
 private func makeUniqueIntCSV(dir: String, count: Int) throws -> String {
     let path = (dir as NSString).appendingPathComponent("unique.csv")
     var out = "v\n"
@@ -134,14 +135,14 @@ private func makeUniqueIntCSV(dir: String, count: Int) throws -> String {
     // test. So the cached profile is overridden directly (the same sentinel-trick shape as
     // `setUncastableForTest`) while the REAL `distinctStatsSQL` query underneath still runs
     // against the real table below and can still genuinely overshoot.
-    let path = try makeUniqueIntCSV(dir: TestTemp.dir("unique-int"), count: 300)
+    let path = try makeUniqueIntCSV(dir: TestTemp.dir("unique-int"), count: 100)
 
     let session = try newSession()
     let t = try await session.openPath(path)
 
     // Prove the overshoot is real on THIS data, independent of `distinct()` entirely — the same
-    // method fact8 uses, rather than trusting a hardcoded "340" to still hold on a CSV-sniffed
-    // BIGINT column (as opposed to fact8's raw `range(300)`).
+    // method fact8 uses, rather than trusting a hardcoded "102" to still hold on a CSV-sniffed
+    // BIGINT column (as opposed to fact8's raw `range(100)`).
     let probe = try Database.inMemory().connect()
     let rawApproxCell = try probe.query(
         "SELECT approx_count_distinct(v) FROM read_csv(\(qlit(path)))"
@@ -150,7 +151,7 @@ private func makeUniqueIntCSV(dir: String, count: Int) throws -> String {
         Issue.record("expected an integer: \(rawApproxCell)"); return
     }
     let rawApprox = Int(rawApproxRaw)
-    #expect(rawApprox > 300, "the whole point of this fixture is a HyperLogLog overshoot to clamp")
+    #expect(rawApprox > 100, "the whole point of this fixture is a HyperLogLog overshoot to clamp")
 
     var profile = try await session.computeProfile(t.name)
     guard let i = profile.firstIndex(where: { $0.name == "v" }) else {
@@ -169,8 +170,8 @@ private func makeUniqueIntCSV(dir: String, count: Int) throws -> String {
 
     let panel = try await session.distinct(t.name, col: "v", limit: 5)
     #expect(panel.nDistinct.exact == false, "the exact branch must not have been taken")
-    #expect(panel.nRows == 300)
-    #expect(panel.nDistinct.value == 300, "clampDistinct caps the overshoot at the real row count")
+    #expect(panel.nRows == 100)
+    #expect(panel.nDistinct.value == 100, "clampDistinct caps the overshoot at the real row count")
     #expect(panel.nDistinct.value < rawApprox, "the clamp must have actually reduced the raw estimate")
 }
 

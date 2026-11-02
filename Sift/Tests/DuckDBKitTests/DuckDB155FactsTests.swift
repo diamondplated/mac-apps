@@ -229,19 +229,20 @@ func fact6_deltaTimeTravelUsesVersionArrowNotAtVersion() throws {
 }
 
 @Test func fact8_approxCountDistinctIsAnEstimate() throws {
-    // MEASURED against libduckdb 1.5.5 via the C API: approx_count_distinct(range(300))
-    // reports 340 for 300 distinct values — the same overshoot as the Python-wheel
-    // measurement AGENTS.md pins. HyperLogLog is an estimate and can overshoot the true
-    // count, which is why core/profile.py clamps it to the exact count — this test pins
-    // that the overshoot (and therefore the need for the clamp) still holds.
-    let rows = try con().query(
+    // Historical 1.5.5/1.5.6 measurement: 340 for range(300). On 2.0.0 the same
+    // input yields 296; range(100) yields 102. Keep exact pins for both directions
+    // and retain a real overshoot, since the engine must still clamp estimates.
+    let c = try con()
+    let rows = try c.query(
         "SELECT approx_count_distinct(i), count(*) FROM range(300) AS t(i)"
     ).allRows()
-    guard case .int(let approx) = rows[0][0], case .int(let exact) = rows[0][1] else {
-        Issue.record("expected two integers"); return
-    }
-    #expect(exact == 300)
-    #expect(approx == 340)
+    #expect(rows[0][0] == .int(296))
+    #expect(rows[0][1] == .int(300))
+    let overshoot = try c.query(
+        "SELECT approx_count_distinct(i), count(*) FROM range(100) AS t(i)"
+    ).allRows()
+    #expect(overshoot[0][0] == .int(102))
+    #expect(overshoot[0][1] == .int(100))
 }
 
 @Test func fact9_duckdbTablesEstimatedSizeIsRowsNotBytes() throws {

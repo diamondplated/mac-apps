@@ -73,7 +73,18 @@ public final class Database: @unchecked Sendable {
         var errPtr: UnsafeMutablePointer<CChar>?
         // Tested against DuckDBSuccess, never against the failure enum: that member
         // imports into Swift as `DuckDBError`, which collides with our own error type.
-        let state = duckdb_open_ext(path, &db, nil, &errPtr)
+        // New 2.0 stores default to format 69, which the previous app cannot reopen.
+        // Keep staged stores readable by 1.5.6 during rollout/rollback; existing stores
+        // retain their format. This is an on-disk compatibility policy, not a parser fallback.
+        var config: duckdb_config?
+        guard duckdb_create_config(&config) == DuckDBSuccess else {
+            throw DuckDBError("Could not create the database configuration.")
+        }
+        defer { duckdb_destroy_config(&config) }
+        guard duckdb_set_config(config, "storage_compatibility_version", "v1.5.6") == DuckDBSuccess else {
+            throw DuckDBError("Could not preserve database compatibility with the previous app.")
+        }
+        let state = duckdb_open_ext(path, &db, config, &errPtr)
         // duckdb_open_ext leaves *out_database untouched on failure, so not calling
         // duckdb_close before throwing is correct—measured against the vendored dylib.
         if state != DuckDBSuccess {
