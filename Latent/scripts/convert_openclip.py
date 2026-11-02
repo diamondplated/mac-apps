@@ -21,10 +21,7 @@ Notes:
   512-dim embedding. Larger variants (ViT-L/14, ViT-H/14) give better
   retrieval accuracy at much higher inference cost. ViT-B/32 is the sweet
   spot for on-device search at folder-walk scale.
-- The text encoder requires BPE tokenization (77-token context). The Swift
-  side currently doesn't ship a tokenizer; image-to-image search works,
-  text queries throw `tokenizerNotImplemented`. Porting `simple_tokenizer.py`
-  is the next milestone for search.
+- Text queries use the Swift CLIPBPETokenizer and the exported BPE merges.
 """
 
 from pathlib import Path
@@ -36,6 +33,28 @@ TOKENIZER_DIR = REPO_ROOT / "Resources" / "Tokenizer"
 IMAGE_OUT = OUTPUT_DIR / "openclip-vitb32-image.mlpackage"
 TEXT_OUT = OUTPUT_DIR / "openclip-vitb32-text.mlpackage"
 MERGES_OUT = TOKENIZER_DIR / "clip-bpe-merges.txt"
+# Hugging Face LFS SHA-256 at this immutable repository revision. Use the
+# OpenCLIP state dict, not model.safetensors (the Transformers layout).
+WEIGHTS_REVISION = "1a25a446712ba5ee05982a381eed697ef9b435cf"
+WEIGHTS_URL = (
+    "https://huggingface.co/laion/CLIP-ViT-B-32-laion2B-s34B-b79K/resolve/"
+    f"{WEIGHTS_REVISION}/open_clip_model.safetensors"
+)
+WEIGHTS_SHA256 = "ac4f8c4b88af6d963118cbf40ad93176d092abbedfcb752601ae1866352656e6"
+WEIGHTS_FILE = REPO_ROOT / "scripts" / "weights" / "open_clip_model.safetensors"
+
+
+def load_model():
+    from fetch import download_verified
+    import open_clip
+
+    download_verified(WEIGHTS_URL, WEIGHTS_FILE, WEIGHTS_SHA256)
+    # open_clip 3.3.0 dispatches .safetensors to safetensors.torch.load_file;
+    # no pickle deserialization or unpinned pretrained-tag download occurs.
+    model, _, _ = open_clip.create_model_and_transforms(
+        "ViT-B-32", pretrained=str(WEIGHTS_FILE),
+    )
+    return model
 
 CLIP_MEAN = (0.48145466, 0.4578275, 0.40821073)
 CLIP_STD = (0.26862954, 0.26130258, 0.27577711)
@@ -187,10 +206,7 @@ def main() -> int:
         import open_clip
 
         print("loading OpenCLIP ViT-B/32 (laion2b_s34b_b79k)…")
-        model, _, _ = open_clip.create_model_and_transforms(
-            "ViT-B-32",
-            pretrained="laion2b_s34b_b79k",
-        )
+        model = load_model()
         model.train(False)
 
         if not IMAGE_OUT.exists():
@@ -210,7 +226,7 @@ def main() -> int:
         return 0
     except ModuleNotFoundError as e:
         print(f"missing dependency: {e}", file=sys.stderr)
-        print("install with: pip install open_clip_torch", file=sys.stderr)
+        print("install with: pip install -r scripts/requirements.txt", file=sys.stderr)
         return 1
 
 
