@@ -40,6 +40,9 @@ jobs:
           sw_vers
           swift --version
 
+      - name: Converter supply-chain tests (offline)
+        run: python3 -m unittest discover -s scripts/tests -v
+
       - name: Build
         run: swift build
 
@@ -49,11 +52,21 @@ jobs:
       # Quick Look, archive extraction, and LAN HTTP parsing, address gating, pairing,
       # authorization and phone actions. No model weights required — the stages
       # degrade to identity or a classical fallback when a model is absent.
+      # PV_MODELS_DIR is exclusive: empty private stores exercise missing-model
+      # fallbacks without consulting the runner's installed models or user data.
       - name: Run the self-verifier
-        run: swift run pv-pipeline
+        run: |
+          PV_MODELS_DIR=$(mktemp -d)
+          export PV_MODELS_DIR
+          trap 'rm -rf "$PV_MODELS_DIR"' EXIT
+          swift run pv-pipeline
 
       - name: XCTest targets
-        run: swift test
+        run: |
+          PV_MODELS_DIR=$(mktemp -d)
+          export PV_MODELS_DIR
+          trap 'rm -rf "$PV_MODELS_DIR"' EXIT
+          swift test
 
       - name: Build app bundle
         run: ./scripts/build_app.sh
