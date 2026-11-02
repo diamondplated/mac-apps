@@ -12,6 +12,7 @@ final class InstallationStoreTests: XCTestCase {
         store = InstallationStore(payloadDirectory: root.appendingPathComponent("Payload"), userDirectory: root.appendingPathComponent("UserApps"), systemDirectory: root.appendingPathComponent("SystemApps"))
         store.osVersion = OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0)
         store.verifySignature = { _, _ in }
+        store.verifyInstalledIdentity = { _, _, _ in }
     }
 
     override func tearDownWithError() throws {
@@ -30,6 +31,53 @@ final class InstallationStoreTests: XCTestCase {
         let plist = try PropertyListSerialization.data(fromPropertyList: metadata, format: .xml, options: 0)
         try plist.write(to: url.appendingPathComponent("Contents/Info.plist"))
         return url
+    }
+
+    func testUntrustedSignerIsRejectedBeforeEveryManagementOperation() throws {
+        let installed = try fixture(in: store.userDirectory, filename: "Renamed.app")
+        try fixture(in: store.payloadDirectory!, release: "2.0")
+        let original = try store.fingerprint(installed)
+        store.verifyInstalledIdentity = { _, _, _ in throw AppManagerError.message("Untrusted signer") }
+        // existing() is also the shared preflight used by AppManager.openInstalled.
+        XCTAssertThrowsError(try store.existing(.dockPeek))
+        XCTAssertThrowsError(try store.settings(.dockPeek))
+        XCTAssertThrowsError(try store.install(.dockPeek, scope: .user))
+        XCTAssertThrowsError(try store.uninstall(.dockPeek))
+        XCTAssertEqual(try store.fingerprint(installed), original)
+    }
+
+    func testRealAdHocManagedIdentifierCannotAuthorizeAnInstalledCopy() throws {
+        let installed = try fixture(in: store.userDirectory)
+        let payload = try fixture(in: store.payloadDirectory!, release: "2.0")
+        for bundle in [installed, payload] {
+            let executable = bundle.appendingPathComponent("Contents/MacOS/DockPeek")
+            try FileManager.default.removeItem(at: executable)
+            try FileManager.default.copyItem(at: URL(fileURLWithPath: "/usr/bin/true"), to: executable)
+            try command("/usr/bin/codesign", ["--force", "--sign", "-", "--timestamp=none", bundle.path])
+            try command("/usr/bin/codesign", ["--verify", "--strict", bundle.path])
+        }
+        let productionStore = InstallationStore(payloadDirectory: store.payloadDirectory,
+            userDirectory: store.userDirectory, systemDirectory: store.systemDirectory)
+        XCTAssertThrowsError(try productionStore.existing(.dockPeek))
+        XCTAssertThrowsError(try productionStore.settings(.dockPeek))
+        XCTAssertThrowsError(try productionStore.install(.dockPeek, scope: .user))
+        XCTAssertThrowsError(try productionStore.uninstall(.dockPeek))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: installed.path))
+    }
+
+    private func command(_ executable: String, _ arguments: [String]) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = output
+        try process.run()
+        let message = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw AppManagerError.message(String(decoding: message, as: UTF8.self))
+        }
     }
 
     func testInstallToRequestedScope() throws {

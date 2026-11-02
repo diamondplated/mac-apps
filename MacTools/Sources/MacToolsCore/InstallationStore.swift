@@ -1,6 +1,7 @@
 import CoreFoundation
 import CryptoKit
 import Foundation
+import Security
 
 /// All methods run away from the main actor. Injectable operations keep tests inside temporary directories.
 struct InstallationStore: @unchecked Sendable {
@@ -10,6 +11,7 @@ struct InstallationStore: @unchecked Sendable {
     var osVersion = ProcessInfo.processInfo.operatingSystemVersion
     var isAppleSilicon = Self.hostIsAppleSilicon
     var verifySignature: @Sendable (URL, ManagedApp) throws -> Void = Self.checkSignature
+    var verifyInstalledIdentity: @Sendable (URL, URL?, ManagedApp) throws -> Void = Self.checkInstalledIdentity
     var copy: @Sendable (URL, URL) throws -> Void = { try FileManager.default.copyItem(at: $0, to: $1) }
     var trash: @Sendable (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
     var removeTransaction: @Sendable (URL) throws -> Void = { try FileManager.default.removeItem(at: $0) }
@@ -34,6 +36,7 @@ struct InstallationStore: @unchecked Sendable {
             let canonical = directory.appendingPathComponent(app.payloadFilename)
             if exists(canonical) {
                 _ = try metadata(canonical, app: app)
+                try verifyInstalledIdentity(canonical, payloadDirectory?.appendingPathComponent(app.payloadFilename), app)
                 matches.append(canonical)
             }
             // Find renamed copies too, without traversing arbitrary applications.
@@ -41,6 +44,7 @@ struct InstallationStore: @unchecked Sendable {
             for url in entries where url.pathExtension == "app" && url != canonical {
                 if identifier(url) == app.bundleIdentifier {
                     _ = try metadata(url, app: app)
+                    try verifyInstalledIdentity(url, payloadDirectory?.appendingPathComponent(app.payloadFilename), app)
                     matches.append(url)
                 }
             }
@@ -324,9 +328,42 @@ struct InstallationStore: @unchecked Sendable {
         guard description.contains("Identifier=\(app.bundleIdentifier)\n") else {
             throw AppManagerError.message("\(app.name)'s signed identity does not match its bundle identifier.")
         }
-        if app == .screenWren && (description.contains("Signature=adhoc") || description.contains("(adhoc)")) {
-            throw AppManagerError.message("ScreenWren requires the saved local signing identity. Rebuild it with that identity before installing.")
+        if description.contains("Signature=adhoc") || description.contains("(adhoc)") {
+            throw AppManagerError.message("\(app.name) requires a persistent signing identity. Ad-hoc builds are for verification only.")
         }
+    }
+
+    /// The enclosing signed manager seals its bundled payloads. Read the requirement from that
+    /// trusted copy, never from an installed app claiming the same identifier. Also pin the
+    /// payload's leaf certificate so even an old identifier-only designated requirement cannot
+    /// authorize an unrelated signer. A certificate rotation needs an explicit migration.
+    static func checkInstalledIdentity(_ installed: URL, payload: URL?, app: ManagedApp) throws {
+        let failure = AppManagerError.message("\(app.name)'s installed copy does not match the bundled signing identity. It has not been opened or changed.")
+        guard let payload else { throw failure }
+        try checkSignature(payload, app: app)
+        var trusted: SecStaticCode?
+        var candidate: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(payload as CFURL, [], &trusted) == errSecSuccess,
+              SecStaticCodeCreateWithPath(installed as CFURL, [], &candidate) == errSecSuccess,
+              let trusted, let candidate else { throw failure }
+        var requirement: SecRequirement?
+        var information: CFDictionary?
+        guard SecCodeCopyDesignatedRequirement(trusted, [], &requirement) == errSecSuccess,
+              let requirement,
+              SecCodeCopySigningInformation(trusted, SecCSFlags(rawValue: kSecCSSigningInformation), &information) == errSecSuccess,
+              let info = information as? [String: Any],
+              let certificates = info[kSecCodeInfoCertificates as String] as? [SecCertificate],
+              let certificate = certificates.first else { throw failure }
+        // SHA-1 here is the certificate identity syntax required by Security.framework,
+        // not a content-integrity algorithm or a trust in an ad-hoc code hash.
+        let digest = Insecure.SHA1.hash(data: SecCertificateCopyData(certificate) as Data)
+            .map { String(format: "%02x", $0) }.joined()
+        var anchor: SecRequirement?
+        guard SecRequirementCreateWithString("certificate leaf = H\"\(digest)\"" as CFString, [], &anchor) == errSecSuccess,
+              let anchor else { throw failure }
+        let flags = SecCSFlags(rawValue: kSecCSStrictValidate | kSecCSCheckAllArchitectures | kSecCSCheckNestedCode)
+        guard SecStaticCodeCheckValidity(candidate, flags, requirement) == errSecSuccess,
+              SecStaticCodeCheckValidity(candidate, flags, anchor) == errSecSuccess else { throw failure }
     }
 
     private static func run(_ command: String, _ arguments: [String]) throws -> String {
