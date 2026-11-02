@@ -124,8 +124,8 @@ public final class Database: @unchecked Sendable {
     /// the part that matters: a SELECT can still read any local file the user could
     /// `cat`, but it cannot ship results anywhere.
     ///
-    /// Non-fatal by design — Sift must not refuse to start over a hardening setting — but
-    /// never silent: every setting's outcome lands in `hardened`, so a caller or a test can
+    /// Reports every outcome; strict Session initialization refuses any failed setting.
+    /// Never silent: every setting's outcome lands in `hardened`, so a caller or a test can
     /// see which layer is actually in place. MEASURED: a renamed setting throws
     /// `Catalog Error: unrecognized configuration parameter`, so the signal exists, and
     /// discarding it would let a DuckDB rename disable a security layer with nothing to show

@@ -364,13 +364,6 @@ public func dropSecretSQL(_ spec: ConnectionSpec) -> String {
 
 // MARK: - Remote staging tokens
 
-/// 🔴 **Must equal `SiftEngine.stagingTokenVersion`, and the compiler cannot check it**: SiftCore
-/// sits below SiftEngine in the module graph, so the constant cannot be shared from where it lives
-/// today. If these two ever disagree, `purgeStaged`'s format sweep — `!token.hasPrefix("v3|")` —
-/// deletes every remote cache on every purge, silently, and nothing goes red. The fix is to hoist
-/// `stagingTokenVersion` out of Staging.swift into this file and delete the copy there; that file
-/// was out of scope for the task that added this one. Until then, a test pins the literal at both
-/// ends.
 /// The staging-token format version — ONE spelling, shared by the local tokens in
 /// `SiftEngine/Staging.swift` and the remote tokens below. Two independent "v3" strings were the
 /// hazard: if they drifted, the purge's format sweep (`!token.hasPrefix("v3|")`) would silently

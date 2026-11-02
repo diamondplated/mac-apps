@@ -53,7 +53,7 @@ import SiftCore
 //      a DROP of one must go through that connection too — which is why the three in Staging.swift
 //      are on this list at all.
 //
-//      🔴 **THE INVARIANT IS PER-USE, NOT PER-METHOD, AND TWO OF THE EIGHT ARE `async`.**
+//      🔴 **THE INVARIANT IS PER-USE, NOT PER-METHOD, AND THREE OF THE EIGHT ARE `async`.**
 //      `Connection` is not `Sendable`; what makes sharing safe is that no user ever SUSPENDS
 //      between acquiring the connection and finishing with it, so the actor's serial executor
 //      guarantees exactly one caller is inside at a time. All eight were re-checked line by line
@@ -263,7 +263,9 @@ public actor Session {
         try self.init(home: home, keychainService: Keychain.service)
     }
 
-    init(home: String?, keychainService: String, identityBudget: TimeInterval = 5) throws {
+    /// Internal fault-injection seam: production uses Database.harden and its measured outcomes.
+    init(home: String?, keychainService: String, identityBudget: TimeInterval = 5,
+         hardening: ((Database, Bool) -> [String: Bool])? = nil) throws {
         let resolvedHome = Self.resolveHome(home)
         // Read once into a local: the failure path below needs it while `self` is still only
         // partly initialized, and it must be the SAME value `deinit` will release with.
@@ -341,7 +343,16 @@ public actor Session {
             self.keychainService = keychainService
             self.identityBudget = identityBudget
 
-            db.harden(allowRemote: config.allowRemote)
+            let outcomes: [String: Bool]
+            if let hardening {
+                outcomes = hardening(db, config.allowRemote)
+            } else {
+                db.harden(allowRemote: config.allowRemote)
+                outcomes = db.hardened
+            }
+            if !config.allowRemote && Database.hardeningSettings().contains(where: { outcomes[$0.name] != true }) {
+                throw SessionError("Could not apply the security settings required for a local-only session.")
+            }
             db.loadExtensions(sessionExtensions + remoteExtensions(for: config))
 
             let con: Connection
@@ -424,9 +435,20 @@ public actor Session {
             if kill(pid, 0) == 0 { continue }   // still alive: leave it alone
             if errno == ESRCH {
                 try? FileManager.default.removeItem(atPath: (home as NSString).appendingPathComponent(name))
+                removePrivateCache(in: home, pid: pid)
             }
             // EPERM: alive but owned by someone else — leave it alone, same as Python.
         }
+    }
+
+    /// A symlinked parent would make recursive removal escape the cache root.
+    static func removePrivateCache(in home: String, pid: Int32) {
+        let cache = (home as NSString).appendingPathComponent(remoteCacheDirName)
+        let manager = FileManager.default
+        guard let attributes = try? manager.attributesOfItem(atPath: cache),
+              attributes[.type] as? FileAttributeType == .typeDirectory else { return }
+        // A child symlink is unlinked by removeItem, never followed.
+        try? manager.removeItem(atPath: (cache as NSString).appendingPathComponent("stage-\(pid)"))
     }
 
     /// Matches `stage-(\d+)\.duckdb(\.wal)?` as a full-string match (Python's `re.fullmatch`).
@@ -642,11 +664,11 @@ public actor Session {
     /// either way, so `sortedRelation` re-materializes and nothing ever reads the stale copy — it is
     /// up to `sortMaterializeMax` rows (51.9 MB measured) held for the life of the session. A leak
     /// has no observable answer to assert on except this one.
-    func tempTableExistsForTest(_ name: String) -> Bool {
-        let rows = try? pagingConnection.query(
-            "SELECT count(*) FROM duckdb_tables() WHERE table_name = ?", [.text(name)]
+    func tempTableExistsForTest(_ name: String, query: String? = nil) throws -> Bool {
+        let rows = try pagingConnection.query(
+            query ?? "SELECT count(*) FROM duckdb_tables() WHERE table_name = ?", [.text(name)]
         ).allRows()
-        return (rows?.first.map { cellInt($0[0]) } ?? 0) > 0
+        return (rows.first.map { cellInt($0[0]) } ?? 0) > 0
     }
 
     /// Test support: shorten (or lengthen) the staging dwell. The same internal-seam trick as
@@ -1093,6 +1115,7 @@ public actor Session {
     ) async throws -> RemoteOpen {
         let database = self.database
         let home = self.siftHome
+        let cacheOwner = self.sharedStore ? nil : ProcessInfo.processInfo.processIdentifier
         let identityBudget = self.identityBudget
         let fetchedAtNs = fetchClockNs()
         do {
@@ -1100,7 +1123,7 @@ public actor Session {
                 try await buildRemoteOpen(
                     database: database, home: home, url: url, fetchedAtNs: fetchedAtNs,
                     sheet: sheet, nullPadding: nullPadding, skipPreamble: skipPreamble,
-                    knownToken: knownToken, identityBudget: identityBudget
+                    knownToken: knownToken, identityBudget: identityBudget, cacheOwner: cacheOwner
                 )
             }.value
         } catch let error as UnsupportedSource {
@@ -1534,6 +1557,7 @@ public actor Session {
     /// were never meant to outlive that anyway ("staged data will not persist").
     public nonisolated func dropPrivateStore() {
         guard !sharedStore else { return }
+        Self.removePrivateCache(in: siftHome, pid: ProcessInfo.processInfo.processIdentifier)
         for path in [dbPath, dbPath + ".wal"] {
             try? FileManager.default.removeItem(atPath: path)
         }
@@ -1673,7 +1697,7 @@ let sasParquetNote =
 func buildRemoteOpen(
     database: Database, home: String, url: RemoteURL, fetchedAtNs: Int,
     sheet: String?, nullPadding: Bool, skipPreamble: Bool, knownToken: String? = nil,
-    identityBudget: TimeInterval = 5
+    identityBudget: TimeInterval = 5, cacheOwner: Int32? = nil
 ) async throws -> RemoteOpen {
     let con = try database.connect()
     let fmt = try remoteFormat(url, con: con)
@@ -1691,7 +1715,7 @@ func buildRemoteOpen(
 
     var cachePath: String?
     if fmt != .parquet || sasParquet {
-        let path = try remoteCachePath(home: home, url: url)
+        let path = try remoteCachePath(home: home, url: url, owner: cacheOwner)
         if token != knownToken || !FileManager.default.fileExists(atPath: path) {
             try downloadRemoteObject(con: con, url: url, to: path)
         }
@@ -1718,11 +1742,16 @@ func buildRemoteOpen(
 /// The directory is created at **0700**, through the same call that enforces it on `~/.sift`
 /// itself: these files are copies of someone's real data sitting on a laptop (spec §11), and
 /// `downloadRemoteObject` writes each one 0600 inside it.
-func remoteCachePath(home: String, url: RemoteURL) throws -> String {
-    let dir = (home as NSString).appendingPathComponent(remoteCacheDirName)
+func remoteCachePath(home: String, url: RemoteURL, owner: Int32? = nil) throws -> String {
+    var dir = (home as NSString).appendingPathComponent(remoteCacheDirName)
     // Named for `~/.sift`, but it is exactly "create this directory and hold it at 0700, whether or
     // not it already existed" — which is the contract this needs, unchanged.
     try Session.ensureHomeDirectory(dir)
+    // Fallback catalogs must never share files with the lock holder's cache sweep.
+    if let owner {
+        dir = (dir as NSString).appendingPathComponent("stage-\(owner)")
+        try Session.ensureHomeDirectory(dir)
+    }
     return (dir as NSString).appendingPathComponent(fnv1a(url.sanitized) + cacheSuffix(url))
 }
 

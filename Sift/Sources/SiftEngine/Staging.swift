@@ -223,9 +223,11 @@ extension Session {
     /// otherwise unreachable — `database.connect()` does not fail on demand. Production passes
     /// nothing. It is a parameter rather than a mutable flag on the actor so the seam is visible
     /// in the signature and carries no state between jobs.
+    /// The metadata hooks let tests break SQL dependencies inside the transaction and prove rollback.
     nonisolated func runStage(
         name: String, spec: SourceSpec, jobID: String, job: StageJob, openedAt: Int,
-        connect: (() throws -> Connection)? = nil
+        connect: (() throws -> Connection)? = nil,
+        beforeCount: ((Connection) throws -> Void)? = nil, beforeRecord: ((Connection) throws -> Void)? = nil
     ) async {
         // FIRST STATEMENT IN THE FUNCTION, above the `do`/`catch` below, and that placement is the
         // whole point: Swift registers a `defer` when control REACHES it, so one written below an
@@ -280,23 +282,26 @@ extension Session {
             return
         }
 
+        // CHECKPOINT cannot run inside the write transaction. Measure the completed
+        // staging table before renaming it; the same blocks survive the swap.
+        let bytes = stagedBytes(con, table: stagingName(name))
+        var physical = 0
         do {
-            try swapStaged(con, name: name, lock: await tlock(name))
+            try swapStaged(con, name: name, lock: await tlock(name)) {
+                try beforeCount?(con)
+                let rows = try con.query("SELECT count(*) FROM \(q(name))").allRows()
+                guard let cell = rows.first?.first else { throw DuckDBError("staged row count is unavailable") }
+                physical = cellInt(cell)
+                try beforeRecord?(con)
+                // Count, metadata and swap commit together, or the original view survives.
+                try self.recordStaged(con, spec: spec, table: name, rowCount: physical, bytes: bytes)
+            }
         } catch {
             try? con.execute(dropStagingSQL(name))
             let message = (error as? DuckDBError)?.firstLine ?? "\(error)"
             await finishStage(name, jobID: jobID, openedAt: openedAt, error: "staging failed: \(message)")
             return
         }
-
-        let physical = (try? con.query("SELECT count(*) FROM \(q(name))").allRows().first)
-            .flatMap { $0.first }.map(cellInt) ?? 0
-        let bytes = stagedBytes(con, table: name)
-
-        // Recorded BEFORE the copy is published, not after (review M2): a process that dies in
-        // between must leave a catalog row with no table — which the next purge collects — rather
-        // than a table with no row, which nothing can ever reach.
-        try? recordStaged(con, spec: spec, table: name, rowCount: physical, bytes: bytes)
 
         switch await applyStaged(name, physicalRows: physical, openedAt: openedAt, jobID: jobID) {
         case .applied(let rowCount):
@@ -862,14 +867,17 @@ extension Session {
 /// locked it is undefined — exactly what an `await` inside this scope could arrange. The 0.15 s
 /// backoff is therefore `Thread.sleep`, on a task that has just spent seconds inside a blocking
 /// CTAS on this same thread.
-func swapStaged(_ con: Connection, name: String, lock: NSLock) throws {
+func swapStaged(_ con: Connection, name: String, lock: NSLock, beforeCommit: () throws -> Void = {}) throws {
     lock.lock()
     defer { lock.unlock() }
 
     var lastError: Error?
     for attempt in 0..<3 {
         do {
-            for statement in swapSQL(table: name) { try con.execute(statement) }
+            for statement in swapSQL(table: name) {
+                if statement == "COMMIT" { try beforeCommit() }
+                try con.execute(statement)
+            }
             return
         } catch {
             lastError = error
