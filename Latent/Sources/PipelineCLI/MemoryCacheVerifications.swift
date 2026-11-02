@@ -40,8 +40,12 @@ func enhancementMemoryCeilings() async throws {
     } catch is ImageMemoryPolicy.LimitError { }
 }
 
-@MainActor
 func modelAvailabilityInvalidatesIntermediates() async throws {
+    try await checkModelAvailabilityOnMainActor()
+}
+
+@MainActor
+private func checkModelAvailabilityOnMainActor() async throws {
     let store = EnhancementModelCache(maxBytes: 5000)
     let old = store.cache
     let key = CacheKey(inputHash: ContentHash(value: 1), stagePath: [])
