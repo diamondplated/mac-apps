@@ -153,15 +153,23 @@ public final class LoopbackHTTPServer: @unchecked Sendable {
     ///
     /// Live client sockets get `shutdown()`, not `close()`, for the same reason: it wakes a
     /// handler parked in `recv()` without freeing a number the handler still holds.
-    public func stop() {
-        let victims: [Int32]? = lock.withLock {
-            guard !stopped else { return nil }
+    public func stop() { stop(beforeClientShutdown: nil) }
+
+    /// The internal hook lets a regression attempt retirement exactly at the shutdown boundary.
+    func stop(beforeClientShutdown: ((Int32) -> Void)?) {
+        let shouldStop = lock.withLock {
+            guard !stopped else { return false }
             stopped = true
-            defer { clients.removeAll() }
-            return Array(clients)
+            // Keep ownership through shutdown: outside this lock a handler could close the fd,
+            // another connection could reuse its number, and we would shut down that new owner.
+            for client in clients {
+                beforeClientShutdown?(client)
+                shutdown(client, SHUT_RDWR)
+            }
+            clients.removeAll()
+            return true
         }
-        guard let victims else { return }
-        for client in victims { shutdown(client, SHUT_RDWR) }
+        guard shouldStop else { return }
 
         let probe = socket(AF_INET, SOCK_STREAM, 0)
         if probe >= 0 {
@@ -201,7 +209,7 @@ public final class LoopbackHTTPServer: @unchecked Sendable {
     /// the shutdown check share one critical section: without that, a connection accepted a moment
     /// before `stop()` could be registered a moment after it, and its handler would sit in `recv()`
     /// forever.
-    private func adopt(_ client: Int32) -> Bool {
+    func adopt(_ client: Int32) -> Bool {
         lock.withLock {
             guard !stopped else { return false }
             clients.insert(client)
@@ -209,11 +217,19 @@ public final class LoopbackHTTPServer: @unchecked Sendable {
         }
     }
 
+    /// The handler owns close; it must share the shutdown lock until the descriptor is retired.
+    /// Nonblocking retirement exists only to exercise that lifetime boundary deterministically.
+    @discardableResult
+    func retire(_ client: Int32, wait: Bool = true) -> Bool {
+        if wait { lock.lock() } else if !lock.try() { return false }
+        defer { lock.unlock() }
+        clients.remove(client)
+        close(client)
+        return true
+    }
+
     private func serve(_ client: Int32) {
-        defer {
-            lock.withLock { _ = clients.remove(client) }
-            close(client)
-        }
+        defer { retire(client) }
         var buffer = Data()
         var chunk = [UInt8](repeating: 0, count: 65536)
         while true {

@@ -448,3 +448,32 @@ func remoteFactParquetReadThroughTheOracleIsRangedNotWholeObject() throws {
     #expect(transferred < bytes.count / 20,
             "footer only: \(transferred) of \(bytes.count) B — \(server.requestLog)")
 }
+
+
+@Test func stopKeepsClientOwnershipUntilItsShutdownCompletes() throws {
+    let server = try LoopbackHTTPServer()
+    defer { server.stop() }
+    // No handler thread or scheduler race: this socketpair is a real owned descriptor, and
+    // retirement is attempted at the exact point where shutdown would otherwise use a stale fd.
+    var pair: [Int32] = [-1, -1]
+    let madePair = pair.withUnsafeMutableBufferPointer {
+        socketpair(AF_UNIX, SOCK_STREAM, 0, $0.baseAddress!)
+    }
+    try #require(madePair == 0)
+    defer { close(pair[1]) }
+    try #require(server.adopt(pair[0]))
+    var retiredInsideShutdown = false
+    var shutdowns = 0
+    server.stop { client in
+        shutdowns += 1
+        #expect(client == pair[0])
+        retiredInsideShutdown = server.retire(client, wait: false)
+        #expect(!retiredInsideShutdown,
+                "The handler must not close/recycle a descriptor selected for shutdown")
+    }
+    #expect(shutdowns == 1)
+    if !retiredInsideShutdown { #expect(server.retire(pair[0])) }
+    var byte: UInt8 = 0
+    #expect(recv(pair[1], &byte, 1, MSG_DONTWAIT) == 0,
+            "The original connection was shut down and retired")
+}
