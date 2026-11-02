@@ -10,10 +10,14 @@ final class ArchiveTemporaryStorageTests: XCTestCase {
         defer { try? fm.removeItem(at: root) }
         let active = try ArchiveTemporaryStorage.createDirectory(root: root)
         defer { try? ArchiveTemporaryStorage.remove(active) }
+        try ArchiveTemporaryStorage.markCompleted(active)
         let stale = root.appendingPathComponent("pv-archive-\(UUID().uuidString)")
+        let inFlight = root.appendingPathComponent("pv-archive-\(UUID().uuidString)")
         let unmarked = root.appendingPathComponent("pv-archive-\(UUID().uuidString)")
-        for dir in [stale, unmarked] { try fm.createDirectory(at: dir, withIntermediateDirectories: false) }
+        for dir in [stale, unmarked, inFlight] { try fm.createDirectory(at: dir, withIntermediateDirectories: false) }
         try Data().write(to: stale.appendingPathComponent(".latent-extraction-lease-v1"))
+        try ArchiveTemporaryStorage.markCompleted(stale)
+        try Data().write(to: inFlight.appendingPathComponent(".latent-extraction-lease-v1"))
         let outside = root.appendingPathComponent("outside")
         try fm.createDirectory(at: outside, withIntermediateDirectories: false)
         try Data("keep".utf8).write(to: outside.appendingPathComponent("photo"))
@@ -21,7 +25,7 @@ final class ArchiveTemporaryStorageTests: XCTestCase {
         try fm.createSymbolicLink(at: link, withDestinationURL: outside)
         try ArchiveTemporaryStorage.sweepInactiveDirectories(root: root)
         XCTAssertFalse(fm.fileExists(atPath: stale.path))
-        for dir in [active, unmarked, link, outside] { XCTAssertTrue(fm.fileExists(atPath: dir.path)) }
+        for dir in [active, unmarked, inFlight, link, outside] { XCTAssertTrue(fm.fileExists(atPath: dir.path)) }
         XCTAssertEqual(try Data(contentsOf: outside.appendingPathComponent("photo")), Data("keep".utf8))
     }
 }

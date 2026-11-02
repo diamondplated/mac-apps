@@ -5,6 +5,7 @@ import Darwin
 /// deliberately left alone. flock survives threads and is released by process death.
 public enum ArchiveTemporaryStorage {
     private static let marker = ".latent-extraction-lease-v1"
+    private static let completed = ".latent-extraction-complete-v1"
     private static let leases = Leases()
 
     private final class Leases: @unchecked Sendable {
@@ -38,6 +39,15 @@ public enum ArchiveTemporaryStorage {
         return directory
     }
 
+    /// Called only after the extraction subprocess exits and tree validation succeeds.
+    /// In-flight crash trees remain untouched: their orphaned writer may still be alive.
+    public static func markCompleted(_ directory: URL) throws {
+        let fd = Darwin.open(directory.appendingPathComponent(completed).path,
+                             O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard fd >= 0 else { throw POSIXError(.EIO) }
+        Darwin.close(fd)
+    }
+
     public static func remove(_ directory: URL) throws {
         // Release only after removal so a concurrent sweep cannot race active cleanup.
         try FileManager.default.removeItem(at: directory)
@@ -52,6 +62,9 @@ public enum ArchiveTemporaryStorage {
             var directoryStat = stat()
             guard lstat(directory.path, &directoryStat) == 0,
                   directoryStat.st_uid == getuid(), directoryStat.st_mode & S_IFMT == S_IFDIR else { continue }
+            var completedStat = stat()
+            guard lstat(directory.appendingPathComponent(completed).path, &completedStat) == 0,
+                  completedStat.st_uid == getuid(), completedStat.st_mode & S_IFMT == S_IFREG else { continue }
             let fd = Darwin.open(directory.appendingPathComponent(marker).path, O_RDWR | O_NOFOLLOW | O_CLOEXEC)
             guard fd >= 0 else { continue }
             defer { Darwin.close(fd) }

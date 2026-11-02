@@ -29,11 +29,17 @@ func lifecycleTrashAndArchiveSafety() async throws {
 
     let active = try ArchiveTemporaryStorage.createDirectory(root: root)
     defer { try? ArchiveTemporaryStorage.remove(active) }
+    try ArchiveTemporaryStorage.markCompleted(active)
     let stale = root.appendingPathComponent("pv-archive-\(UUID().uuidString)")
     try fm.createDirectory(at: stale, withIntermediateDirectories: false)
     try Data().write(to: stale.appendingPathComponent(".latent-extraction-lease-v1"))
+    try ArchiveTemporaryStorage.markCompleted(stale)
+    let inFlight = root.appendingPathComponent("pv-archive-\(UUID().uuidString)")
+    try fm.createDirectory(at: inFlight, withIntermediateDirectories: false)
+    try Data().write(to: inFlight.appendingPathComponent(".latent-extraction-lease-v1"))
     try ArchiveTemporaryStorage.sweepInactiveDirectories(root: root)
     try require(fm.fileExists(atPath: active.path), "active archive lease must survive sweep")
+    try require(fm.fileExists(atPath: inFlight.path), "unfinished extraction must survive sweep even without a lease holder")
     try require(!fm.fileExists(atPath: stale.path), "stale marked extraction must be removed")
 }
 
