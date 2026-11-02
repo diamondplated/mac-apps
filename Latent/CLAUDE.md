@@ -30,7 +30,7 @@ swift test                 # XCTest; needs full Xcode
 - `PhotoML`: tiling, CoreML wrappers, model registry.
 - `PhotoSearch`: CLIP encoders, BPE tokenizer, per-folder embedding index.
 - `PhotoViewerCore`: `VimKeymap` and durable culling state (no Apple UI deps).
-- `PhotoGeo`, `PhotoQuickLook`: EXIF GPS, Quick Look renderer (extension target not built yet).
+- `PhotoGeo`, `PhotoQuickLook`: EXIF GPS, Quick Look renderer and packaged read-only extension.
 - `PhotoServe`: LAN HTTP server, address gate, pairing, embedded `client.html` phone client.
 - `PhotoViewerApp`: the SwiftUI app (`AppState` is the hub).
 - `PipelineCLI`: `pv-pipeline`.
