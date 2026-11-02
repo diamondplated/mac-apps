@@ -645,9 +645,9 @@ public actor Session {
 
     /// Test support: override whether `openPath` believes the `delta` extension loaded. `nil`
     /// (the default) means "ask the database", which is what production always does — this exists
-    /// only so DeltaTests can reach `openPath`'s refusal, which on every machine this code runs on
-    /// is otherwise unreachable because `delta` always loads. See the refusal itself for why a
-    /// branch that prevents resurrecting deleted rows must not be pinned by luck.
+    /// so DeltaTests can reach the refusal even on machines with a warm extension cache.
+    /// Historically every test machine loaded delta at launch, hiding a deleted refusal guard;
+    /// the branch that prevents resurrecting deleted rows must not be pinned by luck.
     var deltaLoadedForTest: Bool?
     func setDeltaLoadedForTest(_ loaded: Bool?) { deltaLoadedForTest = loaded }
 
