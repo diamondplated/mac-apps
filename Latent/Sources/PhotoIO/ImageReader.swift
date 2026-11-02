@@ -42,9 +42,8 @@ public struct ImageReader: Sendable {
         self.maxWorkingMemoryBytes = maxWorkingMemoryBytes
     }
 
-    /// Decode the primary image at full resolution with EXIF orientation
-    /// applied to the returned pixels.
-    public static func previewCGImage(url: URL) -> CGImage? {
+    /// Decode an EXIF-oriented display preview within the working-memory budget.
+    public static func previewCGImage(url: URL, maxWorkingMemoryBytes: UInt64 = ImageMemoryPolicy.defaultLimit) -> CGImage? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
             return nil
         }
@@ -55,7 +54,7 @@ public struct ImageReader: Sendable {
         let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] ?? [:]
         let width = properties[kCGImagePropertyPixelWidth] as? Int ?? 0
         let height = properties[kCGImagePropertyPixelHeight] as? Int ?? 0
-        guard let maxDimension = ImageMemoryPolicy.previewMaxDimension(width: width, height: height) else {
+        guard let maxDimension = ImageMemoryPolicy.previewMaxDimension(width: width, height: height, maxBytes: maxWorkingMemoryBytes) else {
             return nil
         }
 

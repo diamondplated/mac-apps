@@ -12,6 +12,7 @@ import PhotoViewerCore
 import PhotoGeo
 import PhotoQuickLook
 import PhotoServe
+import VerificationSupport
 
 // CLI entry. Doubles as an executable verifier for the pipeline, since this
 // project currently runs against macOS CommandLineTools (no XCTest framework).
@@ -41,6 +42,11 @@ struct PipelineCLI {
             try? FileManager.default.removeItem(at: vimStateDirectory)
         }
 
+        if CommandLine.arguments.contains("--verify-image-memory") {
+            let failures = await runVerification("400MP PNG rejects enhancement and decodes a bounded preview", check: verifyOversizedPNG)
+            exit(failures == 0 ? 0 : 1)
+        }
+
         print("photo-viewer pipeline runner / verifier")
         print("=======================================\n")
 
@@ -54,6 +60,7 @@ struct PipelineCLI {
         failures += await runVerification("LRU eviction drops least-recently-used entry", check: lruEviction)
         failures += await runVerification("oversized cache entries preserve upstream results", check: oversizedCachePreservesUpstream)
         failures += await runVerification("enhancement decode and upscale respect memory ceilings", check: enhancementMemoryCeilings)
+        failures += await runVerification("400MP PNG rejects enhancement and decodes a bounded preview", check: verifyOversizedPNG)
         failures += await runVerification("model availability invalidates cached fallbacks", check: modelAvailabilityInvalidatesIntermediates)
         failures += await runVerification("newly installed models retry a previous miss", check: newModelRetriesLoad)
         failures += await runVerification("valid model install replaces cached fallback", check: liveModelInstallSubprocess)
