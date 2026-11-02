@@ -10,7 +10,7 @@
 <p align="center">
   <a href="https://github.com/diamondplated/mac-apps/actions/workflows/sift.yml"><img src="https://github.com/diamondplated/mac-apps/actions/workflows/sift.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/platform-macOS%2014%2B-lightgrey.svg" alt="macOS 14+">
-  <img src="https://img.shields.io/badge/DuckDB-1.5.6-yellow.svg" alt="DuckDB 1.5.6">
+  <img src="https://img.shields.io/badge/DuckDB-2.0.0-yellow.svg" alt="DuckDB 2.0.0">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
 </p>
 
@@ -228,7 +228,7 @@ neither. Sift says so in a note rather than silently costing you the range reads
 </details>
 
 <details>
-<summary><strong>DuckDB specifics first measured on 1.5.5 (current pin: 1.5.6)</strong></summary><br>
+<summary><strong>DuckDB specifics first measured on 1.5.5 (current pin: 2.0.0)</strong></summary><br>
 
 Verified by probe, pinned executable in `Tests/DuckDBKitTests/DuckDB155FactsTests.swift`; re-run
 before bumping the pin.
@@ -246,7 +246,7 @@ before bumping the pin.
 - `delta_scan` honors tombstones. Time travel is `version => n`; `AT (VERSION => n)` does not parse.
 - `read_xlsx` takes `sheet =>` (not `sheet_name`), and cannot list sheets — Sift parses the OOXML
   itself.
-- `approx_count_distinct` can exceed the row count (340 for 300 distinct), so it is clamped.
+- `approx_count_distinct` can exceed the row count (102 for 100 distinct on 2.0.0; historically 340 for 300 on 1.5.6), so it is clamped.
 - `duckdb_tables.estimated_size` is estimated **rows**, not bytes.
 - `duckdb_interrupt` issued before execution starts is silently swallowed — cancelling a running
   query means re-asserting it in a loop.

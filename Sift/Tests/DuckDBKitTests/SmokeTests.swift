@@ -379,3 +379,10 @@ private struct Interrupter: @unchecked Sendable {
     )
     #expect(rs.columns.map(\.name) == ["b", "i", "d", "s", "n"])
 }
+
+@Test func databaseBoundsOnlyTheNewAsyncWorkerPool() throws {
+    let con = try Database.inMemory().connect()
+    let row = try con.query("SELECT current_setting('async_threads'), current_setting('threads')").allRows()[0]
+    #expect(row[0] == .int(4))
+    #expect(row[1] == .int(Int64(ProcessInfo.processInfo.activeProcessorCount)))
+}

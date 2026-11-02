@@ -68,6 +68,16 @@ public final class Database: @unchecked Sendable {
     public static let remoteFilesystems =
         "HTTPFileSystem,S3FileSystem,AzureBlobStorageFileSystem,AzureDfsStorageFileSystem"
 
+    /// DuckDB 2.0 adds 32 async I/O workers per database (39 total on an 8-core Mac).
+    /// Four I/O workers keep concurrent sessions and parser scratch databases bounded: measured
+    /// 11 total workers per database, with the default eight SQL workers unchanged. A full parallel
+    /// suite otherwise reached 4,091 of macOS's 4,096 task threads and lost thread starts.
+    /// Shared with the raw parser database so it cannot silently retain the larger pool.
+    public static let openingSettings = [
+        ("storage_compatibility_version", "v1.5.6"),
+        ("async_threads", "4"),
+    ]
+
     public init(path: String) throws {
         var db: duckdb_database?
         var errPtr: UnsafeMutablePointer<CChar>?
@@ -81,8 +91,10 @@ public final class Database: @unchecked Sendable {
             throw DuckDBError("Could not create the database configuration.")
         }
         defer { duckdb_destroy_config(&config) }
-        guard duckdb_set_config(config, "storage_compatibility_version", "v1.5.6") == DuckDBSuccess else {
-            throw DuckDBError("Could not preserve database compatibility with the previous app.")
+        for (name, value) in Self.openingSettings {
+            guard duckdb_set_config(config, name, value) == DuckDBSuccess else {
+                throw DuckDBError("Could not configure database compatibility and worker limits.")
+            }
         }
         let state = duckdb_open_ext(path, &db, config, &errPtr)
         // duckdb_open_ext leaves *out_database untouched on failure, so not calling

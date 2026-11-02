@@ -212,7 +212,7 @@ func remoteFact4_httpGlobsAreRefusedNotExpanded() throws {
 // MARK: - 5. `read_blob` over http is byte-exact and downloads the whole object
 
 @Test(.enabled(if: remoteFacts))
-func remoteFact5_readBlobOverHttpIsByteExactAndUnchunked() throws {
+func remoteFact5_readBlobOverHttpIsByteExactInTwoMiBRanges() throws {
     let dir = TestTemp.dir("remote-blob")
     let path = (dir as NSString).appendingPathComponent("blob.bin")
     var blob = Data(); blob.reserveCapacity(4 << 20)
@@ -234,14 +234,14 @@ func remoteFact5_readBlobOverHttpIsByteExactAndUnchunked() throws {
     #expect(remote[0] == .int(Int64(blob.count)))
     #expect(remote[1] == onDisk[1], "read_blob over http must be byte-for-byte the local bytes")
 
-    // One HEAD for the size, then ONE GET whose Range spans the entire object: the header is
-    // present but this is a whole-object download, not a chunked or partial read. The planned
-    // remote-xlsx path therefore pays the full file every time.
+    // 2.0 still fetches every byte, now in exact 2 MiB ranges rather than the
+    // single whole-object GET measured on 1.5.6. Order is not guaranteed.
     let gets = server.log.filter { $0.method == "GET" }
     #expect(server.log.filter { $0.method == "HEAD" }.count == 1, "\(server.log)")
-    #expect(gets.count == 1, "\(server.log)")
-    #expect(gets.first?.range == "bytes=0-\(blob.count - 1)", "\(server.log)")
-    #expect(gets.first?.sent == blob.count)
+    #expect(gets.count == 2, "\(server.log)")
+    #expect(gets.compactMap(\.range).sorted() == ["bytes=0-2097151", "bytes=2097152-4194303"])
+    #expect(gets.map(\.sent) == [2 << 20, 2 << 20])
+    #expect(gets.allSatisfy { $0.status == 206 })
 }
 
 // MARK: - 6. `CREATE SECRET` — bindable, temporary, Database-scoped, redacted
@@ -365,8 +365,16 @@ func remoteFact7a_csvOverHttpDownloadsTheWholeObjectWhateverTheSampleSize() thro
         server.clearLog()
         _ = try c.query(sql).allRows()
         let gets = server.log.filter { $0.method == "GET" }
-        #expect(gets.count == 1, "\(server.log)")
-        #expect(gets.first?.sent == csv.count, "the whole object, every time: \(server.log)")
+        // 2.0 splits the same whole-object transfer into five exact ranges.
+        let chunkBytes = 2 << 20
+        let expectedRanges = stride(from: 0, to: csv.count, by: chunkBytes).map {
+            "bytes=\($0)-\(min($0 + chunkBytes, csv.count) - 1)"
+        }
+        #expect(gets.count == 5, "\(server.log)")
+        #expect(gets.compactMap(\.range).sorted() == expectedRanges.sorted(), "\(server.log)")
+        #expect(gets.allSatisfy { $0.status == 206 })
+        #expect(gets.reduce(0) { $0 + $1.sent } == csv.count,
+                "the whole object, every time: \(server.log)")
     }
 
     // A plain `read_csv … LIMIT 5` fetches the object TWICE — sniff pass, then scan pass.
@@ -436,7 +444,7 @@ func remoteFact8_httpTimeoutAndRetryKnobsAndTheirRealScope() throws {
 
     // Defaults, as shipped. These are the numbers any timeout UI has to start from.
     for (name, value) in [("http_timeout", Cell.int(30)), ("http_retries", .int(3)),
-                          ("http_retry_wait_ms", .int(100)), ("http_retry_backoff", .int(4)),
+                          ("http_retry_wait_ms", .int(100)), ("http_retry_backoff", .double(4)),
                           ("http_keep_alive", .bool(true)), ("enable_http_metadata_cache", .bool(false)),
                           ("allow_asterisks_in_http_paths", .bool(false))] {
         #expect(try a.query("SELECT current_setting('\(name)')").allRows()[0][0] == value, "\(name)")

@@ -11,7 +11,7 @@ import SwiftUI
 // `Cell.list` exists at all.
 //
 // 🔴 `bad_columns` IS COLUMN 0, AND IT IS A LIST. `SQLGenPanels.badRowsSQL` emits
-// `list_filter([...], x -> x IS NOT NULL) AS bad_columns, *`, so `row[0]` decodes as
+// `list_filter([...], lambda x : x IS NOT NULL) AS bad_columns, *`, so `row[0]` decodes as
 // `Cell.list([.text("qty"), ...])`. Decoding that LIST element-by-element was a Critical found
 // late in the engine work (DuckDBKit Task 1), and `badColumnNames` below is the whole reason it
 // was closed: a joined string would have to be re-split downstream, and re-splitting breaks the

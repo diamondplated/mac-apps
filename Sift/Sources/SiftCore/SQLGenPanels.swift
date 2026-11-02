@@ -229,7 +229,7 @@ public func badRowsSQL(
         conds.append(cond)
         labels.append("CASE WHEN \(cond) THEN \(qlit(column.name)) END")
     }
-    let sql = "SELECT list_filter([\(labels.joined(separator: ", "))], x -> x IS NOT NULL) AS bad_columns, *\n"
+    let sql = "SELECT list_filter([\(labels.joined(separator: ", "))], lambda x : x IS NOT NULL) AS bad_columns, *\n"
         + "FROM \(relVarchar)\nWHERE \(conds.joined(separator: " OR "))\nLIMIT ?"
     return (sql, [.int(Int64(limit))])
 }

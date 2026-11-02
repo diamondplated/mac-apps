@@ -224,3 +224,14 @@ func theGateScratchConnectionAlsoDisablesTheExtensionInstaller(setting: String) 
         #expect(duckdb_query(con, sql, nil) == DuckDBSuccess, "\(sql) failed on an un-hardened connection")
     }
 }
+
+@Test func theGateScratchConnectionBoundsTheNewAsyncWorkerPool() throws {
+    let value = try #require(withGuardScratchConnection { con -> Int64 in
+        var result = duckdb_result()
+        defer { duckdb_destroy_result(&result) }
+        guard duckdb_query(con, "SELECT current_setting('async_threads')", &result) == DuckDBSuccess
+        else { return -1 }
+        return duckdb_value_int64(&result, 0, 0)
+    })
+    #expect(value == 4)
+}

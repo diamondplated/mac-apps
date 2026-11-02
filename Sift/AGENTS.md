@@ -136,7 +136,8 @@ copies need explicit review, and removed sites must be removed from the baseline
 
 ## DuckDB facts this code depends on (re-verify before bumping the pin)
 
-The current library pin is **1.5.6**. The observations below were first measured on
+The current library pin is **2.0.0**. `Database.openingSettings` preserves 1.5.6 storage
+compatibility and bounds the new async I/O pool at four workers; SQL worker defaults stay intact. The observations below were first measured on
 1.5.5; `DuckDB155FactsTests.swift` keeps that historical name while enforcing them
 against the current library. `linkedLibraryIsThePinnedDuckDBVersion` checks the loaded pin.
 
@@ -156,7 +157,7 @@ the vendored dylib — not folklore:
 - The `delta` and `excel` extensions need one approved online `INSTALL` when missing;
   `loadExtensions(..., installMissing: false)` performs LOAD only. Explicitly authorized
   installs use LOAD→INSTALL→LOAD; autoloading is deliberately off.
-- `approx_count_distinct` overshoots (340 for 300 distinct) — clamped in the profile.
+- `approx_count_distinct` overshoots (102 for 100 distinct on 2.0.0; historically 340 for 300 on 1.5.6) — clamped in the profile.
 - `duckdb_tables().estimated_size` is a **row count, not bytes** — staged bytes are measured
   from storage blocks instead.
 - `duckdb_interrupt` before execution starts is **swallowed**; cancelling means hammering it

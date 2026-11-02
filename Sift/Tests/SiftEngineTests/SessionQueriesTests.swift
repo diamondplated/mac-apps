@@ -258,7 +258,8 @@ private func hugeCSVSpec(like spec: SourceSpec) -> SourceSpec {
 
 // MARK: - the Excel-serial-date note is column-scoped, not table-wide (brief gotcha #8)
 
-@Test func computeProfileNotesAnExcelSerialDateLookingColumnOnlyForXlsx() async throws {
+@Test(.enabled(if: extensionIsAvailable("excel"), "duckdb excel extension not installed"))
+func computeProfileNotesAnExcelSerialDateLookingColumnOnlyForXlsx() async throws {
     // excel_serial.xlsx: "serial" holds five values inside looksLikeExcelSerialDates' 25,000-
     // 50,000 window (2 distinct is already > 1), "id" is an ordinary small integer. Both columns
     // together pin that the note fires per-column, not once the source format is merely xlsx —

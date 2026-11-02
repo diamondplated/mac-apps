@@ -140,7 +140,7 @@ private let cols: [String: Column] = Dictionary(uniqueKeysWithValues: colsList.m
     // colsList: region is VARCHAR (text, not castable — excluded); amount/id/ts/ok are checked.
     let (sql, params) = try badRowsSQL(q("t"), colsList, limit: 50)
     #expect(sql.contains("SELECT list_filter(["))
-    #expect(sql.contains("x -> x IS NOT NULL) AS bad_columns, *"))
+    #expect(sql.contains("lambda x : x IS NOT NULL) AS bad_columns, *"))
     // One exact CASE WHEN label, to pin the list_filter shape precisely, not just its presence.
     #expect(sql.contains(
         "CASE WHEN (\"amount\" IS NOT NULL AND trim(\"amount\") <> ''"
