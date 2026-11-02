@@ -232,7 +232,8 @@ swift test                 # XCTest suites, needs Xcode
 
 `pv-pipeline` exercises cache behaviour, sidecar round-trips, image I/O and EXIF orientation,
 tiling, search indexing, durable vim state, recursive folder watching, GPS extraction, Quick Look,
-and archive extraction.
+archive extraction, and LAN server behaviour (HTTP parsing, address gating, pairing, authorization,
+and phone actions).
 
 ---
 
@@ -254,7 +255,7 @@ latent/
 │   └── PipelineCLI/           pv-pipeline
 ├── Resources/Models/          .mlpackage files land here (gitignored)
 ├── scripts/                   model conversion + app packaging
-└── Tests/                     XCTest targets (PipelineCoreTests, PhotoViewerCoreTests)
+└── Tests/                     XCTest targets (PipelineCoreTests, PhotoViewerCoreTests, PhotoServeTests)
 ```
 
 > **On naming:** the SwiftPM package and most modules are still `PhotoViewer` / `Photo*` from before

@@ -33,8 +33,8 @@ upstream projects, all permissively licensed.
 
 ```bash
 swift build
-swift run pv-pipeline      # assert-based, runs anywhere
-swift test                 # XCTest target, needs full Xcode (not just CommandLineTools)
+swift run pv-pipeline      # assert-based, runs with macOS Command Line Tools
+swift test                 # XCTest targets, needs full Xcode (not just CommandLineTools)
 ```
 
 `pv-pipeline` exists because `swift test` needs Xcode and the pipeline internals are worth checking

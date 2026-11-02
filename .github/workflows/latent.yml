@@ -43,15 +43,16 @@ jobs:
       - name: Build
         run: swift build
 
-      # The pv-pipeline runner asserts the same scenarios as the XCTest target but
-      # runs anywhere, including on a CommandLineTools-only machine. It covers cache
+      # The pv-pipeline runner asserts the same scenarios as the XCTest targets but
+      # also runs on a macOS CommandLineTools-only machine. It covers cache
       # behaviour, sidecars, image I/O, tiling, search primitives, vim state, GPS,
-      # Quick Look and archive extraction. No model weights required — the stages
+      # Quick Look, archive extraction, and LAN HTTP parsing, address gating, pairing,
+      # authorization and phone actions. No model weights required — the stages
       # degrade to identity or a classical fallback when a model is absent.
       - name: Run the self-verifier
         run: swift run pv-pipeline
 
-      - name: XCTest target
+      - name: XCTest targets
         run: swift test
 
       - name: Build app bundle
