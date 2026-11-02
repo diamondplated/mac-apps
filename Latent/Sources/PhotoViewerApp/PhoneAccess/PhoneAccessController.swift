@@ -97,11 +97,10 @@ actor PhoneAccessController: ServeDelegate {
     @discardableResult
     func enable() async throws -> String {
         if endpoint == nil {
-            let port = try await server.start(router: Router(pairing: pairing, delegate: self))
             guard let host = LocalServer.lanAddress() else {
-                await server.stop()
                 throw PhoneAccessError.noLANInterface
             }
+            let port = try await server.start(router: Router(pairing: pairing, delegate: self), address: host)
             endpoint = "\(host):\(port)"
         }
         guard let endpoint else { throw PhoneAccessError.noLANInterface }

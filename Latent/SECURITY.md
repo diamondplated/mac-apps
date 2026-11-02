@@ -61,11 +61,11 @@ it does not execute an arbitrary same-named binary earlier on `PATH`. Helper pro
 fixed search path with implicit archive-tool and dynamic-loader option variables removed.
 
 **Model weights are checksum-pinned.** Every conversion script that can download its own weights
-verifies them against a SHA256 recorded in the script before `torch.load` ever sees the file
+verifies them against a SHA256 recorded in the script before the model loader ever sees the file
 (`scripts/fetch.py`). A mismatch is fatal and there is no override — a cached file is re-verified
 rather than trusted, so a tampered or half-written download from an earlier run cannot survive.
 
-This matters more than it looks. The scripts call `torch.load(..., weights_only=True)`, which is the
+This matters more than it looks. The pickle checkpoint scripts call `torch.load(..., weights_only=True)`, which is the
 right mitigation, but CVE-2025-32434 was a bypass of exactly that flag in torch < 2.6.0. A pinned
 hash does not depend on which torch you happen to be running. `scripts/requirements.txt` also pins
 torch at a version past that CVE, and drops `basicsr` entirely — it was unimportable on any modern
@@ -87,3 +87,12 @@ All four are permissively licensed.
 ## Supported versions
 
 Latent is pre-1.0 and only the current `main` is supported.
+
+The OpenCLIP converter loads a SHA256-verified safetensors checkpoint from an immutable
+upstream revision. The FBCNN and NAFNet architecture checkouts are pinned to exact commits
+and must be clean before import; cached checkouts are verified on every use.
+
+Phone access binds to the physical Wi-Fi/Ethernet IPv4 address advertised in its QR,
+not a wildcard or VPN interface. The address gate still checks peers and pairing remains
+one-time with user approval. Wrong-code attempts are limited to five per peer per minute,
+with a global ceiling of 100; requests while no code is displayed consume no budget.

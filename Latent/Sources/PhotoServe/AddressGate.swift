@@ -2,8 +2,8 @@ import Foundation
 
 /// Refuses any peer that is not on a local network.
 ///
-/// `LocalServer` listens on every non-cellular interface, so this check is
-/// what keeps the listener LAN-only; the pairing token is the lock behind it.
+/// `LocalServer` binds to the physical LAN address advertised in the QR.
+/// This peer check and the pairing token remain separate defenses behind it.
 /// The cost of being wrong — a photo folder reachable from off-network — is
 /// high enough that one misconfigured router should not be sufficient to
 /// cause it.

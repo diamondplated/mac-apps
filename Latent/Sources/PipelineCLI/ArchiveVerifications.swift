@@ -7,6 +7,7 @@ import PhotoIO
 // MARK: - ArchiveExtractor verifications
 
 public func archiveDetectsCommonFormats() async throws {
+    try archiveTechnicalListingRejectsContinuations()
     // Pure-string detection — no I/O needed, fast smoke test.
     let cases: [(String, ArchiveFormat?)] = [
         ("photos.zip", .zip),
@@ -189,5 +190,19 @@ private func writeTinyJPEG(width: Int, height: Int, to url: URL) throws {
     CGImageDestinationAddImage(dest, cg, nil)
     if !CGImageDestinationFinalize(dest) {
         throw VerifyError(message: "couldn't finalize fixture jpeg")
+    }
+}
+
+public func archiveTechnicalListingRejectsContinuations() throws {
+    let archive = URL(fileURLWithPath: "/tmp/photos.7z")
+    let header = "7-Zip\nPath = /tmp/photos.7z\nType = 7z\n----------\n"
+    let good = header + "Path = album/photo.jpg\nSize = 4\nCRC = 12345678\n\nPath = album\nFolder = +\n"
+    let paths = try ArchiveExtractor.sevenZipMemberPaths(good, archiveURL: archive)
+    try require(paths == ["album/photo.jpg", "album"], "valid technical listing rejected")
+    for member in ["Path = ok\n../../escape", "Path = ok\r../../escape", "Size = 4", "Path = /tmp/photos.7z", "Path = ok\nPath = ../escape"] {
+        do {
+            _ = try ArchiveExtractor.sevenZipMemberPaths(header + member, archiveURL: archive)
+            throw VerifyError(message: "unsafe 7-Zip listing accepted")
+        } catch is ArchiveError { }
     }
 }

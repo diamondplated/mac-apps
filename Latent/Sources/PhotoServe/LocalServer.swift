@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import SystemConfiguration
 
 /// The listener. Exists only while phone access is switched on.
 ///
@@ -26,18 +27,25 @@ public actor LocalServer {
     private var sseStreams: Set<ObjectIdentifier> = []
     private var router: Router?
 
+    public enum LocalServerError: Error { case noLANInterface }
+
     public init() {}
 
     public var isRunning: Bool { listener != nil }
 
     /// Start listening on an ephemeral port. Returns the port actually bound,
     /// for display in the QR.
-    public func start(router: Router) async throws -> UInt16 {
+    public func start(router: Router, address: String? = nil) async throws -> UInt16 {
+        let selectedLAN = Self.lanAddress()
+        guard let address = address ?? selectedLAN, address == selectedLAN else {
+            throw LocalServerError.noLANInterface
+        }
         stopInternal()
         self.router = router
 
         let params = NWParameters.tcp
         params.allowLocalEndpointReuse = true
+        params.requiredLocalEndpoint = .hostPort(host: .init(address), port: .any)
         // No point accepting a connection that arrives over a cellular path —
         // this is a LAN feature.
         params.prohibitedInterfaceTypes = [.cellular]
@@ -240,11 +248,20 @@ public actor LocalServer {
     /// This Mac's LAN IPv4 address, for building the QR URL. Returns nil when
     /// the machine has no private-network interface up.
     public nonisolated static func lanAddress() -> String? {
+        // SystemConfiguration distinguishes physical Wi-Fi/Ethernet from VPN
+        // interfaces; a private utun address must never be our fallback.
+        let interfaces = (SCNetworkInterfaceCopyAll() as? [SCNetworkInterface]) ?? []
+        let names = Set(interfaces.compactMap { interface -> String? in
+            guard let type = SCNetworkInterfaceGetInterfaceType(interface) as String?,
+                  type == kSCNetworkInterfaceTypeEthernet as String || type == kSCNetworkInterfaceTypeIEEE80211 as String
+            else { return nil }
+            return SCNetworkInterfaceGetBSDName(interface) as String?
+        })
         var head: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&head) == 0, let first = head else { return nil }
         defer { freeifaddrs(head) }
 
-        var best: String?
+        var candidates: [(name: String, address: String)] = []
         for ptr in sequence(first: first, next: { $0.pointee.ifa_next }) {
             let flags = Int32(ptr.pointee.ifa_flags)
             guard flags & IFF_UP == IFF_UP, flags & IFF_LOOPBACK == 0 else { continue }
@@ -258,11 +275,17 @@ public actor LocalServer {
             guard AddressGate.isPrivate(text) else { continue }
 
             let name = String(cString: ptr.pointee.ifa_name)
-            // Prefer the primary interface when several are up.
-            if name == "en0" { return text }
-            if best == nil { best = text }
+            if names.contains(name) { candidates.append((name, text)) }
         }
-        return best
+        return selectLANAddress(candidates)
+    }
+
+    /// Candidates have already been restricted to active physical LAN interfaces.
+    public nonisolated static func selectLANAddress(_ candidates: [(name: String, address: String)]) -> String? {
+        candidates.sorted { $0.name < $1.name }.first {
+            $0.name.hasPrefix("en") && AddressGate.isPrivate($0.address)
+                && !$0.address.hasPrefix("127.") && !$0.address.contains(":")
+        }?.address
     }
 }
 

@@ -160,7 +160,7 @@ public actor ArchiveExtractor {
         var extracted = false
         defer {
             if !extracted {
-                try? FileManager.default.removeItem(at: dest)
+                try? ArchiveTemporaryStorage.remove(dest)
             }
         }
 
@@ -174,6 +174,7 @@ public actor ArchiveExtractor {
         try validateExtractedTree(at: dest, archiveURL: archiveURL, strict: true)
         try Task.checkCancellation()
 
+        try ArchiveTemporaryStorage.markCompleted(dest)
         extracted = true
         return dest
     }
@@ -201,7 +202,7 @@ public actor ArchiveExtractor {
 
     /// Delete an extracted-archive directory. Errors swallowed — best effort.
     public func cleanup(_ dir: URL) {
-        try? FileManager.default.removeItem(at: dir)
+        try? ArchiveTemporaryStorage.remove(dir)
     }
 
     // MARK: - Archive inspection
@@ -298,22 +299,11 @@ public actor ArchiveExtractor {
                 String($0).trimmingCharacters(in: CharacterSet(charactersIn: "\r"))
             }
         case .sevenZipTechnical:
-            candidates = listing.split(separator: "\n", omittingEmptySubsequences: true).compactMap { line in
-                let line = String(line).trimmingCharacters(in: CharacterSet(charactersIn: "\r"))
-                let prefix = "Path = "
-                guard line.hasPrefix(prefix) else { return nil }
-                return String(line.dropFirst(prefix.count))
-            }
+            candidates = try Self.sevenZipMemberPaths(listing, archiveURL: archiveURL)
         }
 
         var memberCount = 0
         for path in candidates {
-            // 7-Zip's technical listing includes one metadata record for the
-            // archive itself before its member records.
-            if invocation.listingStyle == .sevenZipTechnical,
-               Self.listedPath(path, identifies: archiveURL) {
-                continue
-            }
             memberCount += 1
             guard memberCount <= limits.maximumEntries else {
                 throw ArchiveError.resourceLimitExceeded(
@@ -325,13 +315,42 @@ public actor ArchiveExtractor {
         }
     }
 
-    private static func listedPath(_ path: String, identifies archiveURL: URL) -> Bool {
-        if path == archiveURL.path { return true }
-        guard path.hasPrefix("/") else { return false }
-        return URL(fileURLWithPath: path).standardizedFileURL == archiveURL.standardizedFileURL
+    /// Parse only member records after 7-Zip's technical-listing separator.
+    /// Continuations cannot be ignored: a newline in a filename can hide traversal.
+    public nonisolated static func sevenZipMemberPaths(_ listing: String, archiveURL: URL) throws -> [String] {
+        let lines = listing.components(separatedBy: "\n")
+        guard let boundary = lines.firstIndex(of: "----------") else {
+            throw ArchiveError.unsafeArchive(archiveURL, "missing 7-Zip member separator")
+        }
+        let fields: Set<String> = ["Path", "Size", "Packed Size", "Modified", "Created", "Accessed",
+                                   "Attributes", "CRC", "Encrypted", "Method", "Block", "Folder",
+                                   "Anti", "Comment", "Host OS", "Version", "Volume Index", "Offset",
+                                   "Symbolic Link", "Hard Link", "Characteristics"]
+        var paths: [String] = []
+        var recordHasPath = false
+        for line in lines.dropFirst(boundary + 1) {
+            if line.isEmpty { recordHasPath = false; continue }
+            guard !line.contains("\r"), let separator = line.range(of: " = "),
+                  fields.contains(String(line[..<separator.lowerBound])) else {
+                throw ArchiveError.unsafeArchive(archiveURL, "unrecognized 7-Zip member listing line")
+            }
+            let key = String(line[..<separator.lowerBound])
+            if key == "Path" {
+                guard !recordHasPath else {
+                    throw ArchiveError.unsafeArchive(archiveURL, "duplicate 7-Zip member path")
+                }
+                let path = String(line[separator.upperBound...])
+                try validateMemberPath(path, archiveURL: archiveURL)
+                paths.append(path)
+                recordHasPath = true
+            } else if !recordHasPath {
+                throw ArchiveError.unsafeArchive(archiveURL, "7-Zip member field precedes its path")
+            }
+        }
+        return paths
     }
 
-    static func validateMemberPath(_ path: String, archiveURL: URL, maximumBytes: Int = 4_096) throws {
+    nonisolated static func validateMemberPath(_ path: String, archiveURL: URL, maximumBytes: Int = 4_096) throws {
         guard !path.isEmpty else {
             throw ArchiveError.unsafeArchive(archiveURL, "an archive member has an empty path")
         }
@@ -356,6 +375,11 @@ public actor ArchiveExtractor {
             if chars[0].isLetter && chars[1] == ":" {
                 throw ArchiveError.unsafeArchive(archiveURL, "drive-qualified member path: \(path)")
             }
+        }
+        if normalized.split(separator: "/").contains(where: {
+            $0 == ".latent-extraction-lease-v1" || $0 == ".latent-extraction-complete-v1"
+        }) {
+            throw ArchiveError.unsafeArchive(archiveURL, "reserved extraction lease name")
         }
         if normalized.split(separator: "/", omittingEmptySubsequences: false).contains("..") {
             throw ArchiveError.unsafeArchive(archiveURL, "parent traversal in member path: \(path)")
@@ -554,19 +578,8 @@ public actor ArchiveExtractor {
     // MARK: - Temporary directory
 
     private func makeTempDir(for archiveURL: URL) throws -> URL {
-        // Keep the component fixed-width and independent of an untrusted input
-        // filename. A near-NAME_MAX archive name plus our UUID otherwise makes
-        // creation fail before extraction even begins.
         _ = archiveURL
-        let unique = "pv-archive-\(UUID().uuidString)"
-        let dest = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent(unique, isDirectory: true)
-        try FileManager.default.createDirectory(
-            at: dest,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
-        )
-        return dest
+        return try ArchiveTemporaryStorage.createDirectory()
     }
 }
 extension ArchiveFormat: CaseIterable {

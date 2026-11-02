@@ -47,6 +47,23 @@ final class RouterTests: XCTestCase {
         return (Router(pairing: pairing, delegate: delegate), pairing, delegate, token)
     }
 
+    func testBadPeerCannotExhaustAnotherPeersPairingBudget() async throws {
+        let (router, pairing, _, _) = await makeRouter()
+        let code = await pairing.issueCode()
+        for attempt in 0..<6 {
+            let response = try await router.handle(request("POST", "/api/pair", body: #"{"code":"bad"}"#), from: "192.168.1.8")
+            XCTAssertEqual(response.status, attempt < 5 ? 401 : 429)
+        }
+        let response = try await router.handle(request("POST", "/api/pair", body: #"{"code":"\#(code)"}"#), from: lan)
+        XCTAssertEqual(response.status, 200)
+    }
+
+    func testLANSelectionRejectsTunnelAndLoopbackFallbacks() {
+        XCTAssertNil(LocalServer.selectLANAddress([(name: "utun0", address: "10.0.0.1"), (name: "lo0", address: "127.0.0.1")]))
+        XCTAssertNil(LocalServer.selectLANAddress([(name: "en0", address: "8.8.8.8")]))
+        XCTAssertEqual(LocalServer.selectLANAddress([(name: "en5", address: "192.168.1.2"), (name: "utun0", address: "10.0.0.1")]), "192.168.1.2")
+    }
+
     func testRefusesEveryRouteFromAPublicAddress() async throws {
         let (router, _, _, token) = await makeRouter()
         for target in ["/", "/index.html", "/api/folders", "/api/pair"] {
