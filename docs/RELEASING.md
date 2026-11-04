@@ -1,6 +1,6 @@
 # Releasing Mac Tools
 
-Mac Tools bundles DockPeek, ScreenWren, ScrollSplit, LinkRoutes, Latent, Sift, six diagnostic workspaces, and Sparkle 2.10.0. Source lives in `diamondplated/mac-apps` (formerly `mac-tools`). Public binaries and signed update feeds live in [diamondplated/mac-tools-releases](https://github.com/diamondplated/mac-tools-releases/releases), a downloads-only repository. Ordinary `./build-app.sh` produces a universal local package; `./scripts/release.sh` prepares an isolated, verified distribution in `dist/release/`. Neither command installs apps. All CI runs on Andrew's `air` self-hosted Mac.
+Mac Tools bundles DockPeek, ScreenWren, ScrollSplit, LinkRoutes, Latent, Sift, six diagnostic workspaces, and Sparkle 2.10.0. Source lives in `diamondplated/mac-apps` (formerly `mac-tools`). Public binaries and signed update feeds live in [diamondplated/mac-tools-releases](https://github.com/diamondplated/mac-tools-releases/releases), a downloads-only repository. Ordinary `./build-app.sh` produces a universal local package; `./scripts/release.sh` prepares an isolated, verified distribution in `dist/release/`. Neither command installs apps. All CI runs on Andrew's `air` self-hosted Mac; releases run on a separate release-only runner on the same Mac (see [Release runner](#release-runner)).
 
 Version **1.2.0**, build **3**, uses the persistent local signing certificate and is **not notarized**. The `mac-tools` Sparkle key is already in the native Keychain, and its public key is committed in the manager plist. No private key was exported. Developer ID notarization remains unavailable until the Apple credentials below are provisioned.
 
@@ -29,44 +29,26 @@ The current official tool installation is `.build/sparkle-tools/bin` inside the 
 
 Configure the runner user's native `gh auth login` session with read access to the private source repository and release-write access to `diamondplated/mac-tools-releases`. The workflow intentionally uses that native session for publication: the source repository's automatic workflow token cannot publish to a separate repository. Do not add private keys or Apple passwords to GitHub Secrets.
 
-Dispatch **Release Mac Tools** with the next version and mode **signedlocal** for the current distribution. Version `1.2.0` is already published and must not be reused. The workflow defaults to **notarized**, which intentionally fails until Developer ID and the notary profile exist. The publish checkbox defaults off. All work uses `[self-hosted, macOS, ARM64, air]`; no hosted runner fallback exists.
+Dispatch **Release Mac Tools** with the next version and mode **signedlocal** for the current distribution. Version `1.2.0` is already published and must not be reused. The workflow defaults to **notarized**, which intentionally fails until Developer ID and the notary profile exist. The publish checkbox defaults off. The job uses `[mac-tools-release]`, the release-only runner below; no hosted runner fallback exists.
+
+## Release runner
+
+PR and push CI runs on the shared `air` runner, which starts each job in a fresh security session (`SessionCreate`). That isolation keeps CI away from the owner's credentials, and it also leaves the login keychain locked, so the Sparkle key is unreadable there (#72). Releases therefore use a second runner on the same Mac:
+
+- Registered to this repository with `--no-default-labels --labels mac-tools-release`, so no job asking for `self-hosted`, `macOS` or `air` can land on it. Only `release.yml` should name that label; the guard below is what enforces it.
+- Installed with `./svc.sh install` as a GUI LaunchAgent, then `SessionCreate` removed from its plist (`plutil -remove SessionCreate <plist>`) before `./svc.sh start`, so jobs share the owner's unlocked login session.
+- Its `.env` sets `ACTIONS_RUNNER_HOOK_JOB_STARTED` to a copy of [`scripts/release-runner/release-guard.sh`](../scripts/release-runner/release-guard.sh) kept in the runner directory, outside any checkout. The hook fails closed: it refuses every job that is not a `workflow_dispatch` of `.github/workflows/release.yml` on `refs/heads/main` in this repository, triggered by the owner. A fork PR that edits a workflow to target the label is rejected before any step runs. On a refusal the hook prints the values it checked. After changing the committed guard, re-copy it into the runner directory and confirm with `cmp` that the two match; CI tests the committed copy only.
+- A re-run of an older release run still reports `refs/heads/main` but executes that run's original commit. Dispatch a new run rather than re-running an old one.
+
+The shared runner keeps `SessionCreate`; never remove it there.
 
 ## Diagnose release preflight
 
-For a credential-only workflow check, select **signedlocal**, enable **preflight_only**,
-and leave **publish** off. Supply the version already committed in the manager plist.
-The signedlocal preflight-only workflow runs a noninteractive identity diagnostic and skips app tests, app builds, release signing,
-publication, and artifact upload. Selecting both preflight_only and publish fails before
-credential checks. This mode still reads the existing key in memory; it is not a credential-free diagnostic.
+For a credential-only workflow check, select **signedlocal**, enable **preflight_only**, and leave **publish** off. Supply the version already committed in the manager plist. This runs the same preflight as a real release, including the official `generate_keys --account mac-tools -p` comparison with `SUPublicEDKey`, and skips app tests, app builds, release signing, publication and artifact upload. Selecting both preflight_only and publish fails before credential checks. It reads the existing key in memory; it is not a credential-free diagnostic.
 
-The diagnostic compiles a small helper, disables Keychain interaction inside that process
-before lookup, and sets the explicit fail-on-authentication-UI flag on the exact Sparkle query.
-Failure never falls back to an interactive tool. It compares the key-derived public identity
-with `SUPublicEDKey` and emits status only. The helper accepts Sparkle's 32-byte seed and
-legacy 96-byte format (the latter uses its stored public suffix, as the official tool does).
-It never writes, exports, replaces, unlocks or changes access to a key.
+`./scripts/release.sh --local --preflight --noninteractive` remains available as a manual, no-UI identity diagnostic. It compiles a small helper that disables Keychain interaction before an exact Sparkle query and compares the key-derived public identity with `SUPublicEDKey`, emitting status only. It never writes, exports, replaces, unlocks or changes access to a key, and other flag combinations are rejected. **This helper has a different Keychain ACL identity** from the official tools, so its result says nothing about whether `generate_keys`, `sign_update` or `generate_appcast` can read the key. Use the workflow preflight above for that.
 
-Run it explicitly with `./scripts/release.sh --local --preflight --noninteractive`.
-Other combinations, including publication, are rejected before credential work. Normal
-release and interactive preflight paths continue using the official Sparkle tools.
-**This helper has a different Keychain ACL identity.** Its success proves only the existing
-key's public identity, not that `generate_keys`, `sign_update` or `generate_appcast` can
-access that key. A denial also does not establish denial for those tools. Do not close the
-runner-access issue or claim release readiness from this diagnostic. Official-tool acceptance
-still requires an approved session or an upstream noninteractive tool mode. The notarized
-preflight-only mode is unchanged and is not a no-UI diagnostic.
-
-If Sparkle reports that the existing key is unavailable, do not replace it or export it.
-Check the runner's actual launchd domain first: a runner already loaded as a GUI LaunchAgent
-does not need to be registered again merely because preflight failed. A login-keychain
-search-list entry alone does not prove that the keychain is unlocked or that the official
-Sparkle binary has access to the item. The generic failure message cannot distinguish
-those causes. Compare the configured official tool location with the one previously
-approved in Keychain Access; fresh SwiftPM artifact copies can have different paths.
-An owner may need to unlock the login keychain or approve that tool's access interactively,
-but do not broaden the item's ACL or change runner services without evidence and approval.
-Retry the credential-only workflow from the same runner context after the verified cause
-has been addressed. A successful interactive shell check alone does not prove CI access.
+If Sparkle reports that the existing key is unavailable, do not replace it or export it. Check that the job ran on the release runner, that its LaunchAgent has no `SessionCreate`, and that the owner is logged in with the login keychain unlocked. Compare the configured official tool location (`SPARKLE_TOOLS_DIR`) with the one previously approved in Keychain Access; fresh SwiftPM artifact copies can have different paths. Do not broaden the item's ACL.
 
 ## Version and prepare
 

@@ -55,6 +55,8 @@ jobs:
           xcrun --sdk macosx --show-sdk-path
       - name: Test noninteractive release diagnostic with synthetic keys
         run: ./scripts/test-sparkle-preflight.sh
+      - name: Test release runner guard
+        run: ./scripts/release-runner/test-release-guard.sh
       - name: Test manager core without app windows
         if: ${{ inputs.headless_core_only && !inputs.release_diagnostic_only }}
         run: swift test --package-path MacTools
