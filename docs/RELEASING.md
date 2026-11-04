@@ -35,9 +35,10 @@ Dispatch **Release Mac Tools** with the next version and mode **signedlocal** fo
 
 PR and push CI runs on the shared `air` runner, which starts each job in a fresh security session (`SessionCreate`). That isolation keeps CI away from the owner's credentials, and it also leaves the login keychain locked, so the Sparkle key is unreadable there (#72). Releases therefore use a second runner on the same Mac:
 
-- Registered to this repository with `--no-default-labels --labels mac-tools-release`, so no job asking for `self-hosted`, `macOS` or `air` can land on it. Only `release.yml` names that label.
+- Registered to this repository with `--no-default-labels --labels mac-tools-release`, so no job asking for `self-hosted`, `macOS` or `air` can land on it. Only `release.yml` should name that label; the guard below is what enforces it.
 - Installed with `./svc.sh install` as a GUI LaunchAgent, then `SessionCreate` removed from its plist (`plutil -remove SessionCreate <plist>`) before `./svc.sh start`, so jobs share the owner's unlocked login session.
-- Its `.env` sets `ACTIONS_RUNNER_HOOK_JOB_STARTED` to a copy of [`scripts/release-runner/release-guard.sh`](../scripts/release-runner/release-guard.sh) kept in the runner directory, outside any checkout. The hook fails closed: it refuses every job that is not a `workflow_dispatch` of `.github/workflows/release.yml` on `refs/heads/main` in this repository, triggered by the owner. A fork PR that edits a workflow to target the label is rejected before any step runs.
+- Its `.env` sets `ACTIONS_RUNNER_HOOK_JOB_STARTED` to a copy of [`scripts/release-runner/release-guard.sh`](../scripts/release-runner/release-guard.sh) kept in the runner directory, outside any checkout. The hook fails closed: it refuses every job that is not a `workflow_dispatch` of `.github/workflows/release.yml` on `refs/heads/main` in this repository, triggered by the owner. A fork PR that edits a workflow to target the label is rejected before any step runs. On a refusal the hook prints the values it checked. After changing the committed guard, re-copy it into the runner directory and confirm with `cmp` that the two match; CI tests the committed copy only.
+- A re-run of an older release run still reports `refs/heads/main` but executes that run's original commit. Dispatch a new run rather than re-running an old one.
 
 The shared runner keeps `SessionCreate`; never remove it there.
 
