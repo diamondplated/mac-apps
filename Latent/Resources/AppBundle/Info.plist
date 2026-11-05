@@ -30,10 +30,10 @@
     <string>APPL</string>
 
     <key>CFBundleShortVersionString</key>
-    <string>0.3.2</string>
+    <string>0.4.0</string>
 
     <key>CFBundleVersion</key>
-    <string>6</string>
+    <string>7</string>
 
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
@@ -155,6 +155,22 @@
         </dict>
         <dict>
             <key>CFBundleTypeName</key>
+            <string>Matroska video</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>org.matroska.mkv</string>
+            </array>
+            <key>CFBundleTypeExtensions</key>
+            <array>
+                <string>mkv</string>
+            </array>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key>
             <string>Photo archive</string>
             <key>CFBundleTypeRole</key>
             <string>Viewer</string>
@@ -166,6 +182,31 @@
                 <string>org.gnu.gnu-zip-archive</string>
                 <string>public.tar-archive</string>
             </array>
+        </dict>
+    </array>
+
+    <key>UTImportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>org.matroska.mkv</string>
+            <key>UTTypeDescription</key>
+            <string>Matroska video</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.movie</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>mkv</string>
+                </array>
+                <key>public.mime-type</key>
+                <array>
+                    <string>video/x-matroska</string>
+                </array>
+            </dict>
         </dict>
     </array>
 </dict>

@@ -207,7 +207,7 @@ struct DetailView: View {
             }
         case (_, .video):
             if let url = currentURL {
-                VideoPlaybackView(url: url)
+                VideoContentView(url: url)
                     .padding(8)
                     .id(MediaContentIdentity(
                         url: url,

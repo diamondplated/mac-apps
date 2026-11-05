@@ -147,7 +147,8 @@ asks you to confirm that this is the same folder before importing; declining lea
 untouched and keeps culling disabled for that folder.
 
 **Viewing.** Synced zoom and pan (0.25–16×, drag to pan, pinch to zoom, double-tap to cycle
-2×→3×→4×→1×), animated GIFs, video playback, and a map view built from EXIF GPS.
+2×→3×→4×→1×), animated GIFs, video playback (including `.mkv`, played in place with no conversion,
+when its codecs are ones macOS can decode), and a map view built from EXIF GPS.
 
 **Enhancing.** Per-stage toggles and sliders with live preview, A/B compare (enhanced / original /
 side-by-side, hold `B` to blink), and `.enhance.json` sidecars so your edits are non-destructive and
