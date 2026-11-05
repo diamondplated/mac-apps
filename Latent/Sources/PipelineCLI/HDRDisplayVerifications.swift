@@ -3,6 +3,7 @@ import CoreGraphics
 import ImageIO
 import UniformTypeIdentifiers
 import Metal
+import QuartzCore
 import PhotoIO
 import PipelineCore
 
@@ -45,7 +46,7 @@ private func checkHDRDisplayOnMainActor() async throws {
           let commands = renderer.commandQueue.makeCommandBuffer() else {
         throw VerifyError(message: "could not allocate offscreen HDR render target")
     }
-    renderer.render(image, to: texture, commandBuffer: commands)
+    try renderer.render(image, to: texture, commandBuffer: commands)
     let status = await withCheckedContinuation { continuation in
         commands.addCompletedHandler { completed in continuation.resume(returning: completed.status) }
         commands.commit()
@@ -74,7 +75,7 @@ private func checkHDRDisplayOnMainActor() async throws {
         let neutral = CGImage(width: 2, height: 2, bitsPerComponent: 32, bitsPerPixel: 128,
             bytesPerRow: 32, space: renderer.colorSpace, bitmapInfo: info, provider: neutralProvider,
             decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
-        renderer.render(neutral, to: texture, commandBuffer: mapped, displayHeadroom: 1)
+        try renderer.render(neutral, to: texture, commandBuffer: mapped, displayHeadroom: 1)
         let mappedStatus = await withCheckedContinuation { continuation in
             mapped.addCompletedHandler { completed in continuation.resume(returning: completed.status) }
             mapped.commit()
@@ -149,7 +150,7 @@ private func checkGeneratedGainMapOnMainActor() async throws {
     descriptor.usage = [.shaderRead, .shaderWrite, .renderTarget]
     let texture = renderer.device.makeTexture(descriptor: descriptor)!
     let commands = renderer.commandQueue.makeCommandBuffer()!
-    renderer.render(preview, to: texture, commandBuffer: commands)
+    try renderer.render(preview, to: texture, commandBuffer: commands)
     let status = await withCheckedContinuation { continuation in
         commands.addCompletedHandler { continuation.resume(returning: $0.status) }
         commands.commit()
@@ -166,4 +167,88 @@ private func checkGeneratedGainMapOnMainActor() async throws {
     let bottom = Float(Float16(bitPattern: output[(48 * preview.width + 16) * 4]))
     try require(top > 0.1 && top < 0.5 && bottom > 2,
                 "gain-map highlight or orientation lost: top=\(top), bottom=\(bottom)")
+}
+
+/// Issue #100: Core Image writes ordinary textures bottom-up but CAMetalLayer
+/// drawables top-down, so the detail view mirrored every photo while the
+/// offscreen fixtures stayed green. Render an asymmetric image into both and
+/// require the top row first. The layer needs no window and is never presented.
+func hdrDisplayKeepsRowOrderOnLayerDrawables() async throws {
+    try await checkHDRRowOrderOnMainActor()
+}
+
+@MainActor
+private func checkHDRRowOrderOnMainActor() async throws {
+    guard let renderer = HDRDisplayRenderer() else {
+        print("SKIP: HDR row order needs a Metal device")
+        return
+    }
+    let width = 4, height = 8
+    var values: [Float] = []
+    for y in 0..<height {
+        for _ in 0..<width { values += y < height / 2 ? [1, 0, 0, 1] : [0, 0, 1, 1] }
+    }
+    let data = values.withUnsafeBytes { Data($0) }
+    let info = CGBitmapInfo.floatComponents.union(.byteOrder32Little)
+        .union(CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue))
+    guard let provider = CGDataProvider(data: data as CFData),
+          let image = CGImage(width: width, height: height, bitsPerComponent: 32, bitsPerPixel: 128,
+              bytesPerRow: width * 16, space: renderer.colorSpace, bitmapInfo: info,
+              provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent) else {
+        throw VerifyError(message: "could not create row-order fixture")
+    }
+    for useDrawable in [false, true] {
+        for headroom: Float? in [nil, 2] {
+            let label = (useDrawable ? "layer drawable" : "texture") + (headroom.map { ", headroom \($0)" } ?? "")
+            let texture: any MTLTexture
+            var drawable: (any CAMetalDrawable)?
+            if useDrawable {
+                let layer = CAMetalLayer()
+                layer.device = renderer.device
+                layer.pixelFormat = .rgba16Float
+                layer.colorspace = renderer.colorSpace
+                layer.wantsExtendedDynamicRangeContent = true
+                layer.framebufferOnly = false
+                layer.drawableSize = CGSize(width: width, height: height)
+                guard let vended = layer.nextDrawable() else {
+                    throw VerifyError(message: "CAMetalLayer vended no drawable")
+                }
+                drawable = vended
+                texture = vended.texture
+            } else {
+                let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+                    pixelFormat: .rgba16Float, width: width, height: height, mipmapped: false)
+                descriptor.storageMode = .private
+                descriptor.usage = [.shaderRead, .shaderWrite, .renderTarget]
+                guard let made = renderer.device.makeTexture(descriptor: descriptor) else {
+                    throw VerifyError(message: "could not allocate row-order texture")
+                }
+                texture = made
+            }
+            let bytesPerRow = width * 8
+            guard let commands = renderer.commandQueue.makeCommandBuffer(),
+                  let readback = renderer.device.makeBuffer(length: bytesPerRow * height, options: .storageModeShared) else {
+                throw VerifyError(message: "could not allocate row-order readback")
+            }
+            try renderer.render(image, to: texture, commandBuffer: commands, displayHeadroom: headroom)
+            guard let blit = commands.makeBlitCommandEncoder() else {
+                throw VerifyError(message: "could not encode row-order readback")
+            }
+            blit.copy(from: texture, sourceSlice: 0, sourceLevel: 0, sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
+                      sourceSize: MTLSize(width: width, height: height, depth: 1), to: readback,
+                      destinationOffset: 0, destinationBytesPerRow: bytesPerRow,
+                      destinationBytesPerImage: bytesPerRow * height)
+            blit.endEncoding()
+            let status = await withCheckedContinuation { continuation in
+                commands.addCompletedHandler { completed in continuation.resume(returning: completed.status) }
+                commands.commit()
+            }
+            try require(status == .completed, "\(label): row-order render failed")
+            withExtendedLifetime(drawable) {}
+            let raw = readback.contents().assumingMemoryBound(to: UInt16.self)
+            func channel(_ row: Int, _ c: Int) -> Float { Float(Float16(bitPattern: raw[row * width * 4 + c])) }
+            try require(channel(0, 0) > channel(0, 2), "\(label): top row is not red (image mirrored)")
+            try require(channel(height - 1, 2) > channel(height - 1, 0), "\(label): bottom row is not blue (image mirrored)")
+        }
+    }
 }

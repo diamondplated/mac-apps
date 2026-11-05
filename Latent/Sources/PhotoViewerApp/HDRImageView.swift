@@ -89,7 +89,11 @@ private final class MetalImageNSView: NSView {
         guard let drawable = metalLayer.nextDrawable(),
               let commands = renderer.commandQueue.makeCommandBuffer() else { fallback(); return }
         let headroom = Float(window?.screen?.maximumExtendedDynamicRangeColorComponentValue ?? 1)
-        renderer.render(image, to: drawable.texture, commandBuffer: commands, displayHeadroom: headroom)
+        do {
+            try renderer.render(image, to: drawable.texture, commandBuffer: commands, displayHeadroom: headroom)
+        } catch {
+            fallback(); return
+        }
         commands.addCompletedHandler { [weak self] completed in
             guard completed.status == .error else { return }
             Task { @MainActor in self?.fallback() }
