@@ -28,8 +28,16 @@ public final class HDRDisplayRenderer {
 
     /// Render to a floating-point target. Caller owns command-buffer completion
     /// and presentation, permitting tests to read back without a CAMetalLayer.
+    ///
+    /// `presentationFlipped` must be the presenting layer's
+    /// `contentsAreFlipped()`. A layer-backed NSView inside a flipped parent
+    /// (every SwiftUI host is flipped) gets a geometry-flipped layer, and Core
+    /// Animation then shows the drawable bottom row first. Writing rows in
+    /// Core Image's own bottom-up order in that case cancels the compositor's
+    /// flip; writing them top-down showed every photo upside down (#100).
     public func render(_ image: CGImage, to texture: any MTLTexture,
-                       commandBuffer: any MTLCommandBuffer, displayHeadroom: Float? = nil) {
+                       commandBuffer: any MTLCommandBuffer, displayHeadroom: Float? = nil,
+                       presentationFlipped: Bool = false) {
         var source = CIImage(cgImage: image)
         if let headroom = displayHeadroom {
             if #available(macOS 26.0, *) {
@@ -50,10 +58,10 @@ public final class HDRDisplayRenderer {
             scaleX: target.width / source.extent.width,
             y: target.height / source.extent.height
         ))
-        // Core Image's origin is bottom-left; Metal drawable rows begin at
-        // the top. Flip exactly once so CGImage row order and EXIF orientation
-        // survive presentation (also asserted by the asymmetric pixel fixture).
-        let displayImage = scaled
+        // Core Image's origin is bottom-left; Metal texture rows begin at the
+        // top. Flip once so texture memory is top-down (asserted by the
+        // asymmetric pixel fixture), unless the compositor flips it for us.
+        let displayImage = presentationFlipped ? scaled : scaled
             .transformed(by: CGAffineTransform(scaleX: 1, y: -1))
             .transformed(by: CGAffineTransform(translationX: 0, y: target.height))
         context.render(displayImage, to: texture, commandBuffer: commandBuffer,
