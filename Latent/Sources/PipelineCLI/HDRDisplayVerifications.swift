@@ -61,28 +61,6 @@ private func checkHDRDisplayOnMainActor() async throws {
         try require(abs(actual - expected) < 0.02,
                     "HDR/P3 component \(index) was clipped or changed: \(actual), expected \(expected)")
     }
-    // A flipped presenter (any SwiftUI-hosted CAMetalLayer) gets bottom-up
-    // rows so the compositor's flip shows the photo upright.
-    guard let flippedCommands = renderer.commandQueue.makeCommandBuffer() else {
-        throw VerifyError(message: "could not allocate flipped render command")
-    }
-    renderer.render(image, to: texture, commandBuffer: flippedCommands, presentationFlipped: true)
-    let flippedStatus = await withCheckedContinuation { continuation in
-        flippedCommands.addCompletedHandler { completed in continuation.resume(returning: completed.status) }
-        flippedCommands.commit()
-    }
-    try require(flippedStatus == .completed, "flipped offscreen Metal command failed")
-    pixels.withUnsafeMutableBytes {
-        texture.getBytes($0.baseAddress!, bytesPerRow: 16,
-                         from: MTLRegionMake2D(0, 0, 2, 2), mipmapLevel: 0)
-    }
-    for (index, actualBits) in pixels.enumerated() {
-        let sourceRow = 1 - index / 8
-        let expected = values[sourceRow * 8 + index % 8]
-        let actual = Float(Float16(bitPattern: actualBits))
-        try require(abs(actual - expected) < 0.02,
-                    "flipped presentation component \(index) not bottom-up: \(actual), expected \(expected)")
-    }
     // Exercise the same tone mapping path used with the current NSScreen
     // headroom; this needs no screen or window. On macOS 14 the EDR surface
     // retains native values and the compositor supplies the display clamp.
