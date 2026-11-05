@@ -21,15 +21,16 @@ final class HDRPresentationTests: XCTestCase {
         host.frame = NSRect(x: 0, y: 0, width: 40, height: 20)
         // Never ordered front: nothing appears on the runner's desktop.
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
-                              backing: .buffered, defer: true)
+                              backing: .buffered, defer: false)
         window.contentView = host
         host.layoutSubtreeIfNeeded()
         host.displayIfNeeded()
         CATransaction.flush()
         let view = try XCTUnwrap(probe.view, "representable was never created")
         let layer = try XCTUnwrap(view.layer as? CAMetalLayer, "view lost its CAMetalLayer")
+        print("HDRPresentation chain: \(describeChain(view))")
         XCTAssertTrue(layer.contentsAreFlipped(),
-                      "SwiftUI-hosted CAMetalLayer is not flipped; HDRImageView would now render upside down")
+                      "SwiftUI-hosted CAMetalLayer is not flipped; hierarchy: \(describeChain(view))")
         _ = window
     }
 
@@ -85,6 +86,23 @@ final class HDRPresentationTests: XCTestCase {
         }
         return raw.map { Float(Float16(bitPattern: $0)) }
     }
+}
+
+/// View and layer flip state from the probe up to the window, for diagnosis.
+@MainActor
+private func describeChain(_ start: NSView) -> String {
+    var parts: [String] = []
+    var view: NSView? = start
+    while let v = view {
+        parts.append("\(type(of: v)) viewFlipped=\(v.isFlipped) layer=\(v.layer.map { "\(type(of: $0)) geoFlipped=\($0.isGeometryFlipped) contentsFlipped=\($0.contentsAreFlipped())" } ?? "nil")")
+        view = v.superview
+    }
+    var layer: CALayer? = start.layer?.superlayer
+    while let l = layer {
+        parts.append("superlayer \(type(of: l)) geoFlipped=\(l.isGeometryFlipped)")
+        layer = l.superlayer
+    }
+    return parts.joined(separator: " | ")
 }
 
 @MainActor
