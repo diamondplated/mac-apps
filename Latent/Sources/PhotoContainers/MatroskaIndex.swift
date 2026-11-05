@@ -63,6 +63,18 @@ public struct MatroskaTrack: Sendable {
 
     public var frames: [MatroskaFrame] = []
 
+    /// AVI: frame timestamps count chunks in decode order. Streams whose
+    /// frames are reordered (B-frames) take presentation times from their
+    /// bitstream before they are played.
+    public var timestampsInDecodeOrder = false
+    /// AVI constant-bitrate audio: frames are slices of one byte stream whose
+    /// boundaries need not fall between codec packets, so packets are found
+    /// by parsing before the track is played.
+    public var needsRepacketizing = false
+    /// Where frame offsets point when that is not the source file: a scratch
+    /// file holding frames rewritten into a form AVFoundation can read.
+    public var dataURL: URL?
+
     public var kindName: String {
         switch kind {
         case .video: "video"
@@ -138,13 +150,13 @@ private struct IndexReader {
 
     mutating func run() throws -> MatroskaIndex {
         guard let header = try file.element(at: 0), header.id == MKV.ebml, let headerEnd = header.end else {
-            throw MatroskaError.notMatroska
+            throw ContainerError.unrecognized
         }
         for child in try file.children(of: header) where child.id == MKV.docType {
             index.docType = try file.string(child)
         }
         guard index.docType == "matroska" || index.docType == "webm" else {
-            throw MatroskaError.unsupportedDocType(index.docType)
+            throw ContainerError.unsupportedDocType(index.docType)
         }
 
         // EBML Void elements may sit between the header and the Segment.
@@ -155,7 +167,7 @@ private struct IndexReader {
             guard let end = element.end else { break }
             cursor = end
         }
-        guard let segment else { throw MatroskaError.noSegment }
+        guard let segment else { throw ContainerError.noSegment }
 
         let segmentEnd = min(segment.end ?? file.size, file.size)
         if let end = segment.end, end > file.size { index.isComplete = false }

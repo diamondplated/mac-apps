@@ -3,7 +3,7 @@ import AVFoundation
 import CoreMedia
 
 /// A track the movie leaves out, with the reason in words a viewer can show.
-public struct MatroskaSkippedTrack: Sendable, Equatable {
+public struct SkippedTrack: Sendable, Equatable {
     public let number: UInt64
     public let kind: MatroskaTrack.Kind
     public let codecID: String
@@ -17,52 +17,70 @@ public struct MatroskaSkippedTrack: Sendable, Equatable {
     }
 }
 
-/// Plays a Matroska file through AVFoundation without converting it.
+/// Plays a Matroska or AVI file through AVFoundation without converting it.
 ///
-/// AVFoundation has no Matroska demuxer, but a QuickTime movie may keep its
+/// AVFoundation reads neither container, but a QuickTime movie may keep its
 /// samples in another file and describe them by byte range. This builds such
 /// a movie in memory: every video and audio frame found by `MatroskaIndex`
-/// becomes a sample reference into the original `.mkv`, with H.264, HEVC,
-/// AV1 and the common audio codecs described the way QuickTime describes
-/// them. AVPlayer, AVAssetImageGenerator and AVAssetReader then read the
-/// original bytes directly: nothing is copied, transcoded or written to disk.
+/// or `AVIIndex` becomes a sample reference into the original file, with
+/// each codec described the way QuickTime describes it. AVPlayer,
+/// AVAssetImageGenerator and AVAssetReader then read the original bytes
+/// directly: nothing is transcoded.
+///
+/// Two kinds of AVI stream cannot be read where they lie, and are rewritten
+/// into scratch files first (see `TrackPreparation`): H.264, which AVI
+/// stores with start codes instead of length prefixes, and constant-bitrate
+/// audio whose packets straddle chunks. The scratch files live as long as
+/// the movie's asset does.
 ///
 /// The movie is immutable once `load` returns, which is what makes handing
 /// it across concurrency domains sound.
-public final class MatroskaMovie: @unchecked Sendable {
+public final class ReferenceMovie: @unchecked Sendable {
     public let sourceURL: URL
     public let asset: AVAsset
     /// Tracks that could not be played (an unsupported codec, encrypted or
     /// header-compressed frames). Subtitle and attachment tracks are not
     /// listed; Latent never shows them.
-    public let skippedTracks: [MatroskaSkippedTrack]
+    public let skippedTracks: [SkippedTrack]
     /// False when the file ended early or `limit` stopped the read.
     public let isComplete: Bool
     public let videoTrackCount: Int
     public let audioTrackCount: Int
+    /// Rewritten frames the asset reads; also attached to the asset itself,
+    /// so a player holding only the asset keeps them.
+    private let scratchFiles: [ScratchFile]
 
-    private init(sourceURL: URL, asset: AVAsset, skippedTracks: [MatroskaSkippedTrack],
-                 isComplete: Bool, videoTrackCount: Int, audioTrackCount: Int) {
+    private init(sourceURL: URL, asset: AVAsset, skippedTracks: [SkippedTrack], isComplete: Bool,
+                 videoTrackCount: Int, audioTrackCount: Int, scratchFiles: [ScratchFile]) {
         self.sourceURL = sourceURL
         self.asset = asset
         self.skippedTracks = skippedTracks
         self.isComplete = isComplete
         self.videoTrackCount = videoTrackCount
         self.audioTrackCount = audioTrackCount
+        self.scratchFiles = scratchFiles
     }
+
+    /// Files written to hold rewritten frames (H.264 from an AVI, audio
+    /// re-cut on packet boundaries). Empty for anything read in place. They
+    /// are deleted once neither this movie nor its asset is referenced.
+    public var scratchFileURLs: [URL] { scratchFiles.map(\.url) }
+
+    nonisolated(unsafe) private static var scratchKey: UInt8 = 0
 
     /// Indexes `url` and builds its movie. Synchronous and I/O-bound: call it
     /// off the main actor, or use `open`. `limit` (seconds) reads only the
     /// start of the file, enough for a thumbnail. `progress` is called on
     /// the calling thread with the overall fraction done: reading the file
-    /// is the first half, describing its frames to AVFoundation the second.
-    /// Reading dominates on a network volume, describing on a local disk
-    /// (about two seconds for a two-hour film).
+    /// is the first half, preparing and describing its frames to
+    /// AVFoundation the second. Reading dominates on a network volume,
+    /// describing on a local disk (about two seconds for a two-hour film).
     public static func load(url: URL, limit: Double? = nil,
-                            progress: ((Double) -> Void)? = nil) throws -> MatroskaMovie {
-        let index = try MatroskaIndex.read(url: url, limit: limit, progress: progress.map { report in
-            { report($0 * 0.5) }
-        })
+                            progress: ((Double) -> Void)? = nil) throws -> ReferenceMovie {
+        let readProgress = progress.map { report in { (fraction: Double) in report(fraction * 0.5) } }
+        let index = try isAVI(url)
+            ? AVIIndex.read(url: url, limit: limit, progress: readProgress)
+            : MatroskaIndex.read(url: url, limit: limit, progress: readProgress)
         return try build(index, url: url, progress: progress.map { report in
             { report(0.5 + $0 * 0.5) }
         })
@@ -71,7 +89,7 @@ public final class MatroskaMovie: @unchecked Sendable {
     /// `load` on a background thread. Cancelling the calling task stops the
     /// read at the next cluster and throws `CancellationError`.
     public static func open(url: URL, limit: Double? = nil,
-                            progress: (@Sendable (Double) -> Void)? = nil) async throws -> MatroskaMovie {
+                            progress: (@Sendable (Double) -> Void)? = nil) async throws -> ReferenceMovie {
         let work = Task.detached(priority: .userInitiated) {
             try load(url: url, limit: limit, progress: progress)
         }
@@ -82,40 +100,96 @@ public final class MatroskaMovie: @unchecked Sendable {
         }
     }
 
-    static func build(_ index: MatroskaIndex, url: URL, progress: ((Double) -> Void)? = nil) throws -> MatroskaMovie {
-        let reader = try? FileHandle(forReadingFrom: url)
-        defer { try? reader?.close() }
+    /// Whether `url` opens with an AVI RIFF header. Anything else is handed
+    /// to the Matroska reader, which says when it is neither.
+    static func isAVI(_ url: URL) throws -> Bool {
+        let file = try WindowedFile(url: url, capacity: 12)
+        return try file.fourCC(0) == FourCC("RIFF") && file.fourCC(8) == FourCC("AVI ")
+    }
 
-        var skipped: [MatroskaSkippedTrack] = []
-        var plans: [(track: MatroskaTrack, mapping: TrackMapping)] = []
-        for track in index.tracks where track.kind == .video || track.kind == .audio {
-            let mapping = MatroskaCodecs.mapping(for: track) {
-                guard let reader, let frame = track.frames.first(where: \.isKeyframe) ?? track.frames.first else { return nil }
-                try? reader.seek(toOffset: UInt64(frame.offset))
-                return try? reader.read(upToCount: Int(min(frame.size, 64)))
+    static func build(_ index: MatroskaIndex, url: URL, progress: ((Double) -> Void)? = nil) throws -> ReferenceMovie {
+        var skipped: [SkippedTrack] = []
+        let candidates = index.tracks.filter { $0.kind == .video || $0.kind == .audio }
+
+        // Preparation (rewriting AVI streams AVFoundation can't read in
+        // place) takes the first half of the progress when there is any.
+        var preparation = TrackPreparation(source: url)
+        defer { preparation.close() }
+        let preparationWork = candidates.reduce(Int64(0)) { $0 + TrackPreparation.work(for: $1) }
+        let preparationShare = preparationWork > 0 ? 0.5 : 0
+        var prepared: [MatroskaTrack] = []
+        var preparedWork: Int64 = 0
+        for track in candidates {
+            try Task.checkCancellation()
+            let before = preparedWork
+            let outcome: TrackPreparation.Outcome
+            do {
+                outcome = try preparation.prepare(track) { done in
+                    progress?(preparationShare * Double(before + done) / Double(max(1, preparationWork)))
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // A track that can't be rewritten (an unreadable stretch, a
+                // failed write) leaves the others playing.
+                outcome = .unsupported("its \(track.kindName) track could not be prepared: \(error.localizedDescription)")
             }
+            preparedWork += TrackPreparation.work(for: track)
+            switch outcome {
+            case .ready(let ready): prepared.append(ready)
+            case .unsupported(let reason): skipped.append(SkippedTrack(track, reason: reason))
+            }
+        }
+
+        var readers: [URL: FileHandle] = [:]
+        defer { readers.values.forEach { try? $0.close() } }
+        func firstKeyframe(_ track: MatroskaTrack) -> Data? {
+            let frameURL = track.dataURL ?? url
+            if readers[frameURL] == nil { readers[frameURL] = try? FileHandle(forReadingFrom: frameURL) }
+            guard let reader = readers[frameURL],
+                  let frame = track.frames.first(where: \.isKeyframe) ?? track.frames.first else { return nil }
+            try? reader.seek(toOffset: UInt64(frame.offset))
+            return try? reader.read(upToCount: Int(min(frame.size, 16 << 20)))
+        }
+
+        var plans: [(track: MatroskaTrack, mapping: TrackMapping)] = []
+        for track in prepared {
+            var keyframe: Data??
+            let firstFrame: () -> Data? = {
+                if keyframe == nil { keyframe = .some(firstKeyframe(track)) }
+                return keyframe!
+            }
+            let mapping = MatroskaCodecs.mapping(for: track, firstFrame: firstFrame)
             if case .unsupported(let reason) = mapping {
-                skipped.append(MatroskaSkippedTrack(track, reason: reason))
+                skipped.append(SkippedTrack(track, reason: reason))
             } else if track.frames.isEmpty {
-                skipped.append(MatroskaSkippedTrack(track, reason: "its \(track.kindName) track is empty"))
+                skipped.append(SkippedTrack(track, reason: "its \(track.kindName) track is empty"))
+            } else if case .video(let description) = mapping, let frame = firstFrame(),
+                      let reason = DecodeProbe.failure(description: description, keyframe: frame) {
+                skipped.append(SkippedTrack(track, reason: reason))
             } else {
                 plans.append((track, mapping))
             }
         }
         guard !plans.isEmpty else {
-            throw MatroskaError.noPlayableTracks(skipped.map(\.reason))
+            throw ContainerError.noPlayableTracks(skipped.map(\.reason))
         }
 
         let scale = Int64(index.timestampScale)
         let movie = try AVMutableMovie(settingsFrom: nil, options: nil)
         movie.timescale = 90_000
+        let scratchFiles = preparation.scratchFiles
+        if !scratchFiles.isEmpty {
+            objc_setAssociatedObject(movie, &scratchKey, scratchFiles, .OBJC_ASSOCIATION_RETAIN)
+        }
 
         // Frames appended so far, reported every few thousand.
         let totalFrames = max(1, plans.reduce(0) { $0 + $1.track.frames.count })
         var appendedFrames = 0
         let advance: (Int) -> Void = { count in
             appendedFrames += count
-            progress?(min(1, Double(appendedFrames) / Double(totalFrames)))
+            let fraction = min(1, Double(appendedFrames) / Double(totalFrames))
+            progress?(preparationShare + (1 - preparationShare) * fraction)
         }
 
         var appended: [(track: MatroskaTrack, placement: Placement)] = []
@@ -124,19 +198,19 @@ public final class MatroskaMovie: @unchecked Sendable {
             let placement: Placement?
             switch plan.mapping {
             case .video(let description):
-                placement = try appendVideo(plan.track, description: description, scale: scale, url: url,
-                                            movie: movie, advance: advance)
+                placement = try appendVideo(plan.track, description: description, scale: scale,
+                                            url: plan.track.dataURL ?? url, movie: movie, advance: advance)
             case .audio(let description, let timing, let audioStart):
                 placement = try appendAudio(plan.track, description: description, timing: timing,
-                                            start: audioStart, scale: scale, url: url, movie: movie,
-                                            advance: advance)
+                                            start: audioStart, scale: scale, url: plan.track.dataURL ?? url,
+                                            movie: movie, advance: advance)
             case .unsupported:
                 placement = nil
             }
             if let placement {
                 appended.append((plan.track, placement))
             } else {
-                skipped.append(MatroskaSkippedTrack(plan.track, reason: "its \(plan.track.kindName) track could not be added"))
+                skipped.append(SkippedTrack(plan.track, reason: "its \(plan.track.kindName) track could not be added"))
             }
         }
 
@@ -153,7 +227,7 @@ public final class MatroskaMovie: @unchecked Sendable {
             }
             guard inserted else {
                 movie.removeTrack(placement.track)
-                skipped.append(MatroskaSkippedTrack(track, reason: "its \(track.kindName) track could not be placed"))
+                skipped.append(SkippedTrack(track, reason: "its \(track.kindName) track could not be placed"))
                 continue
             }
             if let language = track.language {
@@ -166,7 +240,7 @@ public final class MatroskaMovie: @unchecked Sendable {
             played.append((track, placement.track))
         }
         guard !played.isEmpty else {
-            throw MatroskaError.noPlayableTracks(skipped.map(\.reason))
+            throw ContainerError.noPlayableTracks(skipped.map(\.reason))
         }
 
         // One alternate group per media type, chosen among the tracks that
@@ -182,13 +256,14 @@ public final class MatroskaMovie: @unchecked Sendable {
             }
         }
 
-        return MatroskaMovie(
+        return ReferenceMovie(
             sourceURL: url,
             asset: movie,
             skippedTracks: skipped,
             isComplete: index.isComplete,
             videoTrackCount: videos.count,
-            audioTrackCount: audios.count
+            audioTrackCount: audios.count,
+            scratchFiles: scratchFiles
         )
     }
 
