@@ -28,8 +28,9 @@ public final class HDRDisplayRenderer {
 
     /// Render to a floating-point target. Caller owns command-buffer completion
     /// and presentation, permitting tests to read back without a CAMetalLayer.
+    /// Throws when Core Image cannot encode into the target.
     public func render(_ image: CGImage, to texture: any MTLTexture,
-                       commandBuffer: any MTLCommandBuffer, displayHeadroom: Float? = nil) {
+                       commandBuffer: any MTLCommandBuffer, displayHeadroom: Float? = nil) throws {
         var source = CIImage(cgImage: image)
         if let headroom = displayHeadroom {
             if #available(macOS 26.0, *) {
@@ -50,13 +51,16 @@ public final class HDRDisplayRenderer {
             scaleX: target.width / source.extent.width,
             y: target.height / source.extent.height
         ))
-        // Core Image's origin is bottom-left; Metal drawable rows begin at
-        // the top. Flip exactly once so CGImage row order and EXIF orientation
-        // survive presentation (also asserted by the asymmetric pixel fixture).
-        let displayImage = scaled
-            .transformed(by: CGAffineTransform(scaleX: 1, y: -1))
-            .transformed(by: CGAffineTransform(translationX: 0, y: target.height))
-        context.render(displayImage, to: texture, commandBuffer: commandBuffer,
-                       bounds: target, colorSpace: colorSpace)
+        // Core Image's origin is bottom-left; Metal rows begin at the top.
+        // `CIContext.render(_:to: MTLTexture…)` does not pick one answer for
+        // that: it writes bottom-up into an ordinary texture but already
+        // top-down into a CAMetalLayer drawable, so a manual flip that is
+        // right offscreen mirrored every photo on screen (issue #100). An
+        // explicit render destination states the row order for every target.
+        let destination = CIRenderDestination(mtlTexture: texture, commandBuffer: commandBuffer)
+        destination.isFlipped = true
+        destination.colorSpace = colorSpace
+        destination.isClamped = false  // keep EDR values above 1.0
+        _ = try context.startTask(toRender: scaled, from: target, to: destination, at: .zero)
     }
 }

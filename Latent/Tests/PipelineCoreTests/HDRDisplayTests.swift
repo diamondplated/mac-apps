@@ -47,7 +47,7 @@ func testDisplayPreservesExtendedPixels() async throws {
           let commands = renderer.commandQueue.makeCommandBuffer() else {
         throw VerifyError(message: "could not allocate offscreen HDR render target")
     }
-    renderer.render(image, to: texture, commandBuffer: commands)
+    try renderer.render(image, to: texture, commandBuffer: commands)
     let status = await withCheckedContinuation { continuation in
         commands.addCompletedHandler { completed in continuation.resume(returning: completed.status) }
         commands.commit()
@@ -76,7 +76,7 @@ func testDisplayPreservesExtendedPixels() async throws {
         let neutral = CGImage(width: 2, height: 2, bitsPerComponent: 32, bitsPerPixel: 128,
             bytesPerRow: 32, space: renderer.colorSpace, bitmapInfo: info, provider: neutralProvider,
             decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
-        renderer.render(neutral, to: texture, commandBuffer: mapped, displayHeadroom: 1)
+        try renderer.render(neutral, to: texture, commandBuffer: mapped, displayHeadroom: 1)
         let mappedStatus = await withCheckedContinuation { continuation in
             mapped.addCompletedHandler { completed in continuation.resume(returning: completed.status) }
             mapped.commit()
@@ -149,7 +149,7 @@ private func checkGeneratedGainMapOnMainActor() async throws {
     descriptor.usage = [.shaderRead, .shaderWrite, .renderTarget]
     let texture = renderer.device.makeTexture(descriptor: descriptor)!
     let commands = renderer.commandQueue.makeCommandBuffer()!
-    renderer.render(preview, to: texture, commandBuffer: commands)
+    try renderer.render(preview, to: texture, commandBuffer: commands)
     let status = await withCheckedContinuation { continuation in
         commands.addCompletedHandler { continuation.resume(returning: $0.status) }
         commands.commit()

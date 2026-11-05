@@ -65,6 +65,7 @@ struct PipelineCLI {
         failures += await runVerification("newly installed models retry a previous miss", check: newModelRetriesLoad)
         failures += await runVerification("valid model install replaces cached fallback", check: liveModelInstallSubprocess)
         failures += await runVerification("HDR display preserves extended P3 pixels offscreen", check: hdrDisplayPreservesExtendedPixels)
+        failures += await runVerification("HDR display keeps row order on CAMetalLayer drawables", check: hdrDisplayKeepsRowOrderOnLayerDrawables)
         failures += await runVerification("generated HEIC gain map survives production HDR preview", check: generatedGainMapSurvivesPreview)
         failures += await runVerification("image I/O round-trips a JPEG through reader+writer", check: jpegRoundTrip)
         failures += await runVerification("Export Copy atomically keeps concurrent results", check: concurrentExportsKeepBoth)
