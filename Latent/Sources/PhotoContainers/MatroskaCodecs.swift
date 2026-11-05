@@ -52,11 +52,10 @@ enum MatroskaCodecs {
         "A_DTS": "DTS", "A_DTS/EXPRESS": "DTS Express", "A_DTS/LOSSLESS": "DTS-HD",
         "A_TRUEHD": "Dolby TrueHD", "A_MLP": "MLP", "A_VORBIS": "Vorbis",
         "A_REAL/COOK": "RealAudio", "A_REAL/SIPR": "RealAudio", "A_REAL/ATRC": "RealAudio",
-        "A_TTA1": "TTA", "A_WAVPACK4": "WavPack", "A_MS/ACM": "Windows ACM audio",
-        "A_QUICKTIME": "QuickTime audio",
+        "A_TTA1": "TTA", "A_WAVPACK4": "WavPack", "A_QUICKTIME": "QuickTime audio",
     ]
     private static let undecodableVideo: [String: String] = [
-        "V_VP8": "VP8", "V_THEORA": "Theora", "V_MS/VFW/FOURCC": "Video for Windows",
+        "V_VP8": "VP8", "V_THEORA": "Theora",
         "V_REAL/RV10": "RealVideo", "V_REAL/RV20": "RealVideo", "V_REAL/RV30": "RealVideo",
         "V_REAL/RV40": "RealVideo", "V_QUICKTIME": "QuickTime video", "V_PRORES": "ProRes",
         "V_UNCOMPRESSED": "uncompressed video", "V_FFV1": "FFV1", "V_DIRAC": "Dirac",
@@ -101,6 +100,8 @@ enum MatroskaCodecs {
             description = videoFormat(kCMVideoCodecType_MPEG4Video,
                                       atom: ("esds", esdsBox(objectType: 0x20, streamType: 0x04, config: track.codecPrivate)),
                                       track: track)
+        case "V_MS/VFW/FOURCC":
+            return vfwMapping(track, firstFrame: firstFrame)
         default:
             let name = undecodableVideo[codec] ?? codec
             return .unsupported("its video is \(name), which macOS can't decode")
@@ -109,13 +110,17 @@ enum MatroskaCodecs {
         return .video(description)
     }
 
-    private static func videoFormat(_ codec: CMVideoCodecType, atom: (String, Data), track: MatroskaTrack) -> CMVideoFormatDescription? {
-        var extensions: [CFString: Any] = [
-            kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms: [atom.0: atom.1] as CFDictionary,
-        ]
-        if track.displayUnit == 0, let dw = track.displayWidth, let dh = track.displayHeight, dw > 0, dh > 0 {
-            var h = dw * track.pixelHeight
-            var v = dh * track.pixelWidth
+    private static func videoFormat(_ codec: CMVideoCodecType, atom: (String, Data)?, track: MatroskaTrack,
+                                    pixelAspect: (Int, Int)? = nil) -> CMVideoFormatDescription? {
+        var extensions: [CFString: Any] = [:]
+        if let atom {
+            extensions[kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms] = [atom.0: atom.1] as CFDictionary
+        }
+        var aspect = pixelAspect
+        if aspect == nil, track.displayUnit == 0, let dw = track.displayWidth, let dh = track.displayHeight, dw > 0, dh > 0 {
+            aspect = (dw * track.pixelHeight, dh * track.pixelWidth)
+        }
+        if var (h, v) = aspect, h > 0, v > 0 {
             let divisor = gcd(h, v)
             h /= divisor
             v /= divisor
@@ -207,6 +212,141 @@ enum MatroskaCodecs {
         return record
     }
 
+    // MARK: Video for Windows
+
+    /// What a Video for Windows FourCC (upper-cased) holds, for the codecs
+    /// AVI files actually carry.
+    enum VFWCodec: Equatable {
+        case mpeg4, h264, mjpeg, dv, dvcpro, dvcpro50
+        case undecodable(String)
+
+        init(_ fourCC: FourCC) {
+            if fourCC.raw == 0 || fourCC.raw == 0x0300_0000 {
+                self = .undecodable("uncompressed video")   // BI_RGB, BI_BITFIELDS
+                return
+            }
+            let code = fourCC.description.uppercased()
+            switch code {
+            case "XVID", "DIVX", "DX50", "DIV1", "FMP4", "MP4V", "M4S2", "MP4S", "3IV2", "3IVD", "DXGM", "RMP4",
+                 "BLZ0", "UMP4", "SMP4", "HDX4", "XVIX", "DM4V", "GEOV", "SEDG", "WV1F", "M4CC", "FVFW", "LMP4":
+                self = .mpeg4
+            case "H264", "X264", "AVC1", "DAVC", "VSSH", "SMV2", "Q264", "V264", "GAVC", "UMSV":
+                self = .h264
+            case "MJPG", "AVRN", "AVDJ", "DMB1", "JPEG", "IJPG", "AVI1", "JPGL", "SLMJ", "CJPG", "ACDV", "QIVG", "MJPA":
+                self = .mjpeg
+            case "DVSD", "CDVC", "DVCS", "DVC ", "DVCP", "DVSL":
+                self = .dv
+            case "DV25":
+                self = .dvcpro
+            case "DV50":
+                self = .dvcpro50
+            case "DIV3", "DIV4", "DIV5", "DIV6", "DIV2", "MP43", "MPG3", "MP42", "MPG4", "MP41", "AP41", "COL1", "DVX3", "NAVI":
+                self = .undecodable("DivX 3 (Microsoft MPEG-4)")
+            case "WMV1", "WMV2", "WMV3", "WMVA", "WVC1", "WVP2":
+                self = .undecodable("Windows Media Video")
+            case "HEVC", "H265", "HVC1", "HEV1", "X265":
+                self = .undecodable("HEVC in AVI")
+            case "CVID": self = .undecodable("Cinepak")
+            case "IV31", "IV32", "IV41", "IV50": self = .undecodable("Intel Indeo")
+            case "MSVC", "CRAM", "WHAM": self = .undecodable("Microsoft Video 1")
+            case "MRLE": self = .undecodable("Microsoft RLE")
+            case "HFYU", "FFVH": self = .undecodable("HuffYUV")
+            case "FFV1": self = .undecodable("FFV1")
+            case "VP80", "VP8 ": self = .undecodable("VP8")
+            case "VP90": self = .undecodable("VP9 in AVI")
+            case "MPG1", "MPG2", "MPEG", "MPGV", "MMES", "M2V1": self = .undecodable("MPEG-2")
+            case "TSCC", "TSC2": self = .undecodable("TechSmith screen capture")
+            case "CSCD": self = .undecodable("CamStudio")
+            default:
+                let printable = fourCC.bytes.allSatisfy { (0x20...0x7E).contains($0) }
+                self = .undecodable(printable ? "the “\(fourCC)” codec" : "an unknown codec")
+            }
+        }
+    }
+
+    private static func vfwMapping(_ track: MatroskaTrack, firstFrame: () -> Data?) -> TrackMapping {
+        guard let info = BitmapInfo(track.codecPrivate) else {
+            return .unsupported("its video track has no format description")
+        }
+        let description: CMVideoFormatDescription?
+        switch VFWCodec(info.compression) {
+        case .mpeg4:
+            guard let headers = mpeg4Headers(info.extra) ?? firstFrame().flatMap(mpeg4Headers) else {
+                return .unsupported("its MPEG-4 video has no stream header")
+            }
+            description = videoFormat(kCMVideoCodecType_MPEG4Video,
+                                      atom: ("esds", esdsBox(objectType: 0x20, streamType: 0x04, config: headers)),
+                                      track: track)
+        case .h264:
+            // Rewritten to V_MPEG4/ISO/AVC before mapping; reaching here
+            // means the stream could not be read.
+            return .unsupported("its H.264 video could not be read")
+        case .mjpeg:
+            description = videoFormat(kCMVideoCodecType_JPEG, atom: nil, track: track)
+        case .dv, .dvcpro, .dvcpro50:
+            let codec = VFWCodec(info.compression)
+            let pal: Bool
+            switch track.pixelHeight {
+            case 480: pal = false
+            case 576: pal = true
+            default: return .unsupported("its DV video has an unusual frame size (\(track.pixelWidth)×\(track.pixelHeight))")
+            }
+            let type: CMVideoCodecType
+            switch codec {
+            case .dvcpro: type = pal ? kCMVideoCodecType_DVCProPAL : kCMVideoCodecType_DVCNTSC
+            case .dvcpro50: type = pal ? kCMVideoCodecType_DVCPro50PAL : kCMVideoCodecType_DVCPro50NTSC
+            default: type = pal ? kCMVideoCodecType_DVCPAL : kCMVideoCodecType_DVCNTSC
+            }
+            let wide = firstFrame().map(dvIsWidescreen) ?? false
+            // ffmpeg's DV sample aspect ratios: 4:3 and 16:9, NTSC and PAL.
+            let aspect = pal ? (wide ? (64, 45) : (16, 15)) : (wide ? (32, 27) : (8, 9))
+            description = videoFormat(type, atom: nil, track: track, pixelAspect: aspect)
+        case .undecodable(let name):
+            return .unsupported("its video is \(name), which macOS can't decode")
+        }
+        guard let description else { return .unsupported("its \(info.compression) video track could not be described") }
+        return .video(description)
+    }
+
+    /// The MPEG-4 Part 2 stream headers (visual object sequence, visual
+    /// object, video object layer) that open a stream, up to its first VOP
+    /// or group of VOPs: the decoder configuration an `esds` carries. AVI
+    /// muxers put them in the BITMAPINFOHEADER or only in the first
+    /// keyframe.
+    static func mpeg4Headers(_ data: Data) -> Data? {
+        let b = [UInt8](data)
+        var start: Int?
+        var sawLayer = false
+        var i = 0
+        while i + 4 <= b.count {
+            guard b[i] == 0, b[i + 1] == 0, b[i + 2] == 1 else {
+                i += 1
+                continue
+            }
+            let code = b[i + 3]
+            if code == 0xB6 || code == 0xB3 { break }        // VOP, GOV
+            if start == nil, code == 0xB0 || code == 0xB5 || code <= 0x2F { start = i }
+            if (0x20...0x2F).contains(code) { sawLayer = true }
+            i += 3
+        }
+        guard sawLayer, let start else { return nil }
+        let end = i + 4 <= b.count ? i : b.count
+        return Data(b[start..<end])
+    }
+
+    /// Whether a DV frame says its picture is 16:9, from the VAUX source
+    /// control pack in its first DIF sequence (IEC 61834; ffmpeg reads the
+    /// same pack, at the same place).
+    static func dvIsWidescreen(_ frame: Data) -> Bool {
+        let b = [UInt8](frame.prefix(480))
+        guard b.count >= 458 else { return false }
+        let pack = 80 * 5 + 48 + 5
+        guard b[pack] == 0x61 else { return false }
+        let display = b[pack + 2] & 0x07
+        let apt = b[4] & 0x07
+        return display == 0x02 || (apt == 0 && display == 0x07)
+    }
+
     // MARK: Audio
 
     private static func audioMapping(_ track: MatroskaTrack) -> TrackMapping {
@@ -267,6 +407,10 @@ enum MatroskaCodecs {
                          cookie: track.codecPrivate, timing: .fixed(Int64(max(1, frameLength))), start: .exact)
         case "A_PCM/INT/LIT", "A_PCM/INT/BIG", "A_PCM/FLOAT/IEEE":
             return pcm(track)
+        case "A_MS/ACM":
+            return acmMapping(track)
+        case "A_DV/EMBEDDED":
+            return .unsupported("its sound is stored inside the DV video frames (a type-1 DV file), which Latent can't play yet")
         default:
             let name = undecodableAudio[codec] ?? codec
             return .unsupported("its audio is \(name), which macOS can't decode")
@@ -309,6 +453,54 @@ enum MatroskaCodecs {
             mChannelsPerFrame: UInt32(track.channels), mBitsPerChannel: UInt32(depth), mReserved: 0
         )
         return makeAudio(&asbd, cookie: nil, timing: .pcm(bytesPerFrame: Int(bytesPerFrame)), start: .exact)
+    }
+
+    /// Windows audio codecs described by a WAVEFORMATEX, which AVI files
+    /// (and Matroska's `A_MS/ACM`) carry.
+    private static func acmMapping(_ track: MatroskaTrack) -> TrackMapping {
+        guard let wave = WaveFormat(track.codecPrivate), wave.channels > 0, wave.sampleRate > 0 else {
+            return .unsupported("its audio track has no format description")
+        }
+        let rate = Double(wave.sampleRate)
+        let channels = UInt32(wave.channels)
+        switch wave.tag {
+        case WaveFormat.imaADPCM, WaveFormat.msADPCM, WaveFormat.gsm610:
+            guard let frames = wave.samplesPerBlock, frames > 0, wave.blockAlign > 0 else {
+                return .unsupported("its ADPCM audio has no block size")
+            }
+            let format: AudioFormatID = switch wave.tag {
+            case WaveFormat.imaADPCM: kAudioFormatDVIIntelIMA
+            case WaveFormat.msADPCM: 0x6D73_0002 // 'ms\0\2', CoreAudio's Microsoft ADPCM decoder
+            default: kAudioFormatMicrosoftGSM
+            }
+            var asbd = AudioStreamBasicDescription(
+                mSampleRate: rate, mFormatID: format, mFormatFlags: 0, mBytesPerPacket: UInt32(wave.blockAlign),
+                mFramesPerPacket: UInt32(frames), mBytesPerFrame: 0, mChannelsPerFrame: channels,
+                mBitsPerChannel: 0, mReserved: 0
+            )
+            return makeAudio(&asbd, cookie: nil, timing: .fixed(Int64(frames)), start: .exact)
+        case WaveFormat.muLaw, WaveFormat.aLaw:
+            var asbd = AudioStreamBasicDescription(
+                mSampleRate: rate, mFormatID: wave.tag == WaveFormat.muLaw ? kAudioFormatULaw : kAudioFormatALaw,
+                mFormatFlags: 0, mBytesPerPacket: channels, mFramesPerPacket: 1, mBytesPerFrame: channels,
+                mChannelsPerFrame: channels, mBitsPerChannel: 8, mReserved: 0
+            )
+            return makeAudio(&asbd, cookie: nil, timing: .pcm(bytesPerFrame: Int(channels)), start: .exact)
+        default:
+            let name: String = switch wave.tag {
+            case 0x0160, 0x0161: "Windows Media Audio"
+            case 0x0162: "Windows Media Audio Pro"
+            case 0x0163: "Windows Media Audio Lossless"
+            case 0x0022: "DSP Group TrueSpeech"
+            case 0x0270: "ATRAC3"
+            case 0x0130: "ACELP.net"
+            case 0x0040, 0x0045, 0x0064, 0x0140: "G.72x"
+            case 0x566F, 0x674F, 0x6750, 0x6751, 0x676F, 0x6770, 0x6771: "Vorbis"
+            case WaveFormat.dts: "DTS"
+            default: String(format: "Windows audio format 0x%04X", wave.tag)
+            }
+            return .unsupported("its audio is \(name), which macOS can't decode")
+        }
     }
 
     private static func makeAudio(_ asbd: inout AudioStreamBasicDescription, cookie: Data?,

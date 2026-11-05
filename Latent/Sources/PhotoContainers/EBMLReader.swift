@@ -1,31 +1,5 @@
 import Foundation
 
-/// Why a Matroska file could not be indexed. Codec problems are not errors:
-/// a track AVFoundation cannot decode is skipped and reported on the movie.
-public enum MatroskaError: Error, Equatable, Sendable, CustomStringConvertible {
-    case unreadable(Int32)
-    case notMatroska
-    case unsupportedDocType(String)
-    case noSegment
-    case noPlayableTracks([String])
-
-    public var description: String {
-        switch self {
-        case .unreadable(let code):
-            return "The file could not be read (\(String(cString: strerror(code))))."
-        case .notMatroska:
-            return "This is not a Matroska file."
-        case .unsupportedDocType(let docType):
-            return "Unsupported Matroska document type “\(docType)”."
-        case .noSegment:
-            return "The file has no Matroska segment."
-        case .noPlayableTracks(let reasons):
-            if reasons.isEmpty { return "The file contains no video or audio tracks." }
-            return "None of this file's tracks can be played on macOS: " + reasons.joined(separator: "; ") + "."
-        }
-    }
-}
-
 /// Positional reads through one reusable window. Walking the block headers of
 /// a multi-gigabyte file becomes a single forward pass of I/O, and nothing is
 /// memory-mapped: a file that is truncated while it is open (a recording
@@ -41,12 +15,12 @@ final class WindowedFile {
 
     init(url: URL, capacity: Int = 512 * 1024) throws {
         let fd = open(url.path, O_RDONLY | O_CLOEXEC)
-        guard fd >= 0 else { throw MatroskaError.unreadable(errno) }
+        guard fd >= 0 else { throw ContainerError.unreadable(errno) }
         var info = stat()
         guard fstat(fd, &info) == 0 else {
             let code = errno
             close(fd)
-            throw MatroskaError.unreadable(code)
+            throw ContainerError.unreadable(code)
         }
         // Sequential read-ahead is exactly the access pattern of an index pass.
         _ = fcntl(fd, F_RDAHEAD, 1)
@@ -111,7 +85,7 @@ final class WindowedFile {
             let n = pread(fd, destination + filled, count - filled, off_t(offset + Int64(filled)))
             if n < 0 {
                 if errno == EINTR { continue }
-                throw MatroskaError.unreadable(errno)
+                throw ContainerError.unreadable(errno)
             }
             if n == 0 { break }
             filled += n

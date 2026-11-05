@@ -4,7 +4,7 @@ import AVKit
 import AVFoundation
 import ImageIO
 import os
-import PhotoMatroska
+import PhotoContainers
 
 /// What kind of media a URL is, so DetailView knows whether to draw a
 /// CGImage, animate an NSImageView, or hand it to AVPlayer.
@@ -31,7 +31,8 @@ enum MediaTyping {
         "gif", "png", "heic", "heif", "webp", "avif",
     ]
     /// Video container extensions whose UTIs AVFoundation reports as
-    /// audiovisual types on macOS, plus Matroska. Keep this explicit instead
+    /// audiovisual types on macOS, plus Matroska and AVI, which
+    /// PhotoContainers reads for it. Keep this explicit instead
     /// of accepting every `public.movie` subtype: AVPlayer does not provide a
     /// stock WebM/FLV/WMV/Ogg demuxer, even when VideoToolbox can decode a
     /// codec carried by one of those containers.
@@ -41,17 +42,28 @@ enum MediaTyping {
     static let videoExts: Set<String> = Set([
         "mp4", "mpg4", "mov", "qt", "m4v",
         "3gp", "3gpp", "sdv", "3g2", "3gp2",
-        "avi", "vfw", "mts", "m2ts",
+        "mts", "m2ts",
         "mpg", "mpeg", "mpe", "m75", "m15", "m2v", "ts",
         "dv", "dif",
-    ]).union(matroskaExts)
+    ]).union(indexedExts)
 
-    /// AVFoundation has no Matroska demuxer; PhotoMatroska indexes these and
-    /// hands AVPlayer a movie that reads the original file in place.
-    static let matroskaExts: Set<String> = ["mkv"]
+    /// AVFoundation has no Matroska or AVI demuxer; PhotoContainers indexes
+    /// these and hands AVPlayer a movie that reads the original file in place.
+    static let indexedExts: Set<String> = ["mkv", "avi", "vfw"]
 
-    static func isMatroska(_ url: URL) -> Bool {
-        matroskaExts.contains(url.pathExtension.lowercased())
+    static func needsIndexing(_ url: URL) -> Bool {
+        indexedExts.contains(url.pathExtension.lowercased())
+    }
+
+    /// AVFoundation itself opens some AVIs (Motion JPEG and plain audio, as
+    /// cameras and voice recorders write them). When the AVI reader can't
+    /// make sense of one, those still play the way they did before it.
+    static func nativeAVI(_ url: URL) async -> AVAsset? {
+        guard ["avi", "vfw"].contains(url.pathExtension.lowercased()) else { return nil }
+        let asset = AVURLAsset(url: url)
+        guard (try? await asset.load(.isPlayable)) == true,
+              let tracks = try? await asset.load(.tracks), !tracks.isEmpty else { return nil }
+        return asset
     }
 
     static var allMediaExts: Set<String> {
@@ -189,14 +201,14 @@ struct AnimatedImageView: NSViewRepresentable {
 
 // MARK: - Video view
 
-/// The detail pane's player for any video Latent lists: Matroska files are
-/// indexed first, everything else goes straight to AVPlayer.
+/// The detail pane's player for any video Latent lists: Matroska and AVI
+/// files are indexed first, everything else goes straight to AVPlayer.
 struct VideoContentView: View {
     let url: URL
 
     var body: some View {
-        if MediaTyping.isMatroska(url) {
-            MatroskaPlaybackView(url: url)
+        if MediaTyping.needsIndexing(url) {
+            IndexedMoviePlaybackView(url: url)
         } else {
             VideoPlaybackView(url: url)
         }
@@ -211,7 +223,7 @@ struct VideoContentView: View {
 struct VideoPlaybackView: NSViewRepresentable {
     let url: URL
     /// A prepared asset for a container AVFoundation cannot open by URL
-    /// (Matroska). Nil plays `url` directly.
+    /// (Matroska, AVI). Nil plays `url` directly.
     var asset: AVAsset?
 
     final class Coordinator {
@@ -251,17 +263,21 @@ struct VideoPlaybackView: NSViewRepresentable {
     }
 }
 
-// MARK: - Matroska
+// MARK: - Matroska and AVI
 
-/// Plays an `.mkv`. Indexing reads the whole file once, which is instant on
-/// a local disk and can take a while for a long recording on a network
-/// volume, so it shows progress, and leaving the file cancels it.
-struct MatroskaPlaybackView: View {
+/// Plays an `.mkv` or `.avi`. Indexing reads the whole file once (an AVI
+/// with an index only its headers and index; H.264 in AVI is also copied
+/// into a scratch file), which is instant on a local disk and can take a
+/// while for a long recording on a network volume, so it shows progress, and
+/// leaving the file cancels it.
+struct IndexedMoviePlaybackView: View {
     let url: URL
 
     private enum Phase {
         case loading(Double)
-        case ready(MatroskaMovie)
+        case ready(ReferenceMovie)
+        /// An AVI the reader failed on that AVFoundation opens itself.
+        case native(AVAsset)
         case failed(String)
     }
 
@@ -287,15 +303,23 @@ struct MatroskaPlaybackView: View {
                 VideoPlaybackView(url: url, asset: movie.asset)
                     .overlay(alignment: .top) {
                         if let note = Self.note(for: movie) {
+                            // Reasons run long; wrap them below the
+                            // detail pane's file name badge.
                             Text(note)
                                 .font(.caption)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(.ultraThinMaterial, in: Capsule())
-                                .padding(.top, 10)
+                                .multilineTextAlignment(.center)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+                                .frame(maxWidth: 460)
+                                .padding(.horizontal, 16)
+                                .padding(.top, 52)
                                 .allowsHitTesting(false)
                         }
                     }
+            case .native(let asset):
+                VideoPlaybackView(url: url, asset: asset)
             case .failed(let message):
                 VStack(spacing: 6) {
                     Image(systemName: "film")
@@ -331,22 +355,23 @@ struct MatroskaPlaybackView: View {
             if case .loading = phase { phase = .loading(fraction) }
         }
         do {
-            let movie = try await MatroskaMovie.open(url: url) { fraction in
+            let movie = try await ReferenceMovie.open(url: url) { fraction in
                 reporter.send(fraction)
             }
             guard !Task.isCancelled else { return }
             phase = .ready(movie)
         } catch is CancellationError {
             return
-        } catch let error as MatroskaError {
-            phase = .failed(error.description)
         } catch {
-            phase = .failed(error.localizedDescription)
+            let message = (error as? ContainerError)?.description ?? error.localizedDescription
+            let native = await MediaTyping.nativeAVI(url)
+            guard !Task.isCancelled else { return }
+            phase = native.map(Phase.native) ?? .failed(message)
         }
     }
 
     /// What the viewer should know about tracks it is not hearing or seeing.
-    private static func note(for movie: MatroskaMovie) -> String? {
+    private static func note(for movie: ReferenceMovie) -> String? {
         if movie.audioTrackCount == 0, let reason = movie.skippedTracks.first(where: { $0.kind == .audio })?.reason {
             return "No sound: \(reason)"
         }
@@ -411,11 +436,17 @@ enum VideoThumbnail {
         guard !Task.isCancelled else { return nil }
 
         let asset: AVAsset
-        if MediaTyping.isMatroska(url) {
+        if MediaTyping.needsIndexing(url) {
             // The first couple of seconds are enough for a 1s frame, and
             // keep a long recording from being read end to end for a tile.
-            guard let movie = try? await MatroskaMovie.open(url: url, limit: 2) else { return nil }
-            asset = movie.asset
+            // The asset keeps any scratch file it reads alive itself.
+            if let movie = try? await ReferenceMovie.open(url: url, limit: 2) {
+                asset = movie.asset
+            } else if let native = await MediaTyping.nativeAVI(url) {
+                asset = native
+            } else {
+                return nil
+            }
         } else {
             asset = AVURLAsset(url: url)
         }

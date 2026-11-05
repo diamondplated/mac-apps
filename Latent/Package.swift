@@ -16,7 +16,7 @@ let package = Package(
         .library(name: "PhotoGeo", targets: ["PhotoGeo"]),
         .library(name: "PhotoQuickLook", targets: ["PhotoQuickLook"]),
         .library(name: "PhotoServe", targets: ["PhotoServe"]),
-        .library(name: "PhotoMatroska", targets: ["PhotoMatroska"]),
+        .library(name: "PhotoContainers", targets: ["PhotoContainers"]),
         .executable(name: "pv-pipeline", targets: ["PipelineCLI"]),
         .executable(name: "Latent", targets: ["PhotoViewerApp"]),
     ],
@@ -67,15 +67,15 @@ let package = Package(
             resources: [.embedInCode("Resources/client.html")]
         ),
         .target(
-            name: "PhotoMatroska",
+            name: "PhotoContainers",
             dependencies: [],
-            path: "Sources/PhotoMatroska"
+            path: "Sources/PhotoContainers"
         ),
         .target(
             name: "VerificationSupport",
-            dependencies: ["PipelineCore", "PhotoIO", "PhotoMatroska"],
+            dependencies: ["PipelineCore", "PhotoIO", "PhotoContainers"],
             path: "VerificationSupport",
-            resources: [.copy("Resources/oversized-20000.png"), .copy("Resources/Matroska")]
+            resources: [.copy("Resources/oversized-20000.png"), .copy("Resources/Matroska"), .copy("Resources/AVI")]
         ),
         .executableTarget(
             name: "PipelineCLI",
@@ -84,7 +84,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "PhotoViewerApp",
-            dependencies: ["PipelineCore", "EnhancementStages", "PhotoIO", "PhotoML", "PhotoSearch", "PhotoViewerCore", "PhotoGeo", "PhotoServe", "PhotoMatroska"],
+            dependencies: ["PipelineCore", "EnhancementStages", "PhotoIO", "PhotoML", "PhotoSearch", "PhotoViewerCore", "PhotoGeo", "PhotoServe", "PhotoContainers"],
             path: "Sources/PhotoViewerApp"
         ),
         .testTarget(
