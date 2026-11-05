@@ -190,6 +190,10 @@ struct PipelineCLI {
         failures += await runVerification("ArchiveExtractor: enforces expanded-file resource limits", check: archiveRejectsExpandedFileOverLimit)
         failures += await runVerification("FolderPathMapper: handles Darwin aliases and directory symlink roots", check: folderPathMapperHandlesAliasesAndSymlinkRoots)
         failures += await runVerification("RecursiveFolderWatcher: reports deep add/modify/rename/remove and stops cleanly", check: recursiveFolderWatcherTracksDeepChanges)
+        failures += await runVerification("Matroska: every fixture codec decodes in full and thumbnails", check: verifyMatroskaFixturesDecode)
+        failures += await runVerification("Matroska: audio lands within 2 ms of video for every audio codec", check: verifyMatroskaAudioSync)
+        failures += await runVerification("Matroska: lacing, live and cut-off files index exactly", check: verifyMatroskaLacingAndDamage)
+        failures += await runVerification("Matroska: unplayable files fail with a reason", check: verifyMatroskaRejectsUnplayableFiles)
 
         // Optional: real-photo smoke test. Set PV_TEST_FOLDER=/some/path with
         // real JPEG/HEIC/PNG to exercise the full pipeline end-to-end on

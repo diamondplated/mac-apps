@@ -3,6 +3,8 @@ import AppKit
 import AVKit
 import AVFoundation
 import ImageIO
+import os
+import PhotoMatroska
 
 /// What kind of media a URL is, so DetailView knows whether to draw a
 /// CGImage, animate an NSImageView, or hand it to AVPlayer.
@@ -29,20 +31,28 @@ enum MediaTyping {
         "gif", "png", "heic", "heif", "webp", "avif",
     ]
     /// Video container extensions whose UTIs AVFoundation reports as
-    /// audiovisual types on macOS. Keep this explicit instead of accepting
-    /// every `public.movie` subtype: AVPlayer does not provide a stock
-    /// Matroska/WebM/FLV/WMV/Ogg demuxer, even when VideoToolbox can decode a
+    /// audiovisual types on macOS, plus Matroska. Keep this explicit instead
+    /// of accepting every `public.movie` subtype: AVPlayer does not provide a
+    /// stock WebM/FLV/WMV/Ogg demuxer, even when VideoToolbox can decode a
     /// codec carried by one of those containers.
     ///
     /// A recognized container can still contain an unsupported codec. In that
     /// case AVPlayer owns the playback failure and presents its normal error.
-    static let videoExts: Set<String> = [
+    static let videoExts: Set<String> = Set([
         "mp4", "mpg4", "mov", "qt", "m4v",
         "3gp", "3gpp", "sdv", "3g2", "3gp2",
         "avi", "vfw", "mts", "m2ts",
         "mpg", "mpeg", "mpe", "m75", "m15", "m2v", "ts",
         "dv", "dif",
-    ]
+    ]).union(matroskaExts)
+
+    /// AVFoundation has no Matroska demuxer; PhotoMatroska indexes these and
+    /// hands AVPlayer a movie that reads the original file in place.
+    static let matroskaExts: Set<String> = ["mkv"]
+
+    static func isMatroska(_ url: URL) -> Bool {
+        matroskaExts.contains(url.pathExtension.lowercased())
+    }
 
     static var allMediaExts: Set<String> {
         staticImageExts.union(possiblyAnimatedExts).union(videoExts)
@@ -179,6 +189,20 @@ struct AnimatedImageView: NSViewRepresentable {
 
 // MARK: - Video view
 
+/// The detail pane's player for any video Latent lists: Matroska files are
+/// indexed first, everything else goes straight to AVPlayer.
+struct VideoContentView: View {
+    let url: URL
+
+    var body: some View {
+        if MediaTyping.isMatroska(url) {
+            MatroskaPlaybackView(url: url)
+        } else {
+            VideoPlaybackView(url: url)
+        }
+    }
+}
+
 /// SwiftUI wrapper around AVKit's `AVPlayerView`. Auto-plays on appear,
 /// pauses on disappear. Handles the format set AVFoundation supports
 /// natively. Container recognition does not guarantee that every codec inside
@@ -186,6 +210,15 @@ struct AnimatedImageView: NSViewRepresentable {
 /// for those files.
 struct VideoPlaybackView: NSViewRepresentable {
     let url: URL
+    /// A prepared asset for a container AVFoundation cannot open by URL
+    /// (Matroska). Nil plays `url` directly.
+    var asset: AVAsset?
+
+    final class Coordinator {
+        var playing: (url: URL, asset: ObjectIdentifier?)?
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> AVPlayerView {
         let v = AVPlayerView()
@@ -197,11 +230,13 @@ struct VideoPlaybackView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: AVPlayerView, context: Context) {
-        let needNew = (nsView.player?.currentItem?.asset as? AVURLAsset)?.url != url
-        if needNew {
-            let item = AVPlayerItem(url: url)
+        let identity = asset.map(ObjectIdentifier.init)
+        let current = context.coordinator.playing
+        if nsView.player == nil || current?.url != url || current?.asset != identity {
+            let item = asset.map { AVPlayerItem(asset: $0) } ?? AVPlayerItem(url: url)
             let player = AVPlayer(playerItem: item)
             nsView.player = player
+            context.coordinator.playing = (url, identity)
             // Auto-play on selection — viewer behavior, not media-app behavior.
             // The user can still pause from the controls.
             player.play()
@@ -209,10 +244,143 @@ struct VideoPlaybackView: NSViewRepresentable {
         VideoPlaybackRouter.shared.register(nsView, url: url)
     }
 
-    static func dismantleNSView(_ nsView: AVPlayerView, coordinator: ()) {
+    static func dismantleNSView(_ nsView: AVPlayerView, coordinator: Coordinator) {
         VideoPlaybackRouter.shared.unregister(nsView)
         nsView.player?.pause()
         nsView.player = nil
+    }
+}
+
+// MARK: - Matroska
+
+/// Plays an `.mkv`. Indexing reads the whole file once, which is instant on
+/// a local disk and can take a while for a long recording on a network
+/// volume, so it shows progress, and leaving the file cancels it.
+struct MatroskaPlaybackView: View {
+    let url: URL
+
+    private enum Phase {
+        case loading(Double)
+        case ready(MatroskaMovie)
+        case failed(String)
+    }
+
+    @State private var phase: Phase = .loading(0)
+    @State private var showsProgress = false
+
+    var body: some View {
+        Group {
+            switch phase {
+            case .loading(let fraction):
+                if showsProgress {
+                    VStack(spacing: 10) {
+                        ProgressView(value: fraction)
+                            .frame(width: 220)
+                        Text("Reading \(url.lastPathComponent)")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Color.clear
+                }
+            case .ready(let movie):
+                VideoPlaybackView(url: url, asset: movie.asset)
+                    .overlay(alignment: .top) {
+                        if let note = Self.note(for: movie) {
+                            Text(note)
+                                .font(.caption)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(.ultraThinMaterial, in: Capsule())
+                                .padding(.top, 10)
+                                .allowsHitTesting(false)
+                        }
+                    }
+            case .failed(let message):
+                VStack(spacing: 6) {
+                    Image(systemName: "film")
+                        .font(.system(size: 48))
+                        .foregroundStyle(.secondary)
+                    Text("Can't play this video")
+                        .foregroundStyle(.secondary)
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 420)
+                    Text(url.lastPathComponent)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task(id: url) { await load() }
+        .task(id: url) {
+            // Small files open before a progress bar would be worth drawing.
+            showsProgress = false
+            try? await Task.sleep(for: .milliseconds(300))
+            if !Task.isCancelled { showsProgress = true }
+        }
+    }
+
+    private func load() async {
+        phase = .loading(0)
+        let reporter = ProgressRelay { fraction in
+            // A late update must not pull a finished load back to loading.
+            if case .loading = phase { phase = .loading(fraction) }
+        }
+        do {
+            let movie = try await MatroskaMovie.open(url: url) { fraction in
+                reporter.send(fraction)
+            }
+            guard !Task.isCancelled else { return }
+            phase = .ready(movie)
+        } catch is CancellationError {
+            return
+        } catch let error as MatroskaError {
+            phase = .failed(error.description)
+        } catch {
+            phase = .failed(error.localizedDescription)
+        }
+    }
+
+    /// What the viewer should know about tracks it is not hearing or seeing.
+    private static func note(for movie: MatroskaMovie) -> String? {
+        if movie.audioTrackCount == 0, let reason = movie.skippedTracks.first(where: { $0.kind == .audio })?.reason {
+            return "No sound: \(reason)"
+        }
+        if movie.videoTrackCount == 0, let reason = movie.skippedTracks.first(where: { $0.kind == .video })?.reason {
+            return "No picture: \(reason)"
+        }
+        guard !movie.skippedTracks.isEmpty else { return nil }
+        return "Some tracks can't play: " + movie.skippedTracks.map(\.reason).joined(separator: "; ")
+    }
+}
+
+/// Hops progress from the indexing thread to the main actor, dropping
+/// updates that arrive while one is still queued.
+private final class ProgressRelay: Sendable {
+    private let pending = OSAllocatedUnfairLock<Double?>(initialState: nil)
+    private let apply: @MainActor @Sendable (Double) -> Void
+
+    init(_ apply: @escaping @MainActor @Sendable (Double) -> Void) {
+        self.apply = apply
+    }
+
+    func send(_ fraction: Double) {
+        let wasIdle = pending.withLock { value -> Bool in
+            defer { value = fraction }
+            return value == nil
+        }
+        guard wasIdle else { return }
+        Task { @MainActor in
+            let latest = self.pending.withLock { value -> Double? in
+                defer { value = nil }
+                return value
+            }
+            if let latest { self.apply(latest) }
+        }
     }
 }
 
@@ -242,7 +410,15 @@ enum VideoThumbnail {
     static func generate(url: URL, maxDimension: Int = 256) async -> CGImage? {
         guard !Task.isCancelled else { return nil }
 
-        let asset = AVURLAsset(url: url)
+        let asset: AVAsset
+        if MediaTyping.isMatroska(url) {
+            // The first couple of seconds are enough for a 1s frame, and
+            // keep a long recording from being read end to end for a tile.
+            guard let movie = try? await MatroskaMovie.open(url: url, limit: 2) else { return nil }
+            asset = movie.asset
+        } else {
+            asset = AVURLAsset(url: url)
+        }
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
         generator.maximumSize = CGSize(width: maxDimension, height: maxDimension)
