@@ -347,10 +347,10 @@ struct MatroskaPlaybackView: View {
 
     /// What the viewer should know about tracks it is not hearing or seeing.
     private static func note(for movie: MatroskaMovie) -> String? {
-        if movie.audioTrackCount == 0, let reason = movie.skippedTracks.first(where: { $0.kind == "audio" })?.reason {
+        if movie.audioTrackCount == 0, let reason = movie.skippedTracks.first(where: { $0.kind == .audio })?.reason {
             return "No sound: \(reason)"
         }
-        if movie.videoTrackCount == 0, let reason = movie.skippedTracks.first(where: { $0.kind == "video" })?.reason {
+        if movie.videoTrackCount == 0, let reason = movie.skippedTracks.first(where: { $0.kind == .video })?.reason {
             return "No picture: \(reason)"
         }
         guard !movie.skippedTracks.isEmpty else { return nil }

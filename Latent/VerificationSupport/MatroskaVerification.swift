@@ -36,18 +36,35 @@ public func verifyMatroskaFixturesDecode() async throws {
     }
 }
 
-/// Each sync fixture flashes white on the video frame at 1.000 s and clicks
-/// at 1.000 s in its audio. Every audio codec arrives through a different
-/// combination of encoder priming, Matroska CodecDelay and what AVFoundation
-/// trims on its own (see `AudioStart`); all of them must land together.
+/// Each sync fixture flashes white on one video frame and clicks at the same
+/// instant in its audio: 1.000 s, or 5.000 s in `gap-aac`, whose audio has
+/// a two-second hole before the click. Every audio codec arrives through a
+/// different combination of encoder priming, Matroska CodecDelay and what
+/// AVFoundation trims on its own (see `AudioStart`); all of them must land
+/// together.
 public func verifyMatroskaAudioSync() async throws {
-    for name in ["sync-aac", "sync-ac3", "sync-opus", "sync-mp3", "sync-flac", "sync-hevc-aac"] {
+    let fixtures: [(name: String, at: Double)] = [
+        ("sync-aac", 1), ("sync-ac3", 1), ("sync-opus", 1), ("sync-mp3", 1), ("sync-flac", 1),
+        ("sync-hevc-aac", 1), ("gap-aac", 5),
+    ]
+    for (name, at) in fixtures {
         let movie = try await MatroskaMovie.open(url: try matroskaFixture(name))
         let (flash, click) = try await flashAndClick(movie.asset)
-        try check(abs(flash - 1) < 0.001, "\(name): flash decoded at \(flash)s instead of 1.000s")
+        try check(abs(flash - at) < 0.001, "\(name): flash decoded at \(flash)s instead of \(at)s")
         let offset = (click - flash) * 1000
         try check(abs(offset) < 2, "\(name): audio is \(String(format: "%+.1f", offset)) ms off the video")
     }
+
+    // HE-AAC has no absolute answer: no muxer records its encoder delay in
+    // Matroska, and ffmpeg and Apple decode the same stream 20 ms apart. It
+    // must play exactly as AVFoundation plays the same streams in an MP4.
+    let movie = try await MatroskaMovie.open(url: try matroskaFixture("sync-heaac"))
+    let played = try await flashAndClick(movie.asset)
+    let reference = try await flashAndClick(AVURLAsset(url: try matroskaFixture("sync-heaac", extension: "mp4")))
+    try check(abs(played.flash - reference.flash) < 0.001,
+              "sync-heaac: flash at \(played.flash)s, the MP4 shows it at \(reference.flash)s")
+    let drift = ((played.click - played.flash) - (reference.click - reference.flash)) * 1000
+    try check(abs(drift) < 1, "sync-heaac: audio is \(String(format: "%+.1f", drift)) ms off where the MP4 plays it")
 }
 
 /// A synthetic file exercising what ffmpeg never writes: Xiph, EBML and
@@ -86,6 +103,30 @@ public func verifyMatroskaLacingAndDamage() async throws {
     try check(!partial.isComplete, "a limited read must report incomplete")
     try check(partial.tracks.first { $0.number == 1 }?.frames.count == file.framesBeforeSecondCluster,
               "a 0.25 s limit should stop before the second cluster")
+
+    // The limit counts from the first Cluster, not from zero, and a file
+    // that starts an hour in plays from its first frame.
+    let late = SyntheticMatroska.lacedPCM(startingAt: 3_600_000)
+    let lateURL = try writeTemporary(late.data, name: "late.mkv")
+    defer { try? FileManager.default.removeItem(at: lateURL) }
+    let latePartial = try MatroskaIndex.read(url: lateURL, limit: 0.25)
+    try check(latePartial.tracks.first { $0.number == 1 }?.frames.count == late.framesBeforeSecondCluster,
+              "a 0.25 s limit on a file starting at 1 h should still read its first cluster")
+    let lateSamples = try await decodePCM16(try MatroskaMovie.load(url: lateURL).asset)
+    try check(lateSamples.count == late.sampleCount && lateSamples.first == 0,
+              "a file starting at 1 h decoded \(lateSamples.count) of \(late.sampleCount) samples")
+
+    // When the default audio track cannot be added, the one that can is
+    // the one that plays, not a silent member of an empty group.
+    let fallbackURL = try writeTemporary(SyntheticMatroska.brokenDefaultAudio(), name: "fallback.mkv")
+    defer { try? FileManager.default.removeItem(at: fallbackURL) }
+    let fallback = try MatroskaMovie.load(url: fallbackURL)
+    try check(fallback.audioTrackCount == 1 && fallback.skippedTracks.map(\.number) == [1],
+              "only the second audio track should play, skipped \(fallback.skippedTracks.map(\.number))")
+    let audioTracks = try await fallback.asset.loadTracks(withMediaType: .audio)
+    try check(audioTracks.count == 1, "the movie should hold one audio track, not \(audioTracks.count)")
+    let audible = try await audioTracks.first?.load(.isEnabled)
+    try check(audible == true, "the only playable audio track must be enabled")
 }
 
 /// Files that are not playable fail with a reason a viewer can show,
@@ -135,9 +176,9 @@ private func check(_ condition: Bool, _ message: @autoclosure () -> String) thro
     if !condition { throw failure(message()) }
 }
 
-private func matroskaFixture(_ name: String) throws -> URL {
-    guard let url = Bundle.module.url(forResource: name, withExtension: "mkv", subdirectory: "Matroska") else {
-        throw failure("missing fixture \(name).mkv")
+private func matroskaFixture(_ name: String, extension ext: String = "mkv") throws -> URL {
+    guard let url = Bundle.module.url(forResource: name, withExtension: ext, subdirectory: "Matroska") else {
+        throw failure("missing fixture \(name).\(ext)")
     }
     return url
 }
@@ -275,7 +316,9 @@ private enum SyntheticMatroska {
 
     /// 8 kHz mono 16-bit PCM whose samples count up from zero, in blocks
     /// that use every lacing mode; plus a DTS and a VP8 track to skip.
-    static func lacedPCM() -> Laced {
+    /// `base` shifts every timestamp, as a capture that keeps its original
+    /// clock does.
+    static func lacedPCM(startingAt base: Int64 = 0) -> Laced {
         var out = header(docType: "matroska")
         // Unknown-size Segment, as a live recorder writes it.
         out += id(0x18538067) + Data([0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF])
@@ -319,7 +362,7 @@ private enum SyntheticMatroska {
             for payload in payloads {
                 offsets.append(Int64(frameStart))
                 sizes.append(payload.count)
-                timestamps.append(timestamp)
+                timestamps.append(base + timestamp)
                 frameStart += payload.count
             }
             cluster += wrapped
@@ -327,7 +370,7 @@ private enum SyntheticMatroska {
 
         // Cluster 1, known size: Xiph, EBML and fixed lacing, then a BlockGroup.
         let clusterHeaderLength = 4 + 8
-        var first = uint(0xE7, 0)
+        var first = uint(0xE7, UInt64(base))
         let firstStart = out.count + clusterHeaderLength
         let xiph = frames([300, 260, 520])
         appendBlock(to: &first, clusterDataStart: firstStart, elementID: 0xA3,
@@ -359,14 +402,14 @@ private enum SyntheticMatroska {
         let framesBeforeSecondCluster = offsets.count
 
         // Cluster 2, unknown size: ends where the next Cluster begins.
-        var second = uint(0xE7, 286)
+        var second = uint(0xE7, UInt64(base) + 286)
         let secondStart = out.count + clusterHeaderLength
         appendBlock(to: &second, clusterDataStart: secondStart, elementID: 0xA3,
                     prelude: blockHeader(track: 1, time: 0, flags: 0x80), payloads: frames([200]), timestamp: 286)
         out += id(0x1F43B675) + Data([0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]) + second
 
         // Cluster 3, cut off partway through its second block.
-        var third = uint(0xE7, 311)
+        var third = uint(0xE7, UInt64(base) + 311)
         let thirdStart = out.count + clusterHeaderLength
         appendBlock(to: &third, clusterDataStart: thirdStart, elementID: 0xA3,
                     prelude: blockHeader(track: 1, time: 0, flags: 0x80), payloads: frames([200]), timestamp: 311)
@@ -378,6 +421,23 @@ private enum SyntheticMatroska {
 
         return Laced(data: out, frameOffsets: offsets, frameSizes: sizes, frameTimestamps: timestamps,
                      sampleCount: sampleCount, framesBeforeSecondCluster: framesBeforeSecondCluster)
+    }
+
+    /// Two PCM tracks: the default one holds a single byte, not even one
+    /// 16-bit sample, so it cannot be added; the other one plays.
+    static func brokenDefaultAudio() -> Data {
+        func pcm(_ number: UInt64, isDefault: Bool) -> Data {
+            element(0xAE, uint(0xD7, number) + uint(0x83, 2) + string(0x86, "A_PCM/INT/LIT")
+                    + uint(0x88, isDefault ? 1 : 0)
+                    + element(0xE1, float(0xB5, 8000) + uint(0x9F, 1) + uint(0x6264, 16)))
+        }
+        var segment = element(0x1549A966, uint(0x2AD7B1, 1_000_000))
+        segment += element(0x1654AE6B, pcm(1, isDefault: true) + pcm(2, isDefault: false))
+        var cluster = uint(0xE7, 0)
+        cluster += element(0xA3, blockHeader(track: 1, time: 0, flags: 0x80) + Data([0x01]))
+        cluster += element(0xA3, blockHeader(track: 2, time: 0, flags: 0x80) + Data(repeating: 0x10, count: 1600))
+        segment += element(0x1F43B675, cluster)
+        return header(docType: "matroska") + element(0x18538067, segment)
     }
 
     static func dtsOnly() -> Data {

@@ -5,9 +5,16 @@ import CoreMedia
 /// A track the movie leaves out, with the reason in words a viewer can show.
 public struct MatroskaSkippedTrack: Sendable, Equatable {
     public let number: UInt64
-    public let kind: String
+    public let kind: MatroskaTrack.Kind
     public let codecID: String
     public let reason: String
+
+    init(_ track: MatroskaTrack, reason: String) {
+        number = track.number
+        kind = track.kind
+        codecID = track.codecID
+        self.reason = reason
+    }
 }
 
 /// Plays a Matroska file through AVFoundation without converting it.
@@ -88,11 +95,9 @@ public final class MatroskaMovie: @unchecked Sendable {
                 return try? reader.read(upToCount: Int(min(frame.size, 64)))
             }
             if case .unsupported(let reason) = mapping {
-                skipped.append(MatroskaSkippedTrack(number: track.number, kind: track.kindName,
-                                                    codecID: track.codecID, reason: reason))
+                skipped.append(MatroskaSkippedTrack(track, reason: reason))
             } else if track.frames.isEmpty {
-                skipped.append(MatroskaSkippedTrack(number: track.number, kind: track.kindName,
-                                                    codecID: track.codecID, reason: "its \(track.kindName) track is empty"))
+                skipped.append(MatroskaSkippedTrack(track, reason: "its \(track.kindName) track is empty"))
             } else {
                 plans.append((track, mapping))
             }
@@ -102,17 +107,8 @@ public final class MatroskaMovie: @unchecked Sendable {
         }
 
         let scale = Int64(index.timestampScale)
-        // Every track is placed relative to the earliest frame of any played
-        // track, which keeps audio and video aligned the way Matroska says.
-        let origin = plans.map { plan in plan.track.frames.map(\.timestamp).min() ?? 0 }.min() ?? 0
-
         let movie = try AVMutableMovie(settingsFrom: nil, options: nil)
         movie.timescale = 90_000
-
-        let videoPlans = plans.filter { $0.track.kind == .video }
-        let audioPlans = plans.filter { $0.track.kind == .audio }
-        let preferredVideo = preferredTrack(videoPlans.map(\.track))
-        let preferredAudio = preferredTrack(audioPlans.map(\.track))
 
         // Frames appended so far, reported every few thousand.
         let totalFrames = max(1, plans.reduce(0) { $0 + $1.track.frames.count })
@@ -122,7 +118,7 @@ public final class MatroskaMovie: @unchecked Sendable {
             progress?(min(1, Double(appendedFrames) / Double(totalFrames)))
         }
 
-        var placed = 0
+        var appended: [(track: MatroskaTrack, placement: Placement)] = []
         for plan in plans {
             try Task.checkCancellation()
             let placement: Placement?
@@ -137,32 +133,28 @@ public final class MatroskaMovie: @unchecked Sendable {
             case .unsupported:
                 placement = nil
             }
-            guard let placement else {
-                skipped.append(MatroskaSkippedTrack(number: plan.track.number, kind: plan.track.kindName,
-                                                    codecID: plan.track.codecID,
-                                                    reason: "its \(plan.track.kindName) track could not be added"))
-                continue
-            }
-            let start = CMTime(value: (placement.startTicks - origin) * scale, timescale: 1_000_000_000) + placement.lead
-            let target = CMTimeRange(start: start, duration: placement.mediaRange.duration)
-            guard placement.track.insertMediaTimeRange(placement.mediaRange, into: target) else {
-                movie.removeTrack(placement.track)
-                skipped.append(MatroskaSkippedTrack(number: plan.track.number, kind: plan.track.kindName,
-                                                    codecID: plan.track.codecID,
-                                                    reason: "its \(plan.track.kindName) track could not be placed"))
-                continue
-            }
-
-            let track = plan.track
-            let isVideo = track.kind == .video
-            let group = isVideo ? videoPlans.count : audioPlans.count
-            if group > 1 {
-                // One alternate group per media type: AVPlayer plays the
-                // enabled member and offers the rest in its track menu.
-                placement.track.alternateGroupID = isVideo ? 2 : 1
-                placement.track.isEnabled = track.number == (isVideo ? preferredVideo : preferredAudio)
+            if let placement {
+                appended.append((plan.track, placement))
             } else {
-                placement.track.isEnabled = true
+                skipped.append(MatroskaSkippedTrack(plan.track, reason: "its \(plan.track.kindName) track could not be added"))
+            }
+        }
+
+        // Every track is placed relative to the earliest start of any track
+        // that made it in, which keeps audio and video aligned the way
+        // Matroska says.
+        let origin = appended.map(\.placement.startTicks).min() ?? 0
+        var played: [(track: MatroskaTrack, movieTrack: AVMutableMovieTrack)] = []
+        for (track, placement) in appended {
+            let base = CMTime(value: (placement.startTicks - origin) * scale, timescale: 1_000_000_000)
+            let inserted = placement.segments.allSatisfy { segment in
+                placement.track.insertMediaTimeRange(
+                    segment.media, into: CMTimeRange(start: base + segment.at, duration: segment.media.duration))
+            }
+            guard inserted else {
+                movie.removeTrack(placement.track)
+                skipped.append(MatroskaSkippedTrack(track, reason: "its \(track.kindName) track could not be placed"))
+                continue
             }
             if let language = track.language {
                 if language.count == 3, !language.contains("-") {
@@ -171,30 +163,48 @@ public final class MatroskaMovie: @unchecked Sendable {
                     placement.track.extendedLanguageTag = language
                 }
             }
-            placed += 1
+            played.append((track, placement.track))
         }
-        guard placed > 0 else {
+        guard !played.isEmpty else {
             throw MatroskaError.noPlayableTracks(skipped.map(\.reason))
         }
 
-        let played = Set(plans.map(\.track.number)).subtracting(skipped.map(\.number))
+        // One alternate group per media type, chosen among the tracks that
+        // actually play: AVPlayer plays the enabled member and offers the
+        // rest in its track menu.
+        let videos = played.filter { $0.track.kind == .video }
+        let audios = played.filter { $0.track.kind == .audio }
+        for (group, groupID) in [(videos, 2), (audios, 1)] where !group.isEmpty {
+            let preferred = preferredTrack(group.map(\.track))
+            for member in group {
+                if group.count > 1 { member.movieTrack.alternateGroupID = groupID }
+                member.movieTrack.isEnabled = group.count == 1 || member.track.number == preferred
+            }
+        }
+
         return MatroskaMovie(
             sourceURL: url,
             asset: movie,
             skippedTracks: skipped,
             isComplete: index.isComplete,
-            videoTrackCount: videoPlans.filter { played.contains($0.track.number) }.count,
-            audioTrackCount: audioPlans.filter { played.contains($0.track.number) }.count
+            videoTrackCount: videos.count,
+            audioTrackCount: audios.count
         )
     }
 
     private struct Placement {
+        struct Segment {
+            /// Media time, in the track's own timescale.
+            let media: CMTimeRange
+            /// Where the segment starts playing, relative to `startTicks`.
+            let at: CMTime
+        }
         let track: AVMutableMovieTrack
-        let mediaRange: CMTimeRange
-        /// Matroska timestamp, in ticks, at which the media range starts playing.
+        /// Matroska timestamp, in ticks, of the track's first frame.
         let startTicks: Int64
-        /// How much later than `startTicks` the media range is placed.
-        var lead: CMTime = .zero
+        /// The track's media in playback order. More than one only where
+        /// audio has a real gap, so later audio keeps its own timestamps.
+        let segments: [Segment]
     }
 
     /// The track Matroska marks as the one to play: default and enabled,
@@ -274,9 +284,13 @@ public final class MatroskaMovie: @unchecked Sendable {
         }
         advance(count - reported)
         let range = movieTrack.mediaPresentationTimeRange
-        guard appended > 0, range.duration > .zero else { return nil }
+        guard appended > 0, range.duration > .zero else {
+            movie.removeTrack(movieTrack)
+            return nil
+        }
         movieTrack.naturalSize = CGSize(width: track.pixelWidth, height: track.pixelHeight)
-        return Placement(track: movieTrack, mediaRange: range, startTicks: sorted[0] / multiplier)
+        return Placement(track: movieTrack, startTicks: sorted[0] / multiplier,
+                         segments: [.init(media: range, at: .zero)])
     }
 
     // MARK: Audio
@@ -289,7 +303,10 @@ public final class MatroskaMovie: @unchecked Sendable {
             return nil
         }
         let rate = Int64(asbd.mSampleRate.rounded())
-        guard rate > 0, rate <= Int64(Int32.max) else { return nil }
+        guard rate > 0, rate <= Int64(Int32.max) else {
+            movie.removeTrack(movieTrack)
+            return nil
+        }
         let timescale = Int32(rate)
         movieTrack.timescale = timescale
         let reference = url as CFURL
@@ -328,27 +345,28 @@ public final class MatroskaMovie: @unchecked Sendable {
             }
         }
 
-        // Lay packets end to end, except where the file has a real gap in
-        // its audio (a dropped segment in a recording): there the previous
-        // packet is stretched so later audio stays in sync with the video.
+        // Lay packets end to end in media time. Where the file has a real
+        // gap in its audio (a dropped stretch of a recording), a new segment
+        // starts instead, placed at its own timestamp: a decoder turns each
+        // packet into a fixed number of samples whatever its duration says,
+        // so stretching a packet over the gap would pull everything after it
+        // early.
         let startSample = samples(fromTicks: frames[0].timestamp)
         var cursor = startSample
         var positions = [Int64](repeating: 0, count: count)
+        // Where each segment begins in the media and on the timeline.
+        var breaks: [(media: Int64, timeline: Int64)] = [(startSample, startSample)]
         for i in 0..<count {
-            if frames[i].laceIndex == 0, i > 0 {
+            if frames[i].laceIndex == 0, i > 0, let current = breaks.last {
                 let actual = samples(fromTicks: frames[i].timestamp)
-                let gap = actual - cursor
-                if gap > max(durations[i - 1] * 2, rate / 10) {
-                    durations[i - 1] += gap
-                    cursor += gap
+                let expected = current.timeline + (cursor - current.media)
+                if actual - expected > max(durations[i - 1] * 2, rate / 10) {
+                    breaks.append((cursor, actual))
                 }
             }
             positions[i] = cursor
             cursor += max(1, durations[i])
         }
-
-        let isPCM: Bool
-        if case .pcm = timing { isPCM = true } else { isPCM = false }
 
         var appended = 0
         var i = 0
@@ -360,7 +378,7 @@ public final class MatroskaMovie: @unchecked Sendable {
                 reported = i
             }
             let buffer: CMSampleBuffer?
-            if isPCM, case .pcm(let bytesPerFrame) = timing {
+            if case .pcm(let bytesPerFrame) = timing {
                 let frame = frames[i]
                 let sampleCount = Int(frame.size) / max(1, bytesPerFrame)
                 var timingInfo = CMSampleTimingInfo(
@@ -404,7 +422,10 @@ public final class MatroskaMovie: @unchecked Sendable {
         }
         advance(count - reported)
         let media = movieTrack.mediaPresentationTimeRange
-        guard appended > 0, media.duration > .zero else { return nil }
+        guard appended > 0, media.duration > .zero else {
+            movie.removeTrack(movieTrack)
+            return nil
+        }
 
         // CodecDelay (encoder priming, Opus pre-skip) is decoded but never
         // heard: Matroska plays each frame at its timestamp minus the delay.
@@ -420,11 +441,24 @@ public final class MatroskaMovie: @unchecked Sendable {
         case .movieHidesPriming(let hidden):
             (trim, lead) = (max(0, codecDelay - hidden), max(0, hidden - codecDelay))
         }
-        let skip = CMTime(value: trim, timescale: timescale)
-        guard media.duration > skip else { return nil }
-        let range = CMTimeRange(start: media.start + skip, duration: media.duration - skip)
-        return Placement(track: movieTrack, mediaRange: range, startTicks: frames[0].timestamp,
-                         lead: CMTime(value: lead, timescale: timescale))
+        func time(_ samples: Int64) -> CMTime { CMTime(value: samples, timescale: timescale) }
+        var segments: [Placement.Segment] = []
+        var playedUntil = CMTime.zero
+        for (k, entry) in breaks.enumerated() {
+            let from = k == 0 ? media.start + time(trim) : time(entry.media)
+            let to = k + 1 < breaks.count ? time(breaks[k + 1].media) : media.end
+            guard to > from else { continue }
+            // The trimmed delay is never heard, so every later segment plays
+            // that much earlier than its timestamp too.
+            let at = max(playedUntil, time((k == 0 ? 0 : entry.timeline - startSample - trim) + lead))
+            segments.append(.init(media: CMTimeRange(start: from, end: to), at: at))
+            playedUntil = at + (to - from)
+        }
+        guard !segments.isEmpty else {
+            movie.removeTrack(movieTrack)
+            return nil
+        }
+        return Placement(track: movieTrack, startTicks: frames[0].timestamp, segments: segments)
     }
 
     // MARK: Sample references

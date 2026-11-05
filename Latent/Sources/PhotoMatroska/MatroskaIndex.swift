@@ -100,7 +100,8 @@ public struct MatroskaIndex: Sendable {
     public var isComplete = true
 
     /// Indexes `url`. With `limit`, stops at the first Cluster that starts
-    /// after `limit` seconds, which is all a thumbnail needs.
+    /// more than `limit` seconds after the first one, which is all a
+    /// thumbnail needs.
     ///
     /// Reading is one pass over the file, so a long recording on a slow
     /// volume takes a while: `progress` receives the fraction of the file
@@ -124,6 +125,10 @@ private struct IndexReader {
     var capturesPrefix: [Bool] = []
     var blocksSinceCancellationCheck = 0
     var reportedProgress = 0.0
+    /// The first Cluster's timestamp: `limit` counts from where the file
+    /// starts, which need not be zero (a capture remuxed with its original
+    /// clock).
+    var firstClusterTimestamp: Int64?
 
     init(file: WindowedFile, limit: Double?, progress: ((Double) -> Void)?) {
         self.file = file
@@ -372,7 +377,9 @@ private struct IndexReader {
             switch element.id {
             case MKV.timestamp:
                 clusterTimestamp = Int64(clamping: try file.unsigned(element))
-                if let limit, seconds(clusterTimestamp) > limit {
+                let first = firstClusterTimestamp ?? clusterTimestamp
+                firstClusterTimestamp = first
+                if let limit, seconds(clusterTimestamp - first) > limit {
                     return (position, true)
                 }
             case MKV.simpleBlock:
