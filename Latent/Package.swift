@@ -17,6 +17,7 @@ let package = Package(
         .library(name: "PhotoQuickLook", targets: ["PhotoQuickLook"]),
         .library(name: "PhotoServe", targets: ["PhotoServe"]),
         .library(name: "PhotoContainers", targets: ["PhotoContainers"]),
+        .library(name: "PhotoBursts", targets: ["PhotoBursts"]),
         .executable(name: "pv-pipeline", targets: ["PipelineCLI"]),
         .executable(name: "Latent", targets: ["PhotoViewerApp"]),
     ],
@@ -72,19 +73,24 @@ let package = Package(
             path: "Sources/PhotoContainers"
         ),
         .target(
+            name: "PhotoBursts",
+            dependencies: [],
+            path: "Sources/PhotoBursts"
+        ),
+        .target(
             name: "VerificationSupport",
-            dependencies: ["PipelineCore", "PhotoIO", "PhotoContainers"],
+            dependencies: ["PipelineCore", "PhotoIO", "PhotoContainers", "PhotoBursts", "PhotoViewerCore"],
             path: "VerificationSupport",
             resources: [.copy("Resources/oversized-20000.png"), .copy("Resources/Matroska"), .copy("Resources/AVI")]
         ),
         .executableTarget(
             name: "PipelineCLI",
-            dependencies: ["PipelineCore", "EnhancementStages", "PhotoIO", "PhotoML", "PhotoSearch", "PhotoViewerCore", "PhotoGeo", "PhotoQuickLook", "PhotoServe", "VerificationSupport"],
+            dependencies: ["PipelineCore", "EnhancementStages", "PhotoIO", "PhotoML", "PhotoSearch", "PhotoViewerCore", "PhotoGeo", "PhotoQuickLook", "PhotoServe", "PhotoBursts", "VerificationSupport"],
             path: "Sources/PipelineCLI"
         ),
         .executableTarget(
             name: "PhotoViewerApp",
-            dependencies: ["PipelineCore", "EnhancementStages", "PhotoIO", "PhotoML", "PhotoSearch", "PhotoViewerCore", "PhotoGeo", "PhotoServe", "PhotoContainers"],
+            dependencies: ["PipelineCore", "EnhancementStages", "PhotoIO", "PhotoML", "PhotoSearch", "PhotoViewerCore", "PhotoGeo", "PhotoServe", "PhotoContainers", "PhotoBursts"],
             path: "Sources/PhotoViewerApp"
         ),
         .testTarget(
@@ -96,6 +102,11 @@ let package = Package(
             name: "PhotoViewerCoreTests",
             dependencies: ["PhotoViewerCore"],
             path: "Tests/PhotoViewerCoreTests"
+        ),
+        .testTarget(
+            name: "PhotoBurstsTests",
+            dependencies: ["PhotoBursts", "PhotoViewerCore", "VerificationSupport"],
+            path: "Tests/PhotoBurstsTests"
         ),
         .testTarget(
             name: "PhotoServeTests",

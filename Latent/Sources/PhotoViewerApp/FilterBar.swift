@@ -8,6 +8,8 @@ enum PhotoFilter: Equatable, Hashable, Identifiable {
     case picked
     case rejected
     case colorLabel(Int)  // 1-9
+    /// One stack per burst; see `BurstState`.
+    case bursts
 
     var id: String {
         switch self {
@@ -15,6 +17,7 @@ enum PhotoFilter: Equatable, Hashable, Identifiable {
         case .picked: "picked"
         case .rejected: "rejected"
         case .colorLabel(let n): "color-\(n)"
+        case .bursts: "bursts"
         }
     }
 
@@ -24,6 +27,7 @@ enum PhotoFilter: Equatable, Hashable, Identifiable {
         case .picked: "Picked"
         case .rejected: "Rejected"
         case .colorLabel(let n): ColorLabel.name(n)
+        case .bursts: "Bursts"
         }
     }
 
@@ -34,16 +38,18 @@ enum PhotoFilter: Equatable, Hashable, Identifiable {
     }
 }
 
-/// Filter bar above the grid: All, Picked and Rejected as one segmented
-/// control, plus a single Label menu for the nine colour labels.
+/// Filter bar above the grid: All, Picked, Rejected and Bursts as one
+/// segmented control, a single Label menu for the nine colour labels, and
+/// the burst search's progress while it runs.
 struct FilterBar: View {
     @Binding var activeFilter: PhotoFilter
     let vimKeymap: VimKeymap
     let imageURLs: [URL]
+    let bursts: BurstState
 
     /// The segmented control's own selection. A colour-label filter selects
     /// no segment, so it maps to a tag none of the segments carry.
-    private enum Segment: Hashable { case all, picked, rejected, none }
+    private enum Segment: Hashable { case all, picked, rejected, bursts, none }
 
     var body: some View {
         let counts = filterCounts
@@ -52,16 +58,19 @@ struct FilterBar: View {
                 Text("All").tag(Segment.all)
                 Text("Picked").tag(Segment.picked)
                 Text("Rejected").tag(Segment.rejected)
+                Text("Bursts").tag(Segment.bursts)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
             .fixedSize()
-            .help("\(counts[.picked, default: 0]) picked, \(counts[.rejected, default: 0]) rejected")
+            .help("\(counts[.picked, default: 0]) picked, \(counts[.rejected, default: 0]) rejected, \(bursts.groups.count) bursts")
             .accessibilityLabel("Show")
 
             labelMenu(counts: counts)
 
             Spacer(minLength: 0)
+
+            burstProgress
         }
         .controlSize(.small)
         .padding(.horizontal, Theme.Spacing.small)
@@ -75,6 +84,7 @@ struct FilterBar: View {
                 case .all: .all
                 case .picked: .picked
                 case .rejected: .rejected
+                case .bursts: .bursts
                 case .colorLabel: .none
                 }
             },
@@ -83,10 +93,28 @@ struct FilterBar: View {
                 case .all: activeFilter = .all
                 case .picked: activeFilter = .picked
                 case .rejected: activeFilter = .rejected
+                case .bursts: activeFilter = .bursts
                 case .none: break
                 }
             }
         )
+    }
+
+    /// "Finding bursts… 240 of 1,200" while the background pass runs.
+    @ViewBuilder
+    private var burstProgress: some View {
+        if case .analyzing(let done, let total) = bursts.phase {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("Finding bursts… \(done.formatted()) of \(total.formatted())")
+                    .font(.subheadline)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .transition(.opacity)
+            .accessibilityElement(children: .combine)
+        }
     }
 
     private func labelMenu(counts: [PhotoFilter: Int]) -> some View {
@@ -159,6 +187,10 @@ extension PhotoFilter {
             return urls.filter { keymap.isRejected($0) }
         case .colorLabel(let n):
             return urls.filter { keymap.colorLabel(for: $0) == n }
+        case .bursts:
+            // Needs the burst groups, which live in AppState; see
+            // `visibleImageURLs`.
+            return urls
         }
     }
 }
@@ -167,7 +199,9 @@ extension PhotoFilter {
 
 extension AppState {
     var visibleImageURLs: [URL] {
-        let culled = photoFilter.apply(to: imageURLs, keymap: vimKeymap)
+        let culled = photoFilter == .bursts
+            ? bursts.visibleURLs(current: currentURL)
+            : photoFilter.apply(to: imageURLs, keymap: vimKeymap)
         guard let searchResultURLs else { return culled }
         let allowed = Set(culled)
         // Preserve semantic rank rather than falling back to folder sort.

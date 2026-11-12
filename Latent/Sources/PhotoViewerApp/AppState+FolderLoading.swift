@@ -103,6 +103,7 @@ extension AppState {
 
         selection.reset()
         imageURLs = []
+        lastKeepUndo = nil
         photoFilter = .all
         pendingUnverifiedCullingFolder = nil
         lastError = nil

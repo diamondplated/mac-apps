@@ -33,6 +33,7 @@ final class AppState {
             // matched nothing — must not trigger one.
             guard oldValue != imageURLs else { return }
             Task { await phoneAccess.syncSharedFolder() }
+            scheduleBurstAnalysis()
         }
     }
 
@@ -40,6 +41,14 @@ final class AppState {
     /// network until the user turns it on in the pairing sheet.
     @ObservationIgnored
     lazy var phoneAccess = PhoneAccessController(state: self)
+
+    /// Burst groups and the background pass that finds them.
+    let bursts = BurstState()
+    /// The flags the last Keep action changed, so ⌘Z can put them back.
+    /// Cleared by anything that would make that undo ambiguous (a trash).
+    var lastKeepUndo: CullingSnapshot?
+    /// Where the selection was when that Keep ran.
+    var lastKeepReturn: URL?
 
     // MARK: - Composed sub-objects
 

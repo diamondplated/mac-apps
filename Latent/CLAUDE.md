@@ -30,6 +30,7 @@ swift test                 # XCTest; needs full Xcode
 - `PhotoML`: tiling, CoreML wrappers, model registry.
 - `PhotoSearch`: CLIP encoders, BPE tokenizer, per-folder embedding index.
 - `PhotoViewerCore`: `VimKeymap` and durable culling state (no Apple UI deps).
+- `PhotoBursts`: burst grouping (Vision feature prints plus capture time), best-frame ranking, the per-folder signature cache. Keep actions live in `VimKeymap+Keep.swift` and only set pick/reject flags.
 - `PhotoGeo`, `PhotoQuickLook`: EXIF GPS, Quick Look renderer and packaged read-only extension.
 - `PhotoServe`: LAN HTTP server, address gate, pairing, embedded `client.html` phone client.
 - `PhotoViewerApp`: the SwiftUI app (`AppState` is the hub).

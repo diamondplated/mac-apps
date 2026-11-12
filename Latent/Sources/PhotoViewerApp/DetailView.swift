@@ -69,7 +69,7 @@ struct DetailView: View {
         // Match the active grid filter. Otherwise a Picked-only workflow
         // spends every speculative decode on hidden files between the items
         // that j/k and the arrow keys will actually visit.
-        let urls = state.photoFilter.apply(to: state.imageURLs, keymap: state.vimKeymap)
+        let urls = state.visibleImageURLs
         guard let i = urls.firstIndex(of: focus) else {
             state.prefetcher.updateWindow(focus: nil, neighbors: [])
             return

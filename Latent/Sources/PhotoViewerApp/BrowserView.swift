@@ -293,7 +293,8 @@ struct BrowserView: View {
                             FilterBar(
                                 activeFilter: $state.photoFilter,
                                 vimKeymap: vimKeymap,
-                                imageURLs: state.imageURLs
+                                imageURLs: state.imageURLs,
+                                bursts: state.bursts
                             )
                             Divider()
                             if filteredURLs.isEmpty {
@@ -348,7 +349,42 @@ struct BrowserView: View {
 
     /// The folder has photos but the active filter or search hides all of
     /// them.
+    @ViewBuilder
     private var emptyFilterHint: some View {
+        if state.photoFilter == .bursts {
+            burstsEmptyHint
+        } else {
+            plainEmptyFilterHint
+        }
+    }
+
+    @ViewBuilder
+    private var burstsEmptyHint: some View {
+        switch state.bursts.phase {
+        case .idle, .analyzing:
+            ContentUnavailableView {
+                Label("Finding Bursts", systemImage: "square.stack")
+            } description: {
+                Text("Looking for photos taken close together that look alike.")
+            }
+        case .skipped:
+            ContentUnavailableView {
+                Label("Too Many Photos", systemImage: "square.stack")
+            } description: {
+                Text("Burst detection runs on folders of up to \(BurstState.photoLimit.formatted()) photos.")
+            } actions: {
+                Button("Show All") { state.photoFilter = .all }
+            }
+        case .ready:
+            ContentUnavailableView {
+                Label("No Bursts", systemImage: "square.stack")
+            } actions: {
+                Button("Show All") { state.photoFilter = .all }
+            }
+        }
+    }
+
+    private var plainEmptyFilterHint: some View {
         ContentUnavailableView {
             Label(
                 state.searchResultURLs != nil ? "No Matches" : "No \(state.photoFilter.label) Photos",
@@ -395,7 +431,9 @@ struct BrowserView: View {
         } else {
             let total = state.imageURLs.count
             Group {
-                if state.photoFilter != .all || state.searchResultURLs != nil {
+                if state.photoFilter == .bursts {
+                    Text("\(state.bursts.groups.count) Bursts")
+                } else if state.photoFilter != .all || state.searchResultURLs != nil {
                     Text("\(filteredURLs.count) of \(total)")
                 } else if let i = state.selectedIndex {
                     Text("\(i + 1) of \(total)")
@@ -430,6 +468,7 @@ struct BrowserView: View {
                             colorLabel: vimKeymap.colorLabel(for: url),
                             isPicked: vimKeymap.isPicked(url),
                             isRejected: vimKeymap.isRejected(url),
+                            burst: burstBadge(for: url),
                             size: CGFloat(thumbnailSize),
                             contentRevision: state.browserContentChangeTick,
                             allowsTrash: !state.isBrowsingArchive,
@@ -515,6 +554,18 @@ struct BrowserView: View {
         let hi = max(anchor, idx)
         state.multiSelection = Set(urls[lo...hi])
         state.select(url: url)
+    }
+
+    /// How a thumbnail shows its place in a burst. Only the Bursts view
+    /// decorates photos; elsewhere the grid is unchanged.
+    private func burstBadge(for url: URL) -> BurstBadge? {
+        guard state.photoFilter == .bursts,
+              let group = state.bursts.group(containing: url) else { return nil }
+        let isOpen = state.currentURL.map(group.members.contains) ?? false
+        if isOpen {
+            return .member(suggested: url == group.best, reason: group.reason.label)
+        }
+        return .stack(others: group.members.count - 1, reason: group.reason.label)
     }
 
     private var filteredURLs: [URL] {
@@ -723,6 +774,8 @@ struct ThumbnailCell: View {
     let colorLabel: Int
     let isPicked: Bool
     let isRejected: Bool
+    /// Set only in the Bursts view.
+    let burst: BurstBadge?
     let size: CGFloat
     /// Restarts the visible cell load after a filesystem batch. Unchanged
     /// files hit ThumbnailLoader's cache; overwritten files were evicted.
@@ -816,6 +869,19 @@ struct ThumbnailCell: View {
                 .latentAnimation(hovered, reduceMotion: reduceMotion, duration: Theme.Motion.quick)
             }
         }
+        .overlay(alignment: .bottomLeading) {
+            if let burst { BurstBadgeView(badge: burst) }
+        }
+        // A collapsed burst reads as a stack: two cards peeking out behind.
+        .background {
+            if case .stack = burst {
+                ZStack {
+                    shape.fill(.quaternary).offset(x: 6, y: 6)
+                    shape.fill(.quaternary.opacity(0.6)).offset(x: 3, y: 3)
+                }
+                .frame(width: size, height: size)
+            }
+        }
         .opacity(isRejected ? 0.5 : 1.0)
         .onHover { hovered = $0 }
         // Drag-out delivers the underlying file URL — the same payload
@@ -872,6 +938,55 @@ struct ThumbnailCell: View {
                 withAnimation(.easeOut(duration: Theme.Motion.quick)) { image = thumbnail }
             }
             didFail = thumbnail == nil
+        }
+    }
+}
+
+
+/// A thumbnail's place in a burst.
+enum BurstBadge: Equatable {
+    /// A collapsed burst: its suggested frame, with how many others sit under it.
+    case stack(others: Int, reason: String)
+    /// A frame of the open burst; the suggested one says why.
+    case member(suggested: Bool, reason: String)
+}
+
+private struct BurstBadgeView: View {
+    let badge: BurstBadge
+
+    var body: some View {
+        HStack(spacing: 4) {
+            switch badge {
+            case .stack(let others, let reason):
+                Image(systemName: "star.fill")
+                Text(reason)
+                Text("+\(others)").foregroundStyle(.secondary)
+            case .member(let suggested, let reason):
+                if suggested {
+                    Image(systemName: "star.fill")
+                    Text(reason)
+                }
+            }
+        }
+        .font(.subheadline.weight(.semibold))
+        .lineLimit(1)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(.regularMaterial, in: Capsule())
+        .padding(Theme.Spacing.tight + 1)
+        .opacity(hidden ? 0 : 1)
+        .accessibilityLabel(accessibilityText)
+    }
+
+    private var hidden: Bool {
+        if case .member(false, _) = badge { return true }
+        return false
+    }
+
+    private var accessibilityText: String {
+        switch badge {
+        case .stack(let others, let reason): "Burst, \(reason.lowercased()) frame of \(others + 1)"
+        case .member(let suggested, let reason): suggested ? "Suggested, \(reason.lowercased())" : "Burst frame"
         }
     }
 }
