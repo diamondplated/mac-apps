@@ -13,7 +13,7 @@ final class HoldToQuitTests: XCTestCase {
                       enabled: Bool = true, at now: Double = 0, target: QuitTarget? = nil, own: String? = "com.andrew.scrollsplit",
                       menuOpen: Bool = false) -> HoldToQuitGate.Action {
         gate.keyDown(keyCode: key, flags: flags, isRepeat: isRepeat, enabled: enabled, now: now,
-                     frontmost: target ?? safari, ownBundleIdentifier: own, ownMenuOpen: menuOpen)
+                     frontmost: { target ?? self.safari }, ownBundleIdentifier: own, ownMenuOpen: menuOpen)
     }
 
     func testFullHoldQuitsOnlyTheAppThatWasFrontmostAndSwallowsTheRelease() {
@@ -53,10 +53,11 @@ final class HoldToQuitTests: XCTestCase {
         XCTAssertEqual(down(&gate), .begin(safari))
         XCTAssertEqual(down(&gate, key: 13), .cancel(passEvent: true), "⌘W goes through")
         XCTAssertNil(gate.tick(now: 1))
-        XCTAssertEqual(gate.keyUp(keyCode: 12), .pass, "the cancelled press's release is not claimed")
+        XCTAssertEqual(gate.keyUp(keyCode: 12), .swallow, "the claimed press's release never reaches the app unmatched")
 
         XCTAssertEqual(down(&gate), .begin(safari))
         XCTAssertEqual(gate.flagsChanged([.maskCommand, .maskShift]), .cancel(passEvent: true), "⌘⇧Q is not ⌘Q")
+        XCTAssertEqual(gate.keyUp(keyCode: 12), .swallow)
         XCTAssertEqual(down(&gate), .begin(safari))
         XCTAssertEqual(gate.flagsChanged([]), .cancel(passEvent: true), "releasing ⌘ ends it")
         XCTAssertEqual(gate.flagsChanged([]), .pass)
@@ -77,14 +78,58 @@ final class HoldToQuitTests: XCTestCase {
         XCTAssertEqual(down(&gate, menuOpen: true), .pass, "Quit ScrollSplit in its own menu")
         XCTAssertEqual(down(&gate, enabled: false), .pass)
         XCTAssertEqual(gate.keyDown(keyCode: 12, flags: .maskCommand, isRepeat: false, enabled: true, now: 0,
-                                    frontmost: nil, ownBundleIdentifier: nil, ownMenuOpen: false), .pass, "no frontmost app")
+                                    frontmost: { nil }, ownBundleIdentifier: nil, ownMenuOpen: false), .pass, "no frontmost app")
         XCTAssertEqual(down(&gate, target: QuitTarget(pid: 3, bundleIdentifier: nil)), .begin(QuitTarget(pid: 3, bundleIdentifier: nil)))
+    }
+
+    func testReleasingCommandFirstNeverTypesQ() {
+        var gate = HoldToQuitGate()
+        XCTAssertEqual(down(&gate), .begin(safari))
+        XCTAssertEqual(gate.flagsChanged([]), .cancel(passEvent: true))
+        for _ in 0..<5 { XCTAssertEqual(down(&gate, flags: [], repeat: true), .swallow, "bare q repeats") }
+        XCTAssertEqual(down(&gate, key: 0, flags: []), .pass, "other keys still type")
+        XCTAssertEqual(gate.keyUp(keyCode: 12), .swallow)
+        XCTAssertEqual(down(&gate, flags: []), .pass, "the next plain q types normally")
+        // Same after a completed quit.
+        XCTAssertEqual(down(&gate), .begin(safari))
+        XCTAssertEqual(gate.tick(now: 1), safari)
+        _ = gate.flagsChanged([])
+        XCTAssertEqual(down(&gate, flags: [], repeat: true), .swallow)
+        XCTAssertEqual(gate.keyUp(keyCode: 12), .swallow)
+    }
+
+    func testAnUnseenReleaseNeverStrandsQ() {
+        var gate = HoldToQuitGate()
+        _ = down(&gate)
+        _ = gate.flagsChanged([])
+        // The Q release was lost (secure input); a fresh press is a fresh press.
+        XCTAssertEqual(down(&gate, flags: []), .pass)
+        XCTAssertEqual(gate.keyUp(keyCode: 12), .pass)
+        XCTAssertEqual(down(&gate, at: 2), .begin(safari))
+    }
+
+    func testAbandoningAHoldQuitsNothing() {
+        var gate = HoldToQuitGate()
+        _ = down(&gate)
+        gate.abandon()
+        XCTAssertNil(gate.tick(now: 5))
+        XCTAssertEqual(gate.keyUp(keyCode: 12), .swallow)
+    }
+
+    func testTheFrontmostAppIsAskedOnlyForCommandQ() {
+        var gate = HoldToQuitGate()
+        var asked = 0
+        for key: Int64 in [0, 1, 2, 13] {
+            _ = gate.keyDown(keyCode: key, flags: .maskCommand, isRepeat: false, enabled: true, now: 0,
+                             frontmost: { asked += 1; return self.safari }, ownBundleIdentifier: nil, ownMenuOpen: false)
+        }
+        XCTAssertEqual(asked, 0)
     }
 
     func testSwitchingOffMidHoldCancels() {
         var gate = HoldToQuitGate()
         XCTAssertEqual(down(&gate), .begin(safari))
-        XCTAssertEqual(down(&gate, repeat: true, enabled: false), .cancel(passEvent: true))
+        XCTAssertEqual(down(&gate, repeat: true, enabled: false), .cancel(passEvent: false), "a ⌘Q repeat must not slip through and quit")
         XCTAssertNil(gate.tick(now: 1))
         _ = down(&gate)
         gate.reset()
@@ -386,6 +431,26 @@ final class MicrophoneMuteTests: XCTestCase {
         muter.unmuteAll(lookup: lookup(kept))
         XCTAssertFalse(kept.muted)
         XCTAssertFalse(muter.isHoldingMute)
+    }
+
+    func testReconcileForgetsDevicesUnmutedElsewhere() {
+        let builtIn = FakeDevice(id: 1, hasMute: true)
+        var muter = MicrophoneMuter()
+        muter.mute(builtIn)
+        builtIn.muted = false // unmuted from Control Centre
+        muter.reconcile(lookup: lookup(builtIn))
+        XCTAssertFalse(muter.isHoldingMute, "no longer claimed as muted")
+        let headset = FakeDevice(id: 2, hasMute: true)
+        muter.defaultDeviceChanged(to: headset)
+        XCTAssertFalse(headset.muted, "a mute the user ended is not reapplied")
+    }
+
+    func testADeviceThatCannotBeMutedSaysSo() {
+        let fixed = FakeDevice(id: 8, hasMute: false, levels: nil)
+        var muter = MicrophoneMuter()
+        XCTAssertFalse(muter.mute(fixed))
+        XCTAssertFalse(muter.toggle(current: fixed, lookup: lookup(fixed)))
+        XCTAssertFalse(MicrophoneMuter.isMuted(fixed))
     }
 
     func testMutedElsewhereTheKeyUnmutesAndAnAlreadyMutedDeviceIsNotRecorded() {

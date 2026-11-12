@@ -94,6 +94,7 @@ final class Microphone {
 
     func toggle() {
         startListening()
+        muter.reconcile(lookup: { CoreAudioInput(id: $0) })
         device = Self.defaultInput()
         muter.toggle(current: device, lookup: { CoreAudioInput(id: $0) })
         didChange?()
@@ -146,7 +147,10 @@ final class Microphone {
     /// Mute or volume changes from anywhere (Control Centre, the call app) refresh the icon.
     private func watch(_ device: CoreAudioInput?) {
         guard let device else { return }
-        let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in self?.didChange?() }
+        let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            self?.muter.reconcile(lookup: { CoreAudioInput(id: $0) })
+            self?.didChange?()
+        }
         deviceListener = listener
         for selector in Self.deviceSelectors {
             var address = AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioDevicePropertyScopeInput, mElement: kAudioObjectPropertyElementMain)

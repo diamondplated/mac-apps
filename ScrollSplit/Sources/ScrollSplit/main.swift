@@ -41,7 +41,7 @@ if CommandLine.arguments.contains("--self-check") {
     let safari = QuitTarget(pid: 42, bundleIdentifier: "com.apple.Safari")
     let finder = QuitTarget(pid: 1, bundleIdentifier: "com.apple.finder")
     func down(_ gate: inout HoldToQuitGate, _ target: QuitTarget, repeat isRepeat: Bool = false, at now: Double = 0) -> HoldToQuitGate.Action {
-        gate.keyDown(keyCode: 12, flags: .maskCommand, isRepeat: isRepeat, enabled: true, now: now, frontmost: target, ownBundleIdentifier: nil, ownMenuOpen: false)
+        gate.keyDown(keyCode: 12, flags: .maskCommand, isRepeat: isRepeat, enabled: true, now: now, frontmost: { target }, ownBundleIdentifier: nil, ownMenuOpen: false)
     }
     var hold = HoldToQuitGate()
     var early = HoldToQuitGate()
@@ -195,7 +195,8 @@ final class AppModel {
 
     /// The microphone is muted and ScrollSplit has a say in it.
     var microphoneMuted: Bool {
-        microphone.isHoldingMute || (settings.enabled && shortcuts[.toggleMicrophoneMute] != nil && microphone.isMuted)
+        // Judged by the device actually in use: a headset that cannot be muted reads live.
+        (microphone.isHoldingMute || (settings.enabled && shortcuts[.toggleMicrophoneMute] != nil)) && microphone.isMuted
     }
 
     func openPrivacy(_ pane: String) {

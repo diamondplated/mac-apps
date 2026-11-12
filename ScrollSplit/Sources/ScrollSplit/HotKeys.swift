@@ -25,7 +25,8 @@ final class HotKeys {
                                              GetApplicationEventTarget(), OptionBits(kEventHotKeyExclusive), &reference)
             if status == noErr, let reference { registrations[command] = reference } else { failures.insert(command) }
         }
-        registered = shortcuts
+        // Only what registered counts as done, so a failed one is retried on the next reload.
+        registered = shortcuts.filter { registrations[$0.key] != nil }
     }
 
     func unregisterAll() {

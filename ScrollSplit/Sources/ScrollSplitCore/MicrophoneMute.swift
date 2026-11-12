@@ -47,16 +47,26 @@ public struct MicrophoneMuter {
         return Self.isMuted(current)
     }
 
-    public mutating func mute(_ device: InputDeviceControl) {
+    /// Returns whether the device is muted afterwards. A device with neither a mute nor a
+    /// settable volume cannot be muted, and the caller must not claim it is.
+    @discardableResult
+    public mutating func mute(_ device: InputDeviceControl) -> Bool {
         if device.hasMute {
-            guard !device.isMuted else { return }
-            device.setMuted(true)
-            ledger[device.id] = .unmute
-        } else if let volumes = device.volumes, !volumes.isEmpty {
-            guard volumes.contains(where: { $0 > 0 }) else { return }
+            if !device.isMuted {
+                device.setMuted(true)
+                ledger[device.id] = .unmute
+            }
+        } else if let volumes = device.volumes, !volumes.isEmpty, volumes.contains(where: { $0 > 0 }) {
             if ledger[device.id] == nil { ledger[device.id] = .volumes(volumes) }
             device.setVolumes(volumes.map { _ in 0 })
         }
+        return Self.isMuted(device)
+    }
+
+    /// Forgets devices that something else has unmuted since (Control Centre, the call app),
+    /// so ScrollSplit neither claims they are muted nor mutes them again on a device change.
+    public mutating func reconcile(lookup: (UInt32) -> InputDeviceControl?) {
+        ledger = ledger.filter { id, _ in lookup(id).map(Self.isMuted) ?? true }
     }
 
     /// The default input device changed; keep a mute in force on the new one.

@@ -29,6 +29,7 @@ final class KeyboardEngine {
     private(set) var settings = ScrollSettings()
     /// ScrollSplit's status menu is open: its own ⌘Q (Quit ScrollSplit) must work.
     var ownMenuOpen = false
+    private var holdTarget: pid_t?
     var active: Bool { tap.map { CGEvent.tapIsEnabled(tap: $0.port) } ?? false }
 
     func configure(_ newSettings: ScrollSettings) {
@@ -98,6 +99,10 @@ final class KeyboardEngine {
         guard type == .keyDown || type == .keyUp else { return pass }
         let isDown = type == .keyDown
         if settings.enabled && settings.capsLockIsHyper {
+            // A Caps Lock release the tap never saw (secure input) must not leave Hyper stuck on:
+            // the remap is at the HID level, so the HID state knows whether F18 is really down.
+            if hyper.isHeld, keyCode != HyperKey.f18KeyCode,
+               !CGEventSource.keyState(.hidSystemState, key: CGKeyCode(HyperKey.f18KeyCode)) { hyper.reset() }
             switch hyper.key(keyCode: keyCode, isDown: isDown, now: now, tapIsEscape: settings.capsLockTapIsEscape) {
             case .pass: break
             case .swallow: return nil
@@ -110,11 +115,10 @@ final class KeyboardEngine {
         }
         let action: HoldToQuitGate.Action
         if isDown {
-            let front = NSWorkspace.shared.frontmostApplication
             action = gate.keyDown(keyCode: keyCode, flags: event.flags,
                                   isRepeat: event.getIntegerValueField(.keyboardEventAutorepeat) != 0,
                                   enabled: holdToQuit, now: now,
-                                  frontmost: front.map { QuitTarget(pid: $0.processIdentifier, bundleIdentifier: $0.bundleIdentifier) },
+                                  frontmost: { NSWorkspace.shared.frontmostApplication.map { QuitTarget(pid: $0.processIdentifier, bundleIdentifier: $0.bundleIdentifier) } },
                                   ownBundleIdentifier: Bundle.main.bundleIdentifier, ownMenuOpen: ownMenuOpen)
         } else {
             action = gate.keyUp(keyCode: keyCode)
@@ -126,6 +130,7 @@ final class KeyboardEngine {
             panel.hide()
             return passEvent ? pass : nil
         case .begin(let target):
+            holdTarget = target.pid
             // The panel and the timer run after the callback returns: no slow work in the tap.
             DispatchQueue.main.async { [weak self] in
                 // Released before the panel got this far: nothing to show.
@@ -138,6 +143,10 @@ final class KeyboardEngine {
     }
 
     private func holdTimerFired() {
+        // The user switched apps mid-hold: quit nothing.
+        if gate.isHolding, NSWorkspace.shared.frontmostApplication?.processIdentifier != holdTarget {
+            gate.abandon(); panel.hide(); return
+        }
         // A stale timer from an earlier, shorter hold finds the new hold not yet complete.
         guard let target = gate.tick(now: CACurrentMediaTime()) else {
             if gate.isHolding {
@@ -146,6 +155,8 @@ final class KeyboardEngine {
             return
         }
         panel.hide()
+        // Only the app that is still in front, and still running, is quit.
+        guard let front = NSWorkspace.shared.frontmostApplication, front.processIdentifier == target.pid, !front.isTerminated else { return }
         postKeyPress(CGKeyCode(HoldToQuitGate.qKeyCode), character: "q", flags: .maskCommand, to: target.pid)
     }
 }

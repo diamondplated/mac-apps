@@ -35,8 +35,10 @@ public struct HoldToQuitGate: Equatable {
     enum State: Equatable {
         case idle
         case holding(target: QuitTarget, since: Double)
-        /// ⌘Q was sent; swallow the rest of this press.
-        case quitting
+        /// The Q key ScrollSplit claimed is still down (the hold ended, or ⌘Q was sent):
+        /// every Q event is swallowed until its release, whatever the modifiers, so letting
+        /// go of ⌘ first never types "q" and no unmatched release reaches the app.
+        case releasing
     }
 
     private(set) var state = State.idle
@@ -54,35 +56,39 @@ public struct HoldToQuitGate: Equatable {
         return exemptBundleIdentifiers.contains(identifier) || identifier == ownBundleIdentifier
     }
 
+    /// `frontmost` is asked for only when the key is ⌘Q, so other keys cost nothing.
     public mutating func keyDown(keyCode: Int64, flags: CGEventFlags, isRepeat: Bool, enabled: Bool, now: Double,
-                                 frontmost: QuitTarget?, ownBundleIdentifier: String?, ownMenuOpen: Bool) -> Action {
+                                 frontmost: () -> QuitTarget?, ownBundleIdentifier: String?, ownMenuOpen: Bool) -> Action {
         let commandQ = Self.isCommandQ(keyCode: keyCode, flags: flags)
         switch state {
         case .holding:
             if commandQ && enabled { return .swallow }
+            state = .releasing
+            return .cancel(passEvent: keyCode != Self.qKeyCode)
+        case .releasing:
+            if keyCode == Self.qKeyCode && isRepeat { return .swallow }
+            // Any other key passes. A fresh Q press means its release was never seen (secure
+            // input, a tap pause): start over rather than swallow Q forever.
+            if keyCode != Self.qKeyCode { return .pass }
             state = .idle
-            return .cancel(passEvent: true)
-        case .quitting:
-            if commandQ { return .swallow }
-            state = .idle
-            return .pass
         case .idle:
-            guard enabled, commandQ,
-                  !Self.isExempt(frontmost, ownBundleIdentifier: ownBundleIdentifier, ownMenuOpen: ownMenuOpen),
-                  let frontmost else { return .pass }
-            // A repeat with no hold in progress belongs to a press that already ended a
-            // hold early: it must not quit, and it must not start a new hold either.
-            if isRepeat { return .swallow }
-            state = .holding(target: frontmost, since: now)
-            return .begin(frontmost)
+            break
         }
+        guard enabled, commandQ else { return .pass }
+        let target = frontmost()
+        guard !Self.isExempt(target, ownBundleIdentifier: ownBundleIdentifier, ownMenuOpen: ownMenuOpen), let target else { return .pass }
+        // A repeat with no hold in progress belongs to a press that already ended a hold:
+        // it must not quit, and it must not start a new hold either.
+        if isRepeat { return .swallow }
+        state = .holding(target: target, since: now)
+        return .begin(target)
     }
 
     public mutating func keyUp(keyCode: Int64) -> Action {
         guard keyCode == Self.qKeyCode else { return .pass }
         switch state {
         case .holding: state = .idle; return .cancel(passEvent: false)
-        case .quitting: state = .idle; return .swallow
+        case .releasing: state = .idle; return .swallow
         case .idle: return .pass
         }
     }
@@ -90,16 +96,19 @@ public struct HoldToQuitGate: Equatable {
     /// Releasing ⌘, or adding ⇧, ⌃ or ⌥, ends the hold. Modifier events always pass.
     public mutating func flagsChanged(_ flags: CGEventFlags) -> Action {
         guard case .holding = state, flags.intersection(shortcutModifiers) != .maskCommand else { return .pass }
-        state = .idle
+        state = .releasing
         return .cancel(passEvent: true)
     }
 
     /// Called when the hold timer fires. Returns the app to quit when the hold is complete.
     public mutating func tick(now: Double) -> QuitTarget? {
         guard case .holding(let target, let since) = state, now - since >= Self.holdDuration else { return nil }
-        state = .quitting
+        state = .releasing
         return target
     }
+
+    /// The app in front changed before the hold completed: end it without quitting.
+    public mutating func abandon() { if isHolding { state = .releasing } }
 
     /// The feature switched off, the tap went away or the panel was torn down.
     public mutating func reset() { state = .idle }
