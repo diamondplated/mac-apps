@@ -9,6 +9,11 @@ struct ToolSettingsSnapshot: Decodable {
     var previewsEnabled: Bool?
     var showsTabs: Bool?
     var dismissalDelay: Double?
+    // DockPeek's window switcher and Dock click actions. Absent from older DockPeek builds.
+    var switcherEnabled: Bool?
+    var dockClickHidesFrontApp: Bool?
+    var dockScrollCyclesWindows: Bool?
+    var dockMiddleClickOpensWindow: Bool?
     var captureDestination: String?
     var showsThumbnail: Bool?
     var adjustBeforeCapture: Bool?
@@ -49,6 +54,11 @@ struct ToolSettingsSnapshot: Decodable {
     var rules: [BrowserRouteRule]?
     var availableBrowsers: [AvailableBrowser]?
     var isDefaultBrowser: Bool?
+    // LinkRoutes link cleaning. Absent from older LinkRoutes builds, which also do not
+    // understand a rule's source app.
+    var stripsTrackingParameters: Bool?
+    var unwrapsRedirects: Bool?
+    var supportsSourceRules: Bool { stripsTrackingParameters != nil }
 }
 
 struct BrowserRouteRule: Codable, Equatable, Identifiable {
@@ -57,6 +67,28 @@ struct BrowserRouteRule: Codable, Equatable, Identifiable {
     var includeSubdomains: Bool = true
     var browserIdentifier: String
     var profileDirectory: String?
+    /// The app the link was clicked in, or nil for any app.
+    var sourceBundleIdentifier: String?
+
+    /// LinkRoutes writes "every website" as `*`, and only accepts it on a rule that names a
+    /// source app. On screen that is simply an empty website field.
+    static let anyWebsite = "*"
+
+    var websiteText: String {
+        get { domain == Self.anyWebsite ? "" : domain }
+        set { domain = newValue }
+    }
+
+    /// The rule as LinkRoutes expects it: an empty website on a rule with a source app
+    /// means every website from that app.
+    var readyToSave: BrowserRouteRule {
+        var rule = self
+        rule.domain = domain.trimmingCharacters(in: .whitespacesAndNewlines)
+        if rule.sourceBundleIdentifier?.isEmpty == true { rule.sourceBundleIdentifier = nil }
+        if rule.sourceBundleIdentifier != nil, rule.domain.isEmpty { rule.domain = Self.anyWebsite }
+        if rule.sourceBundleIdentifier == nil, rule.domain == Self.anyWebsite { rule.domain = "" }
+        return rule
+    }
 }
 
 struct AvailableBrowser: Decodable, Identifiable {

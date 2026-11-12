@@ -123,6 +123,7 @@ struct ToolSettingsView: View {
 
     private static let dismissalDelays = [0.2, 0.4, 0.6, 1.0, 1.5, 2.0, 3.0]
 
+    @ViewBuilder
     private func dockSettings(_ value: ToolSettingsSnapshot) -> some View {
         Section("Previews") {
             Toggle("Show window previews when hovering the Dock", isOn: toggle(value.previewsEnabled ?? true, key: "previewsEnabled"))
@@ -134,6 +135,33 @@ struct ToolSettingsView: View {
                 if let current = value.dismissalDelay, !Self.dismissalDelays.contains(current) {
                     Text("\(current, specifier: "%.2f") seconds").tag(current)
                 }
+            }
+        }
+        // Shown only when the installed DockPeek has these features.
+        if let switcher = value.switcherEnabled {
+            Section {
+                Toggle("Switch windows with ⌥Tab", isOn: toggle(switcher, key: "switcherEnabled"))
+            } header: {
+                Text("Window Switcher")
+            } footer: {
+                footnote("Hold Option and press Tab to move through every open window. Release Option to switch.")
+            }
+        }
+        if value.dockClickHidesFrontApp != nil || value.dockScrollCyclesWindows != nil || value.dockMiddleClickOpensWindow != nil {
+            Section {
+                if let hides = value.dockClickHidesFrontApp {
+                    Toggle("Click the front app’s icon to hide it", isOn: toggle(hides, key: "dockClickHidesFrontApp"))
+                }
+                if let cycles = value.dockScrollCyclesWindows {
+                    Toggle("Scroll on an icon to cycle its windows", isOn: toggle(cycles, key: "dockScrollCyclesWindows"))
+                }
+                if let opens = value.dockMiddleClickOpensWindow {
+                    Toggle("Middle-click an icon for a new window", isOn: toggle(opens, key: "dockMiddleClickOpensWindow"))
+                }
+            } header: {
+                Text("Dock Clicks")
+            } footer: {
+                footnote("These change what the Dock normally does, so they start off.")
             }
         }
     }
@@ -315,8 +343,24 @@ struct ToolSettingsView: View {
         } header: {
             Text("Browser")
         }
+        if value.stripsTrackingParameters != nil || value.unwrapsRedirects != nil {
+            Section {
+                if let strips = value.stripsTrackingParameters {
+                    Toggle("Remove tracking parameters", isOn: toggle(strips, key: "stripsTrackingParameters"))
+                }
+                if let unwraps = value.unwrapsRedirects {
+                    Toggle("Open the real destination of wrapped links", isOn: toggle(unwraps, key: "unwrapsRedirects"))
+                }
+            } header: {
+                Text("Link Cleaning")
+            } footer: {
+                footnote("Wrapped links include Outlook Safe Links, which let an organisation scan a link first. Unwrapping skips that.")
+            }
+        }
         Section {
-            ForEach($settings.routeRules) { $rule in routeRow($rule, browsers: browsers) }
+            ForEach($settings.routeRules) { $rule in
+                routeRow($rule, browsers: browsers, sourceRules: value.supportsSourceRules)
+            }
             HStack {
                 Button("Add Rule", systemImage: "plus") {
                     settings.routeRules.append(BrowserRouteRule(domain: "", browserIdentifier: value.defaultBrowserIdentifier ?? browsers.first?.identifier ?? ""))
@@ -330,7 +374,9 @@ struct ToolSettingsView: View {
         } header: {
             Text("Rules")
         } footer: {
-            footnote("The first rule that matches wins.")
+            footnote(value.supportsSourceRules
+                ? "The first rule that matches wins. A rule can also depend on the app a link was clicked in; choose it from the rule’s menu."
+                : "The first rule that matches wins.")
         }
     }
 
@@ -345,11 +391,17 @@ struct ToolSettingsView: View {
     }
 
     /// One rule on one line: the site, where it goes, and a menu for the rest.
-    private func routeRow(_ rule: Binding<BrowserRouteRule>, browsers: [AvailableBrowser]) -> some View {
+    private func routeRow(_ rule: Binding<BrowserRouteRule>, browsers: [AvailableBrowser], sourceRules: Bool) -> some View {
         let id = rule.wrappedValue.id
         let profiles = browsers.first(where: { $0.identifier == rule.wrappedValue.browserIdentifier })?.profiles ?? []
+        let source = rule.wrappedValue.sourceBundleIdentifier
         return HStack(spacing: 8) {
-            TextField("Website", text: rule.domain, prompt: Text("example.com")).textFieldStyle(.roundedBorder).labelsHidden()
+            if let source {
+                Text("From \(SourceApps.name(for: source))").font(.callout).foregroundStyle(.secondary).lineLimit(1)
+                    .layoutPriority(1)
+            }
+            TextField("Website", text: rule.websiteText, prompt: Text(source == nil ? "example.com" : "Any website"))
+                .textFieldStyle(.roundedBorder).labelsHidden()
                 .accessibilityLabel("Website")
             Image(systemName: "arrow.right").font(.caption).foregroundStyle(.tertiary)
             browserPicker("Browser", selection: Binding(
@@ -370,6 +422,16 @@ struct ToolSettingsView: View {
             }
             Menu {
                 Toggle("Include Subdomains", isOn: rule.includeSubdomains)
+                if sourceRules {
+                    Picker("Links From", selection: Binding(
+                        get: { rule.wrappedValue.sourceBundleIdentifier ?? "" },
+                        set: { rule.wrappedValue.sourceBundleIdentifier = $0.isEmpty ? nil : $0 }
+                    )) {
+                        Text("Any App").tag("")
+                        Divider()
+                        ForEach(sourceChoices(current: source)) { choice in Text(choice.name).tag(choice.identifier) }
+                    }
+                }
                 Divider()
                 Button("Move Up") { moveRule(id, by: -1) }.disabled(settings.routeRules.first?.id == id)
                 Button("Move Down") { moveRule(id, by: 1) }.disabled(settings.routeRules.last?.id == id)
@@ -382,6 +444,12 @@ struct ToolSettingsView: View {
         }
     }
 
+    private func sourceChoices(current: String?) -> [SourceApp] {
+        SourceApps.choices(running: SourceApps.running(), current: current,
+                           excluding: [ManagedApp.linkRoutes.bundleIdentifier, Bundle.main.bundleIdentifier ?? ""],
+                           nameFor: SourceApps.name(for:))
+    }
+
     private func moveRule(_ id: String, by offset: Int) {
         guard let index = settings.routeRules.firstIndex(where: { $0.id == id }), settings.routeRules.indices.contains(index + offset) else { return }
         settings.routeRules.swapAt(index, index + offset)
@@ -391,13 +459,14 @@ struct ToolSettingsView: View {
         let selectedApp = app
         let sent = settings.routeRules
         Task {
-            guard let data = try? JSONEncoder().encode(sent),
+            let prepared = sent.map(\.readyToSave)
+            guard let data = try? JSONEncoder().encode(prepared),
                   let rules = try? JSONSerialization.jsonObject(with: data) else { return }
             let accepted = await settings.save(["rules": rules], app: selectedApp, library: library)
             // On success the app returns the rules as it stored them.
             if accepted {
                 let stored = library.settingsApp == selectedApp ? settings.snapshot?.rules : nil
-                settings.routesSaved(stored ?? sent, sent: sent)
+                settings.routesSaved(stored ?? prepared, sent: sent)
             }
         }
     }
