@@ -41,7 +41,7 @@ private func profile(
 
 /// `computeWidths` (`web/index.html:576-583`), branch by branch. Every column here lands on a
 /// different one of the four answers on purpose — a formula with the wrong multiplier still returns
-/// 76 for any short column, so a fixture of short columns would pass on a broken implementation.
+/// 96 for any short column, so a fixture of short columns would pass on a broken implementation.
 @Test(.engineLifetime) func everyBranchOfTheWebsWidthFormulaSurvivesThePort() {
     let cols = [
         col("id"), col("description"), col("a_very_long_column_name_here_x"), col("blob"),
@@ -49,12 +49,12 @@ private func profile(
     #expect(columnWidths(cols, profile: []) == [120, 120, 254, 120], "no profile: the fallback")
 
     let profiled = [
-        profile("id", maxLen: 2),           //  34.8 by data, 41.2 by name → the 76 floor
+        profile("id", maxLen: 2),           //  34.8 by data, 41.2 by name → the 96 floor
         profile("description", maxLen: 20),  // 168 by data beats 109.6 by name
         profile("a_very_long_column_name_here_x", maxLen: 1),  // 254 by name beats 27.4 by data
         profile("blob", maxLen: 60),         // capped at 42 chars (330.8), then clamped to 320
     ]
-    #expect(columnWidths(cols, profile: profiled) == [76, 168, 254, 320])
+    #expect(columnWidths(cols, profile: profiled) == [96, 168, 254, 320])
 
     // A profile with no `max_len` at all — the `p.max_len ?` in the original. Not a zero-width
     // column: a column of all-NULLs has no measured length and must keep the fallback.
@@ -193,14 +193,14 @@ private func profile(
 /// column and SHIFT-click sorts (`web/index.html:617`), which nobody guesses.
 @Test(.engineLifetime) func theHeaderTooltipCarriesTheCountsAndTheShiftClickAffordance() {
     let c = col("note", "VARCHAR")
-    #expect(headerTooltip(c, profile: nil) == "note — VARCHAR\nclick: values · shift-click: sort")
+    #expect(headerTooltip(c, profile: nil) == "note — VARCHAR\nclick: values · right-click: sort and filter")
 
     let full = headerTooltip(
         c, profile: profile("note", n: 2_000_000, nNull: 1_204_318, nEmpty: 12, approx: 42_400))
     #expect(full == """
         note — VARCHAR
         1,204,318 null, 12 empty, ≈42k distinct
-        click: values · shift-click: sort
+        click: values · right-click: sort and filter
         """)
     // Grouped by `SiftCore.groupDigits` — the engine's function on the string, never a
     // `NumberFormatter`, which without an explicit locale renders that count four different ways.
@@ -250,7 +250,7 @@ private final class HeaderHarness {
     init(_ bridge: GridBridge) throws {
         table.rowHeight = gridRowHeight
         table.style = .plain
-        table.headerView = NSTableHeaderView()
+        table.headerView = SiftTableHeaderView()
         table.columnAutoresizingStyle = .noColumnAutoresizing
         table.dataSource = bridge
         table.delegate = bridge
@@ -366,7 +366,7 @@ private final class HeaderHarness {
     // which made every header 17 pt wider than the column it names — the name drew over the gap and
     // a full missing bar ran a quarter of the way into the neighbouring column.
     let widths = harness.table.tableColumns.map { Int($0.width) }
-    #expect(widths == [62, 76, 168, 132], "gutter, id, description, mostly_missing")
+    #expect(widths == [62, 96, 168, 132], "gutter, id, description, mostly_missing")
     for i in harness.table.tableColumns.indices {
         #expect(Int(harness.rect(ofColumn: i).width) == widths[i])
     }
@@ -449,7 +449,7 @@ private final class HeaderHarness {
     let typeLine = harness.height / 2..<harness.height - 3
     // …and the name line to the right of where `description` ends, which is where the caret goes.
     let cell = try harness.cell(2)
-    let nameEnds = Int(r.minX) + 7 + Int(cell.measure("description", font: .systemFont(ofSize: 11.5, weight: .bold)))
+    let nameEnds = Int(r.minX) + 7 + Int(cell.measure("description", font: .systemFont(ofSize: 12, weight: .semibold)))
     let caretRegion = nameEnds..<Int(r.maxX) - 2
     let nameLine = 0..<harness.height / 2
 
@@ -489,7 +489,7 @@ private final class HeaderHarness {
     appKitReady()
     let cell = SiftHeaderCell(textCell: "id")
     cell.typeText = "BIGINT"
-    let frame = NSRect(x: 0, y: 0, width: 76, height: 28)
+    let frame = NSRect(x: 0, y: 0, width: 96, height: 40)
 
     func typeWidth(caret: String?, count: String) -> CGFloat {
         cell.decoration = HeaderDecoration(caret: caret, distinctLabel: count, missingFraction: 0)
@@ -499,25 +499,18 @@ private final class HeaderHarness {
         "sorting a column must not shrink the room its type has")
     #expect(typeWidth(caret: "▼", count: "1.2k") == typeWidth(caret: nil, count: "1.2k"))
 
-    // …and at the 76-pt floor there is now room for the whole type. `NSString.draw(in:)` puts in an
+    // …and at the 96-pt floor there is now room for the whole type. `NSString.draw(in:)` puts in an
     // ellipsis exactly when the measured text is wider than the rect it is given, so this is the
     // elision question asked directly of the real layout.
-    let metaFont = NSFont.monospacedSystemFont(ofSize: 9, weight: .regular)
-    let needed = cell.measure("BIGINT", font: metaFont, kern: 0.54)
+    let metaFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+    let needed = cell.measure("BIGINT", font: metaFont)
     #expect(needed <= typeWidth(caret: "▲", count: "1.2k"),
         "BIGINT needs \(needed) pt of \(typeWidth(caret: "▲", count: "1.2k"))")
     #expect(needed <= typeWidth(caret: "▲", count: "999"))
 
-    // MEASURED, and the honest edge of this: a FIVE-character count (`≈1.2k`, `≈1.0M`) takes 28 of
-    // the 62 points a 76-pt column has, leaving 34 for a type that wants 37, and `BIGINT` renders
-    // `BIGI…`. The web build is in the same place — `.hcell { padding:3px 7px }` gives it the same
-    // 62 px box and `ui-monospace` at 9 px is the same SF Mono this measures — so it is parity
-    // rather than a regression. Not asserted, because an assertion that something does NOT fit goes
-    // red the day someone improves it.
-
     // The floor is the floor: this is the width `columnWidths` actually hands a two-character
     // BIGINT column, not a number picked to make the arithmetic work.
-    #expect(columnWidths([col("id", "BIGINT")], profile: [profile("id", maxLen: 4)]) == [76])
+    #expect(columnWidths([col("id", "BIGINT")], profile: [profile("id", maxLen: 4)]) == [96])
 }
 
 /// 🔴 A name too long for its column must lose its own tail rather than its caret. The width
@@ -546,7 +539,7 @@ private final class HeaderHarness {
     // drawn starting past the column's right edge and four of its six points still land inside —
     // enough for a `!isEmpty` assertion to pass on a caret that is visibly cut in half. Measured,
     // and the reason this compares against the glyph's own width.
-    let width = try harness.cell(2).measure("▼", font: .monospacedSystemFont(ofSize: 9, weight: .regular))
+    let width = try harness.cell(2).measure("▼", font: .monospacedSystemFont(ofSize: 11, weight: .regular))
     let drawn = painted.max()! - painted.min()! + 1
     #expect(drawn >= Int(width) - 1, "\(drawn) of the caret's \(width) pt made it inside")
     #expect(painted.max()! < Int(r.maxX) - 1, "…and it is inside its own column")
@@ -557,12 +550,12 @@ private final class HeaderHarness {
 @Test(.engineLifetime) func theNameLineHoldsBothTheNameAndItsCaret() throws {
     appKitReady()
     let cell = SiftHeaderCell(textCell: "")
-    let caret = cell.measure("▲", font: .monospacedSystemFont(ofSize: 9, weight: .regular))
+    let caret = cell.measure("▲", font: .monospacedSystemFont(ofSize: 11, weight: .regular))
     for name in ["id", "description", "a_very_long_column_name_here_x", "created_at_utc"] {
         let width = try #require(columnWidths([col(name)], profile: []).first)
         cell.stringValue = name
-        let box = cell.layout(NSRect(x: 0, y: 0, width: width, height: 28), flipped: true)
-        let needed = cell.measure(name, font: .systemFont(ofSize: 11.5, weight: .bold)) + 3 + caret
+        let box = cell.layout(NSRect(x: 0, y: 0, width: width, height: 40), flipped: true)
+        let needed = cell.measure(name, font: .systemFont(ofSize: 12, weight: .semibold)) + 3 + caret
         #expect(needed <= box.name.width, "\(name) plus a caret needs \(needed) of \(box.name.width)")
     }
 }
@@ -585,19 +578,19 @@ private final class HeaderHarness {
         // ellipsis exactly when the measured width exceeds the rect it is given, so this is the
         // question `expansionFrame` answers for an `NSCell` that draws its own text — which this one
         // deliberately does not, because the two-line layout is drawn by hand.
-        let measured = cell.measure(name, font: .systemFont(ofSize: 11.5, weight: .bold))
+        let measured = cell.measure(name, font: .systemFont(ofSize: 12, weight: .semibold))
         #expect(measured <= width - 14, "\(name) needs \(measured) pt of \(width - 14)")
     }
 
-    // …and the two lines plus the bar fit the height AppKit gives an `NSTableHeaderView` — 28 pt,
-    // measured, and the number `RootView`'s "no rows match" overlay is inset by. A layout that
+    // …and the two lines plus the bar fit the height `SiftTableHeaderView` gives — 40 pt,
+    // and the number `RootView`'s "no rows match" overlay is inset by. A layout that
     // needed more would have to move that constant too.
     let table = NSTableView(frame: .zero)
     table.style = .plain
-    table.headerView = NSTableHeaderView()
+    table.headerView = SiftTableHeaderView()
     let height = try #require(table.headerView).frame.height
-    let lines = cell.lineHeight(.systemFont(ofSize: 11.5, weight: .bold))
-        + cell.lineHeight(.monospacedSystemFont(ofSize: 9, weight: .regular))
+    let lines = cell.lineHeight(.systemFont(ofSize: 12, weight: .semibold))
+        + cell.lineHeight(.monospacedSystemFont(ofSize: 11, weight: .regular))
     #expect(lines + 3 <= height, "\(lines) pt of text, a 2 pt bar and a hairline, in \(height)")
 }
 
@@ -696,5 +689,5 @@ private final class HeaderHarness {
     // that sorting is behind the shift key.
     let tip = try #require(table.tableColumns[3].headerToolTip)
     #expect(tip.contains("8 empty"))
-    #expect(tip.hasSuffix("click: values · shift-click: sort"))
+    #expect(tip.hasSuffix("click: values · right-click: sort and filter"))
 }

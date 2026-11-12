@@ -3,7 +3,7 @@ import SiftCore
 import SiftEngine
 import SwiftUI
 
-// The banner stack — `renderBanners` (`web/index.html:1021-1042`), plus the three things the web
+// The banner stack — `renderBanners`, plus the three things the web
 // build had no way to say: a staging job that died, a sorted view that does not reach the end of
 // the file, and a block the pump could not fetch.
 //
@@ -19,9 +19,8 @@ import SwiftUI
 /// it as `sizeBytes / (250 MB/s)`, and that rate is its own comment's "measured CSV parse rate on an
 /// M-series Mac" — i.e. an internal SSD, warm. A file on a spinning disk, an SMB share or any
 /// network volume parses several times slower, so the number is the best case and nothing else.
-/// `web/index.html:1023-1024` printed it to a tenth of a second ("about 12.4s"), which is a
-/// precision claim the estimator cannot support; the first native port rounded to whole seconds,
-/// which is the same claim one digit shorter. These steps are the honest resolution: a
+/// Printing it to a tenth of a second ("about 12.4s") is a precision claim the estimator cannot
+/// support, and whole seconds is the same claim one digit shorter. These steps are the honest resolution: a
 /// 12.4-second guess and a 27-second guess are the same statement, and both of them are "half a
 /// minute if the disk is slow".
 ///
@@ -186,10 +185,10 @@ public struct BannerStack: View {
                     Text(row.message).textSelection(.enabled)
                     if let fix = row.fix {
                         Text(fix)
-                            .font(.system(size: 10, design: .monospaced))
+                            .font(.siftMono)
                             .padding(.horizontal, 4)
                             .padding(.vertical, 1)
-                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
+                            .background(.quaternary, in: RoundedRectangle.sift())
                             .textSelection(.enabled)
                     }
                 }
@@ -204,6 +203,21 @@ public struct BannerStack: View {
                 }
             }
         }
+        .siftAnimation(value: visibleCount)
+    }
+
+    /// How many rows are showing, so the stack eases as one appears or goes.
+    private var visibleCount: Int {
+        var count = missingExtensionsBanner(extensionsNeedingWarning(state.currentExtensions)).count
+        if state.banner != nil { count += 1 }
+        if let table = state.active {
+            count += table.notes.count
+            if table.staging != nil { count += 1 }
+            if table.stagingError != nil { count += 1 }
+            if table.sortTruncated { count += 1 }
+            if state.model(for: table.name)?.pageError != nil { count += 1 }
+        }
+        return count
     }
 
     @ViewBuilder
@@ -267,7 +281,7 @@ public struct BannerStack: View {
 
 // MARK: - one banner
 
-/// `.banner` (`web/index.html:315-319`): a rounded tinted strip, inset from the pane's edges.
+/// `.banner`: a rounded tinted strip, inset from the pane's edges.
 ///
 /// The three tints are the same three the inspector's missing bars use — amber, azure, red — so a
 /// colour means the same thing in both places.
@@ -351,7 +365,7 @@ struct BannerRow<Content: View>: View {
 
     var body: some View {
         HStack(spacing: 9) { content }
-            .font(.system(size: 11.5))
+            .font(.siftCaption)
             .foregroundStyle(kind.ink)
             .padding(.horizontal, 11)
             .padding(.vertical, 5)
@@ -359,7 +373,8 @@ struct BannerRow<Content: View>: View {
             // Opaque `fill`, not a translucent wash: 86 % of a 14 % wash is `windowBackgroundColor`,
             // which is a different colour on every macOS — and the ratio between this strip and the
             // text on it is something `AppearanceTests` guarantees. See `BannerKind`.
-            .background(kind.fill, in: RoundedRectangle(cornerRadius: 7))
+            .background(kind.fill, in: RoundedRectangle.sift())
             .padding(EdgeInsets(top: 6, leading: 10, bottom: 0, trailing: 10))
+            .transition(.opacity.combined(with: .move(edge: .top)))
     }
 }

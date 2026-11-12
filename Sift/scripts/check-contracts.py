@@ -30,7 +30,7 @@ def inspect(root):
         for number, line in enumerate(code(path.read_text()).splitlines(), 1):
             if FORMATTERS.search(line):
                 errors.append(f'{relative}:{number}: forbidden Foundation formatter')
-            if relative.startswith(('Sources/SiftEngine/', 'Sources/DuckDBKit/')):
+            if relative.startswith(('Sources/SiftEngine/', 'Sources/SiftVerify/', 'Sources/DuckDBKit/')):
                 count = len(OPTIONAL_TRY.findall(line))
                 if count:
                     sites[(relative, line.strip())] += count

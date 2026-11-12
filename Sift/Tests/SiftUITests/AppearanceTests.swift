@@ -199,18 +199,12 @@ private func asAppearance<T>(_ name: NSAppearance.Name, _ body: () -> T) -> T {
 
 // MARK: - the SQL console
 
-/// 🔴 **MEASURED: 1.03 : 1 in light appearance.** The console paints a fixed dark surface in both —
-/// deliberate, and what the web build does — but every control inside it was still resolving `.aqua`
-/// in light appearance, so `Reset to filters` and `Run ⌘↵` drew a light-mode bezel and a near-black
-/// label onto a near-black panel. Not faint: gone. The same two buttons measured 9.52 in dark.
-///
-/// 🔴 **The assertion is that the two appearances render THE SAME**, which is the opposite of the
-/// banner's and is the correct claim for this one view: the console is a single surface with a
-/// single set of colours, so an appearance-dependent pixel anywhere in it is by construction a
-/// control that has not been told what it is sitting on. A "these two differ" test here would pass
-/// for exactly the broken state — which is how the defect survived eight render suites.
+/// The console follows light and dark mode. It used to be a fixed navy panel under a forced dark
+/// colour scheme (which is what made its buttons unreadable in light mode); it now sits on semantic
+/// colours, so the two appearances must render DIFFERENTLY, and each must reproduce itself.
+/// `theConsoleFollowsLightAndDarkMode` (SQLModeTests) asserts the brightness direction.
 @MainActor
-@Test(.engineLifetime) func theSQLConsoleIsOneDarkSurfaceInBothAppearances() async throws {
+@Test(.engineLifetime) func theSQLConsoleFollowsTheAppearance() async throws {
     let (_, model) = try await openedFixture(rows: 12)
     let console = SQLConsole(model: model) { _ in }
 
@@ -220,6 +214,5 @@ private func asAppearance<T>(_ name: NSAppearance.Name, _ body: () -> T) -> T {
         "the renderer does not reproduce itself, so the comparison below means nothing")
 
     let dark = try render(console, .darkAqua, 520, 150, "console-dark")
-    // Something inside it resolving the ambient appearance instead of the surface it is painted on.
-    #expect(digest(dark) == digest(light), "the console drew differently in the two appearances")
+    #expect(digest(dark) != digest(light), "the console drew identically in both appearances")
 }

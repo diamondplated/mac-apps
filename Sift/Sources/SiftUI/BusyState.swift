@@ -114,7 +114,7 @@ public struct BusyOverlay: View {
         VStack(spacing: 10) {
             ProgressView()
             Text(message)
-                .font(.system(size: 12))
+                .font(.siftLabel)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

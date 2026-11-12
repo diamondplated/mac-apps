@@ -54,7 +54,7 @@ reports a revoke that has not taken effect is worse than no screen.
 If you find a way to break one of these, that's a vulnerability and worth reporting:
 
 - **The only listener is the test oracle, and it is bound to loopback.**
-  `LoopbackHTTPServer` (`Sources/SiftEngine/LoopbackHTTPServer.swift`) binds `INADDR_LOOPBACK` on
+  `LoopbackHTTPServer` (`Sources/SiftVerify/LoopbackHTTPServer.swift`) binds `INADDR_LOOPBACK` on
   an ephemeral port, is started only by a test or by `sift --verify`, and is never constructed on
   any path a running app can reach. It exists so the remote code can be proved without a network.
   **A patch that gives it a wildcard bind, or starts it from the app, changes what this program

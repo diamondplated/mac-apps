@@ -1,6 +1,7 @@
 import DuckDBKit
 import Foundation
 import SiftCore
+import SiftEngine
 
 // The headless verification surface — everything `sift --verify` and `sift <path>` do, minus the
 // printing. This is the role `pv-pipeline` plays in latent, and it is the reason killing browser

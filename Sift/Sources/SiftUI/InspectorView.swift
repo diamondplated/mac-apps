@@ -3,7 +3,6 @@ import SiftEngine
 import SwiftUI
 
 // The inspector: the tab strip, the Schema tab, and the number formatting both tabs share.
-// Ported from `renderInspector`/`renderSchema` (`web/index.html:1045-1080`).
 
 /// The three inspector tabs.
 public enum InspectorTab: String, CaseIterable, Sendable {
@@ -57,7 +56,10 @@ public struct InspectorView: View {
             ScrollView {
                 body(for: state.active.flatMap { state.model(for: $0.name) })
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .id(tab)
+                    .transition(.opacity)
             }
+            .siftAnimation(value: tab)
         }
         .inspectorColumnWidth(min: 260, ideal: 320, max: 520)
         // A column selected from OUTSIDE this pane — a plain click on a grid header — brings the
@@ -107,7 +109,7 @@ private struct Note: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 11.5))
+            .font(.siftCaption)
             .foregroundStyle(.secondary)
             .padding(12)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -131,7 +133,7 @@ public struct SchemaList: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("\(model.columns.count) columns")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.siftCaptionStrong)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
@@ -144,7 +146,7 @@ public struct SchemaList: View {
             // be a copy that can be wrong.
             if model.table.profiling {
                 Text("Profiling…")
-                    .font(.system(size: 10.5))
+                    .font(.siftCaption)
                     .foregroundStyle(.tertiary)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
@@ -157,7 +159,7 @@ public struct SchemaList: View {
         let profile = model.profile.first { $0.name == column.name }
         HStack(spacing: 6) {
             Text(column.name)
-                .font(.system(size: 11.5))
+                .font(.siftCaption)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -167,11 +169,11 @@ public struct SchemaList: View {
             if let profile {
                 Text((profile.exactDistinct == nil ? "≈" : "")
                     + compactCount(profile.exactDistinct ?? profile.approxDistinct))
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(.siftMono)
                     .foregroundStyle(.tertiary)
             }
             Text(shortType(column.type))
-                .font(.system(size: 9, design: .monospaced))
+                .font(.siftMono)
                 .foregroundStyle(.tertiary)
         }
         .padding(.horizontal, 12)
@@ -186,7 +188,7 @@ public struct SchemaList: View {
 ///
 /// Widths are absolute rather than proportional-within-an-`HStack` because the segments do not fill
 /// the track — the remainder IS the reading. Only drawn when `n > 0`, which is also what keeps the
-/// division safe (`if (p && p.n)`, `web/index.html:1058`).
+/// division safe (`n > 0`).
 private struct MissingBar: View {
     let profile: ColumnProfile
 
@@ -201,7 +203,7 @@ private struct MissingBar: View {
         }
         .frame(width: width, height: 5)
         .background(.quaternary)
-        .clipShape(RoundedRectangle(cornerRadius: 2.5))
+        .clipShape(RoundedRectangle.sift())
         .help("\(countText(profile.nNull)) null · \(countText(profile.nEmpty)) empty · "
             + "\(countText(profile.nNullish)) null-like · \(countText(profile.nUncastable)) won't cast")
     }
@@ -227,13 +229,13 @@ func countText(_ n: Int) -> String { groupDigits(String(n)) }
 // `printf` rounds an exact tie half-to-EVEN where the web's `toFixed` rounds half-away — so 10,500
 // rendered `10k` here and `11k` in the shipping app, on a value a real column reaches.
 
-/// `pct` (`web/index.html:471`): one decimal, or two below 1% so a rare-but-present value does not
+/// `pct`: one decimal, or two below 1% so a rare-but-present value does not
 /// round to a flat `0.0%` and read as absent.
 func percentText(_ fraction: Double) -> String {
     String(format: "%.\(fraction < 0.01 && fraction > 0 ? 2 : 1)f", fraction * 100) + "%"
 }
 
-/// `shortType` (`web/index.html:1079`). Every occurrence rather than the first, which is the one
+/// `shortType`. Every occurrence rather than the first, which is the one
 /// deliberate divergence: JS's `.replace(string, …)` and an unflagged regex both stop after one,
 /// so `STRUCT(a VARCHAR, b VARCHAR)` came out half-shortened in the web build.
 func shortType(_ type: String) -> String {

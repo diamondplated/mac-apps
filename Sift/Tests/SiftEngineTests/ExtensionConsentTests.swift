@@ -4,6 +4,7 @@ import TestSupport
 import DuckDBKit
 @testable import SiftCore
 @testable import SiftEngine
+@testable import SiftVerify
 
 private let consentRemoteFacts = ProcessInfo.processInfo.environment["SIFT_REMOTE_FACTS"] == "1"
 

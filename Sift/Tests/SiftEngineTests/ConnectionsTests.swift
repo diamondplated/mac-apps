@@ -5,6 +5,7 @@ import SiftCore
 import Testing
 import TestSupport
 @testable import SiftEngine
+@testable import SiftVerify
 
 // The connections config, the launch posture, secret issuance, and the four operations.
 //

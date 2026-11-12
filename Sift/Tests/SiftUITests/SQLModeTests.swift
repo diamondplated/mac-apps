@@ -392,48 +392,47 @@ private func appKitReady() { _ = NSApplication.shared }
     #expect(try pixels() != unclaimed, "the status line did not redraw when the box was claimed")
 }
 
-/// 🔴 The console is a CONSOLE — a light box of monospaced text is the defect, and `.background`
-/// silently not applying is exactly the kind of thing every property on the view denies.
+/// 🔴 The console FOLLOWS the appearance. It used to be a hard-coded navy panel under a forced dark
+/// colour scheme in both modes; now the editor sits on the system text background, so it is light
+/// in light mode and dark in dark mode.
 ///
-/// **Why this survives a different renderer.** It asks what fraction of the pane is dark, not what
-/// colour sits at one coordinate. The background covers essentially all of a 900 × 130 pane in any
-/// layout a renderer could produce; text ink and two small buttons cannot approach a fifth of it. So
-/// the 80% floor has enormous headroom in both directions and no calibration in it. The opacity
-/// check is there because "dark" is also what a bitmap that was never drawn into looks like — that
-/// is the vacuous pass this would otherwise have.
+/// **Why this survives a different renderer.** It compares mean brightness of the same pane under
+/// the two appearances, a difference far larger than any renderer's variation, and requires the
+/// light render to be mostly light. Reverting to the forced-dark console fails both: the two renders
+/// would be equal and the light one dark. The opacity check keeps a bitmap that was never drawn into
+/// from passing vacuously.
 @MainActor
-@Test(.engineLifetime) func theConsoleDrawsOnADarkSurfaceAndNotADocumentOne() async throws {
+@Test(.engineLifetime) func theConsoleFollowsLightAndDarkMode() async throws {
     appKitReady()
     let (_, model) = try await openedFixture(rows: 12)
     try await model.mirrorRenderedSQL()
 
-    let host = NSHostingView(rootView: SQLConsole(model: model, onError: { _ in }))
-    // 🔴 Pinned to Aqua — and for this view that is more than hygiene: the console is deliberately
-    // dark in BOTH appearances, so an unpinned render here would have been passing in dark while
-    // the same pane in light appearance drew invisible buttons (`AppearanceTests`).
-    host.appearance = NSAppearance(named: .aqua)
-    host.frame = NSRect(x: 0, y: 0, width: 900, height: 130)
-    host.layoutSubtreeIfNeeded()
-    let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-    host.cacheDisplay(in: host.bounds, to: rep)
-
-    // Every 3rd pixel each way — a sample of the whole pane rather than a point on it, so the answer
-    // does not depend on where anything landed.
-    var opaque = 0
-    var dark = 0
-    var total = 0
-    for x in stride(from: 0, to: rep.pixelsWide, by: 3) {
-        for y in stride(from: 0, to: rep.pixelsHigh, by: 3) {
-            guard let colour = rep.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
-            total += 1
-            if colour.alphaComponent > 0.9 { opaque += 1 }
-            if colour.alphaComponent > 0.9 && colour.brightnessComponent < 0.3 { dark += 1 }
+    func meanBrightness(_ name: NSAppearance.Name) throws -> Double {
+        let host = NSHostingView(rootView: SQLConsole(model: model, onError: { _ in }))
+        host.appearance = NSAppearance(named: name)
+        host.frame = NSRect(x: 0, y: 0, width: 900, height: 140)
+        host.layoutSubtreeIfNeeded()
+        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        var total = 0.0
+        var count = 0.0
+        var opaque = 0.0
+        for x in stride(from: 0, to: rep.pixelsWide, by: 3) {
+            for y in stride(from: 0, to: rep.pixelsHigh, by: 3) {
+                guard let colour = rep.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+                count += 1
+                if colour.alphaComponent > 0.9 { opaque += 1 }
+                total += Double(colour.brightnessComponent) * Double(colour.alphaComponent)
+            }
         }
+        #expect(opaque / max(count, 1) > 0.5, "the pane never drew — everything below is vacuous")
+        return total / max(count, 1)
     }
 
-    #expect(total > 0)
-    #expect(Double(opaque) / Double(total) > 0.95, "the pane never drew — everything below is vacuous")
-    #expect(Double(dark) / Double(total) > 0.8, "a console, not a document surface")
+    let light = try meanBrightness(.aqua)
+    let dark = try meanBrightness(.darkAqua)
+    #expect(light > 0.6, "the console is dark in light mode: \(light)")
+    #expect(light - dark > 0.3, "the console draws the same in both appearances: \(light) vs \(dark)")
 }
 
 /// 🔴 The one-way-door sentence is the warning; a truncated warning is not one. AppKit's own answer

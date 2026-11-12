@@ -10,7 +10,7 @@ import Foundation
 // Those are here, where `SiftUITests` can reach them; `AppDelegate` is left holding the AppKit
 // wiring and nothing else.
 //
-// Ported from `keyNav` / `jumpToRow` / `gotoRow` (`web/index.html:739-777`) and the ⌘1–⌘9 handler
+// Ported from `keyNav` / `jumpToRow` / `gotoRow` and the ⌘1–⌘9 handler
 // (`:1801-1806`).
 
 /// The six jumps the grid understands.
@@ -23,7 +23,7 @@ public enum NavKey: Equatable, Sendable {
     case bottom
 }
 
-/// The largest first row the viewport can sit at — `maxFirst()` (`web/index.html:596`), which is
+/// The largest first row the viewport can sit at — `maxFirst()`, which is
 /// `Math.max(0, state.total - visibleRows())` with `visibleRows()` itself floored at 1.
 ///
 /// The floor matters: a viewport reported as zero rows tall (a window mid-resize, a grid that has
@@ -37,7 +37,7 @@ public func maxFirstRow(total: Int, rowsOnScreen: Int) -> Int {
 ///
 /// 🔴 `nil` is not "invalid" — it is "already there", and it is the caller's licence to skip the
 /// scroll entirely. `jumpToRow` reads exactly this from `setFirstRow`'s `false`
-/// (`web/index.html:705-710`): holding ↓ at the bottom of a 40 M-row file must not re-issue a
+///: holding ↓ at the bottom of a 40 M-row file must not re-issue a
 /// scroll, a bounds-changed notification and a block request per repeat.
 public func rowTarget(for key: NavKey, firstRow: Int, rowsOnScreen: Int, total: Int) -> Int? {
     let last = maxFirstRow(total: total, rowsOnScreen: rowsOnScreen)
@@ -102,7 +102,7 @@ public func navKey(for character: Character, command: Bool) -> NavKey? {
 
 /// Which open table ⌘1–⌘9 selects, as an index, or `nil` for anything else.
 ///
-/// ⌘0 is deliberately not the tenth — `e.key >= "1" && e.key <= "9"` (`web/index.html:1802`). There
+/// ⌘0 is deliberately not the tenth — `e.key >= "1" && e.key <= "9"`. There
 /// is no ⌘0 tab anywhere on the platform, and mapping it to a table would shadow the "actual size"
 /// shortcut people expect it to be.
 public func tableIndex(forCommandKey character: Character) -> Int? {

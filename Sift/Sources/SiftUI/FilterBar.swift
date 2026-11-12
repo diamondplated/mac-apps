@@ -2,9 +2,9 @@ import SiftCore
 import SwiftUI
 
 // The strip above the grid: one chip per active filter, `clear all`, and the SQL console's toggle.
-// Ported from `renderToolbar`/`opLabel` (`web/index.html:900-941`), rule for rule.
+// Ported from `renderToolbar`/`opLabel`, rule for rule.
 
-/// One filter, as the chip says it — `opLabel` (`web/index.html:929-941`), verbatim.
+/// One filter, as the chip says it — `opLabel`, verbatim.
 ///
 /// The column name is NOT in here: the chip draws it in bold beside this, exactly as the web's
 /// `<b>${col}</b> ${opLabel(x)}` does, and a test that pinned "amount = 3" could not tell a missing
@@ -57,6 +57,8 @@ public struct FilterBar: View {
         self.onError = onError
     }
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     private var filters: [Filter] { model.table.qspec.filters }
 
     public var body: some View {
@@ -68,16 +70,13 @@ public struct FilterBar: View {
                 // showing; drawing nothing at all would leave the user wondering where their
                 // filters went. `SQLConsole`'s status line is the other half of this sentence.
                 Text("SQL mode — filters frozen")
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.siftMono)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 2)
-                    .background(Color.orange.opacity(0.16), in: RoundedRectangle(cornerRadius: 5))
+                    .background(Color.orange.opacity(0.16), in: RoundedRectangle.sift())
             } else if filters.isEmpty {
-                // The one place the app says how the header works. `TableGridView`'s plain-click /
-                // shift-click split is not guessable, and this is where a user with no filters is
-                // already looking.
-                Text("No filters — click a column header to see its values, shift-click to sort.")
-                    .font(.system(size: 11.5))
+                Text("No filters")
+                    .font(.siftCaption)
                     .foregroundStyle(.tertiary)
             } else {
                 // Indexed, and NOT keyed by column: a column can carry several filters at once —
@@ -90,19 +89,23 @@ public struct FilterBar: View {
                 // `flex-wrap`). A wrapping `Layout` is the fix if anyone ever hits it.
                 ForEach(Array(filters.enumerated()), id: \.offset) { index, filter in
                     FilterChip(filter: filter) { remove(at: index) }
+                        .transition(.opacity)
                 }
-                Button("clear all") { apply([]) }
+                Button("Clear All") { apply([]) }
             }
             Spacer(minLength: 8)
-            Button(showSQL ? "Hide SQL" : "Show SQL") { showSQL.toggle() }
+            Button(showSQL ? "Hide SQL" : "Show SQL") {
+                withAnimation(reduceMotion ? nil : Theme.transition) { showSQL.toggle() }
+            }
         }
         .controlSize(.small)
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
         .frame(minHeight: 32)
+        .siftAnimation(value: filters.count)
     }
 
-    /// Drops one chip. Index-based, matching `removeFilter(i)` (`web/index.html:894-898`) — see the
+    /// Drops one chip. Index-based, matching `removeFilter(i)` — see the
     /// `ForEach` above for why a column is not a key.
     private func remove(at index: Int) {
         var next = filters
@@ -121,7 +124,7 @@ public struct FilterBar: View {
     }
 }
 
-/// `.fchip` (`web/index.html:141-147`): bold column, the op label, and an × that removes it.
+/// `.fchip`: bold column, the op label, and an × that removes it.
 private struct FilterChip: View {
     let filter: Filter
     let remove: () -> Void
@@ -131,17 +134,17 @@ private struct FilterChip: View {
             Text(filter.col).bold()
             Text(filterChipLabel(filter))
             Button(action: remove) {
-                Text("×").font(.system(size: 13))
+                Text("×").font(.siftBody)
             }
             .buttonStyle(.plain)
-            .help("remove")
+            .help("Remove Filter")
         }
-        .font(.system(size: 11, design: .monospaced))
+        .font(.siftMono)
         .padding(.horizontal, 7)
         .padding(.vertical, 2)
-        .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
+        .background(Color.accentColor.opacity(0.12), in: RoundedRectangle.sift())
         .overlay(
-            RoundedRectangle(cornerRadius: 5)
+            RoundedRectangle.sift()
                 .strokeBorder(Color.accentColor.opacity(0.35)))
     }
 }

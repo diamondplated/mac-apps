@@ -366,55 +366,55 @@
     "reason": "Best-effort cleanup after completion or failure; the primary operation retains its own result."
   },
   {
-    "path": "Sources/SiftEngine/Verification.swift",
+    "path": "Sources/SiftVerify/Verification.swift",
     "code": "((try? FileManager.default.attributesOfItem(atPath: member(name)))?[.size] as? Int) ?? 0",
     "count": 1,
     "reason": "Existing metadata fallback: unavailable metadata selects the current absent/default path; retained for focused contract review."
   },
   {
-    "path": "Sources/SiftEngine/Verification.swift",
+    "path": "Sources/SiftVerify/Verification.swift",
     "code": "(try? String(contentsOfFile: Session.connectionsPath(in: ws.home), encoding: .utf8)) ?? \"\"",
     "count": 1,
     "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
   },
   {
-    "path": "Sources/SiftEngine/Verification.swift",
+    "path": "Sources/SiftVerify/Verification.swift",
     "code": "defer { try? FileManager.default.removeItem(at: root) }",
     "count": 1,
     "reason": "Best-effort cleanup after completion or failure; the primary operation retains its own result."
   },
   {
-    "path": "Sources/SiftEngine/Verification.swift",
+    "path": "Sources/SiftVerify/Verification.swift",
     "code": "guard Database.isExtensionName(name), let con = try? scratchDatabase().connect() else {",
     "count": 1,
     "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
   },
   {
-    "path": "Sources/SiftEngine/Verification.swift",
+    "path": "Sources/SiftVerify/Verification.swift",
     "code": "guard let t = try? await session.table(name) else { return nil }",
     "count": 1,
     "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
   },
   {
-    "path": "Sources/SiftEngine/Verification.swift",
+    "path": "Sources/SiftVerify/Verification.swift",
     "code": "let attributes = (try? FileManager.default.attributesOfItem(atPath: path)) ?? [:]",
     "count": 1,
     "reason": "Existing metadata fallback: unavailable metadata selects the current absent/default path; retained for focused contract review."
   },
   {
-    "path": "Sources/SiftEngine/Verification.swift",
+    "path": "Sources/SiftVerify/Verification.swift",
     "code": "return ((try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []).sorted()",
     "count": 1,
     "reason": "Existing debt: this failure is suppressed by the current implementation; changing its error contract requires a focused regression test."
   },
   {
-    "path": "Sources/SiftEngine/Verification.swift",
+    "path": "Sources/SiftVerify/Verification.swift",
     "code": "return (try? con.execute(\"LOAD \\(name)\")) != nil",
     "count": 1,
     "reason": "LOAD is a presence probe; failure selects INSTALL or reports the extension unavailable."
   },
   {
-    "path": "Sources/SiftEngine/Verification.swift",
+    "path": "Sources/SiftVerify/Verification.swift",
     "code": "try? await Task.sleep(nanoseconds: 20_000_000)",
     "count": 1,
     "reason": "Cancellation is handled by the surrounding loop or task; sleep failure itself needs no user error."

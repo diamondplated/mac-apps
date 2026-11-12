@@ -63,7 +63,7 @@ public struct ExportFormat: Sendable, Equatable {
 /// The formats the Export action can write. Ported from session.py's `EXPORT_FORMATS`.
 ///
 /// An ORDERED array, not a `[String: ExportFormat]`, and that is not a style preference: Python's
-/// dict is insertion-ordered and both UI menus (web/index.html and the AppKit sidebar) list the
+/// dict is insertion-ordered and the export menus list the
 /// six in exactly this order. A Swift `Dictionary` has no iteration order, so keying it would
 /// silently throw that away and leave the menu shuffling between launches — the same information
 /// loss `SourceSpec.readArgs`' doc comment bans for `columns=`. Look a key up with

@@ -45,7 +45,7 @@ public struct CSVSniff: Sendable, Equatable {
 /// SessionQueries.swift keeps its own, deliberately different `cellText` (falls back to
 /// `display`, for values headed to a panel label rather than to a decision); Task 5's review
 /// looked at the pair and ruled them genuinely different, unlike `cellInt`'s four copies.
-func cellText(_ cell: Cell) -> String {
+package func cellText(_ cell: Cell) -> String {
     if case .text(let s) = cell { return s }
     return ""
 }

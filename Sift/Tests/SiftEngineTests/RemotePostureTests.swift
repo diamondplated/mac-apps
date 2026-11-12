@@ -3,6 +3,7 @@ import Foundation
 import Testing
 import TestSupport
 @testable import SiftEngine
+@testable import SiftVerify
 import SiftCore
 
 // `harden(allowRemote:)` proved end to end, in the only place that can prove it: against a real

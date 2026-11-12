@@ -9,7 +9,7 @@ import DuckDBKit
 ///
 /// **Eviction is FIFO by insertion, not LRU, and that is deliberate.** The shipping web grid
 /// pushes the block onto `state.order` when it is stored and shifts the oldest off when the list
-/// passes `MAX_BLOCKS` (`web/index.html:423`, `web/index.html:826-830`); nothing touches a block
+/// passes `MAX_BLOCKS`; nothing touches a block
 /// on read. Ported as-is rather than "fixed" into an LRU, because with nearest-first fetching
 /// (`PageLoader`) insertion order already tracks the viewport: blocks arrive in the order the
 /// viewport asked for them. A read-touch would do the opposite of what it looks like — it would

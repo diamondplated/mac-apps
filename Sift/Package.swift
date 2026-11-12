@@ -23,6 +23,7 @@ let package = Package(
         .library(name: "SiftCore", targets: ["SiftCore"]),
         .library(name: "SiftEngine", targets: ["SiftEngine"]),
         .library(name: "SiftUI", targets: ["SiftUI"]),
+        .library(name: "SiftVerify", targets: ["SiftVerify"]),
         .executable(name: "sift", targets: ["sift"]),
     ],
     targets: [
@@ -71,7 +72,7 @@ let package = Package(
         // that connection is a `duckdb_connection`, not a `DuckDBKit.Connection`.
         .testTarget(
             name: "SiftEngineTests",
-            dependencies: ["SiftEngine", "SiftCore", "DuckDBKit", "CDuckDB", "TestSupport"]
+            dependencies: ["SiftEngine", "SiftVerify", "SiftCore", "DuckDBKit", "CDuckDB", "TestSupport"]
         ),
         // The whole view layer, and every decision in it. No linkerSettings, for the same reason
         // SiftEngine has none: DuckDBKit's rpath flags propagate transitively, and repeating them
@@ -91,14 +92,19 @@ let package = Package(
             name: "SiftApp",
             dependencies: ["SiftUI", "SiftEngine", "SiftCore"]
         ),
-        // The headless verification surface, and the reason browser mode could be deleted. Kept
-        // deliberately thin — a test target cannot import an `executableTarget`, so everything it
-        // does lives in SiftEngine/Verification.swift instead. No linkerSettings, for the same
-        // reason SiftEngine has none: DuckDBKit's rpath flags propagate transitively, and
-        // repeating them emits `ld: warning: duplicate -rpath`.
+        // The headless verification surface and its loopback HTTP oracle. A separate library so
+        // the app never links ~2,500 lines it cannot run: only the CLI and the tests depend on
+        // it. No linkerSettings, for the same reason SiftEngine has none.
+        .target(
+            name: "SiftVerify",
+            dependencies: ["SiftEngine", "SiftCore", "DuckDBKit"]
+        ),
+        // The headless CLI, and the reason browser mode could be deleted. Kept deliberately
+        // thin: a test target cannot import an `executableTarget`, so everything it does lives
+        // in SiftVerify/Verification.swift instead.
         .executableTarget(
             name: "sift",
-            dependencies: ["SiftEngine"]
+            dependencies: ["SiftEngine", "SiftVerify"]
         ),
     ]
 )

@@ -739,7 +739,7 @@ private func cellEquals(_ cell: Cell, _ value: SQLValue) -> Bool {
 ///
 /// Not `private`: Export.swift times its COPY the same way and shares this rather than keeping a
 /// second copy of the same rounding, on the same grounds as `cellInt`/`toDBValue` above.
-func millisecondsSince(_ started: DispatchTime) -> Double {
+package func millisecondsSince(_ started: DispatchTime) -> Double {
     let elapsed = Double(DispatchTime.now().uptimeNanoseconds - started.uptimeNanoseconds) / 1_000_000
     return (elapsed * 10).rounded() / 10
 }

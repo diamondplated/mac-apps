@@ -318,13 +318,13 @@ public struct ConnectionsSheet: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Connections").font(.system(size: 15, weight: .semibold))
+            Text("Connections").font(.siftTitle)
 
             Toggle("Allow remote data", isOn: allowRemoteBinding)
-                .font(.system(size: 12, weight: .medium))
+                .font(.siftLabelStrong)
                 .disabled(!loaded)
             Text(allowRemoteExplanation)
-                .font(.system(size: 12))
+                .font(.siftLabel)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
@@ -341,7 +341,7 @@ public struct ConnectionsSheet: View {
             if !loaded {
                 ProgressView().frame(maxWidth: .infinity)
             } else if config.connections.isEmpty {
-                Text("No saved connections.").font(.system(size: 12)).foregroundStyle(.secondary)
+                Text("No saved connections.").font(.siftLabel).foregroundStyle(.secondary)
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 8) {
@@ -357,7 +357,7 @@ public struct ConnectionsSheet: View {
             }
 
             Text(sasNote)
-                .font(.system(size: 11))
+                .font(.siftCaption)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
@@ -490,13 +490,13 @@ private struct ConnectionRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(spec.name).font(.system(size: 12, weight: .semibold))
+                Text(spec.name).font(.siftLabelStrong)
                 Text(connectionDetail(spec))
-                    .font(.system(size: 11))
+                    .font(.siftCaption)
                     .foregroundStyle(.secondary)
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(state.text)
-                        .font(.system(size: 11))
+                        .font(.siftCaption)
                         .foregroundStyle(state.isProblem ? Color.red : Color.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
@@ -573,7 +573,7 @@ private struct AddConnectionForm: View {
                 field("Name", text: $draft.name, prompt: "prod")
                 if draft.kind == .azure {
                     GridRow {
-                        Text("Sign in with").font(.system(size: 12)).gridColumnAlignment(.trailing)
+                        Text("Sign in with").font(.siftLabel).gridColumnAlignment(.trailing)
                         // The title is spelled even though it is hidden: `.labelsHidden()` drops the
                         // visual label and keeps the accessibility one, and `Picker("")` would leave
                         // VoiceOver reading an unnamed control.
@@ -602,7 +602,7 @@ private struct AddConnectionForm: View {
                     : "Nothing is stored: DuckDB asks the Azure CLI and your environment for the "
                         + "credential at read time."
             )
-            .font(.system(size: 11))
+            .font(.siftCaption)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
 
@@ -618,7 +618,7 @@ private struct AddConnectionForm: View {
 
     private func field(_ label: String, text: Binding<String>, prompt: String) -> some View {
         GridRow {
-            Text(label).font(.system(size: 12)).gridColumnAlignment(.trailing)
+            Text(label).font(.siftLabel).gridColumnAlignment(.trailing)
             TextField(label, text: text, prompt: Text(prompt))
                 .textFieldStyle(.roundedBorder)
                 .labelsHidden()
@@ -627,7 +627,7 @@ private struct AddConnectionForm: View {
 
     private func secureField(_ label: String, text: Binding<String>) -> some View {
         GridRow {
-            Text(label).font(.system(size: 12)).gridColumnAlignment(.trailing)
+            Text(label).font(.siftLabel).gridColumnAlignment(.trailing)
             SecureField(label, text: text)
                 .textFieldStyle(.roundedBorder)
                 .labelsHidden()

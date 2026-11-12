@@ -1,4 +1,5 @@
 import Foundation
+import SiftEngine
 
 /// A small HTTP/1.1 origin server on `127.0.0.1`, and the oracle every remote test reads its
 /// verdict from: register bytes at a path, point DuckDB (or `URLSession`) at
