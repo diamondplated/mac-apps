@@ -45,9 +45,7 @@ Reports are especially useful when they concern:
 - permission, signing, update, notarization, or login-item integrity; or
 - a path by which untrusted input can execute code.
 
-Visual Blur is explicitly not a redaction feature. Reports that blur leaves visual
-structure recoverable are expected behavior unless the UI presents it as secure.
-Likewise, macOS clipboard history, Universal Clipboard, system swap, third-party
+macOS clipboard history, Universal Clipboard, system swap, third-party
 Share services, and DRM-protected capture behavior are outside ScreenWren's direct
 control, though confusing or unsafe ScreenWren behavior around those boundaries is
 still worth reporting.

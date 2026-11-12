@@ -1,8 +1,8 @@
-# ScreenWren 0.5 product design
+# ScreenWren 0.6 product design
 
 Status: implemented product contract
 
-App version: 0.5.0 (13)
+App version: 0.6.0 (16)
 
 Platform: macOS 26 and newer
 
@@ -26,45 +26,62 @@ telemetry, or persistent capture history.
   failures open an editor. If newer clipboard content prevents delivery, retain
   the capture in Recents or open an editor when it exceeds the Recents memory cap.
 - Never silently substitute a different target when an exact repeat target is gone.
-- Treat opaque Redact as the privacy tool; label Blur as visual and not secure.
+- Opaque Redact is the only pixel-hiding tool; there is no visual blur to mistake for it.
 - Keep cancellation and failure visible, bounded, and free of hidden disk writes.
+
+## Look
+
+ScreenWren follows the Mac Tools suite look: native controls and the system accent
+colour; semantic colours resolved for the current appearance (layer colours are
+re-resolved in `updateLayer` or `viewDidChangeEffectiveAppearance`, never captured
+once); system text styles with nothing under 11 pt; one corner-radius scale with
+continuous corners — 6 for controls, 10 for cards, 14 for panels (`CornerRadius`);
+labels and at most a one-line footnote, no paragraphs; macOS title case. Floating
+panels (thumbnail, status notice, pins) use a material background and fade in and out
+in 0.12–0.2 s, without the slide when Reduce Motion is on. A closing panel reports
+itself closed at once and stops taking clicks while it fades.
 
 ## App surfaces
 
 ScreenWren is a menu-bar app with focused native surfaces:
 
-1. **Readiness** explains Screen Recording permission, records global shortcuts,
-   reports unavailable shortcuts, restores defaults, and controls Launch at Login.
+1. **Permissions & Shortcuts** shows Screen Recording permission, records global
+   shortcuts, reports unavailable shortcuts, restores defaults, and controls Launch at
+   Login. Its menu item is deliberately not called Settings.
 2. **Selector** captures a window or exact region with a loupe and physical-pixel
    dimensions.
 3. **Editor** provides PaperKit markup, local image intelligence, destructive image
-   operations, and explicit export actions.
-   Select, Pen, Arrow, Box, Text, Highlight, Step, Crop, and Redact have visible,
-   labeled controls above the native style toolbar. Arrow/Box collect a directional
-   drag before creating editable native markup; arrowheads follow the drag endpoint.
-   Shift snaps arrow angles. Select or Escape cancels pending drawing without
-   changing the image. Text creates a centered editable placeholder. Drawing
-   overlays follow the canvas during resizing, zoom, and scrolling. Image exports
-   render the same native markup; shapes are not flattened on insertion.
-   Pen/Highlight collect freehand mouse samples in the same first-click-enabled
-   overlay, appending editable PencilKit strokes to the PaperKit document. The
-   mode persists across strokes and allows direct tool changes and finish actions.
-   Native toolbar arrows, rectangles, text, and ink choices use these same paths.
-
-4. **Capture Preferences** chooses delivery behavior, the optional thumbnail, exact sizes,
-   aspect ratio, and saved size presets.
-5. **Recent Captures** browses the existing five-image, memory-only collection and combines
-   selected captures. Export, text preview, and redaction review are explicit action windows.
+   operations, and explicit export actions. Its header is one fixed-height row:
+   the native PaperKit markup toolbar; Crop, Redact, and Step (the image tools the
+   native toolbar lacks); Inspect, Copy Text, and Copy Subject; then drag-out, More,
+   and **Copy**, the one primary action. Header icons carry tooltips and spoken
+   names. Every control stays visible; the row sets the window's minimum width
+   rather than wrapping. Arrow/Box collect a directional drag before creating
+   editable native markup; arrowheads follow the drag endpoint. Shift snaps arrow
+   angles. Escape cancels pending drawing without changing the image. Text creates
+   a centered editable placeholder. Drawing overlays follow the canvas during
+   resizing, zoom, and scrolling. Image exports render the same native markup;
+   shapes are not flattened on insertion. The native pen and marker collect
+   freehand mouse samples in the same first-click-enabled overlay, appending
+   editable PencilKit strokes to the PaperKit document; the mode persists across
+   strokes and allows direct tool changes and finish actions.
+4. **Settings** live in the Mac Tools manager. **Settings…** (`⌘,`) opens
+   `mactools://app/screenWren`. A manager too old for that link is launched instead;
+   with no manager installed, ScreenWren explains that Mac Tools is required. The
+   manager edits delivery behavior, the optional thumbnail, exact sizes, aspect
+   ratio, and saved size presets through the settings bridge.
+5. **Recent Captures** browses the existing five-image, memory-only collection.
+   Export and redaction review are explicit action windows.
 
 Recents, pins, and review windows exist only for the current process.
 
 ## Readiness, permission, and shortcuts
 
-Ordinary launch and reopening stay quiet in the menu bar. **ScreenWren Readiness**
-opens only from its menu command or when an explicit capture needs permission. It says
-what Screen Recording access enables, links to the relevant System Settings pane,
+Ordinary launch and reopening stay quiet in the menu bar. **Permissions & Shortcuts**
+opens only from its menu command or when an explicit capture needs permission. It
+links to the relevant System Settings pane,
 distinguishes allowed, required, and relaunch-required states, and rechecks after
-ScreenWren becomes active. When macOS requires a restart after approval, Readiness
+ScreenWren becomes active. When macOS requires a restart after approval, the window
 offers a helper-mediated **Quit & Reopen ScreenWren** action that waits for the old
 process to exit before starting the replacement. Starting through the login item
 stays quiet.
@@ -114,7 +131,7 @@ and that another owner has not replaced the clipboard. A stale or cancelled comm
 must not write, open an editor, add a Recent, or change the repeat target.
 
 An ordinary image capture produces one image, attempts one clipboard delivery, and
-adds one memory-only Recent. The default opens no editor or thumbnail. Preferences
+adds one memory-only Recent. The default opens no editor or thumbnail. Settings
 can instead open an editor, pin the result, open an export window, or require
 redaction review. Review captures do not copy or enter Recents until explicit approval;
 Save mode opens an export window without copying. Direct OCR produces text only. A
@@ -146,13 +163,13 @@ Space has two deliberate meanings:
 
 The selector reports live physical-pixel dimensions. Its pixel loupe is filled from
 one transient full-display frame and keeps its crosshair aligned at display edges.
-Ordinary, timed, and text selectors use synchronized windows on all displays. Freeze
+Ordinary and text selectors use synchronized windows on all displays. Freeze
 and scrolling selectors remain on one display. Only the current pointer display's
 loupe frame is retained; moving to another display requests a replacement.
 
 Holding Shift on release or enabling adjustment mode keeps a region active. Arrows
 move by one output pixel, Option–arrows resize, and Shift uses ten-pixel steps. Return
-confirms. Exact dimensions and named size presets are in Capture Preferences; aspect
+confirms. Exact dimensions and named size presets are in Settings; aspect
 ratio constraints apply to free drags and keyboard resize.
 
 ## Capture modes
@@ -171,7 +188,7 @@ and repeat state.
 
 ### Repeat Last Capture
 
-Successful ordinary, front-window, freeze, and timed image captures may become the
+Successful ordinary, front-window, and freeze image captures may become the
 repeat target. Direct OCR, scrolling capture, Recents, and editor exports do not.
 
 - A region repeat requires the same display, frame, scale, and containment.
@@ -179,12 +196,6 @@ repeat target. Direct OCR, scrolling capture, Recents, and editor exports do not
   resolves that same window again.
 - A missing or changed target fails visibly. It never falls back to another window.
 - Repeat state is process-memory-only and disappears when ScreenWren quits.
-
-### Timed Capture
-
-The user selects a region, ScreenWren removes the overlay, restores the previous app
-when possible, counts down for three seconds in its menu-bar status, then performs a
-normal image capture. Starting another command or choosing Cancel invalidates it.
 
 ### Copy Text from Target
 
@@ -219,20 +230,19 @@ region-operation overlay owns input:
 | `N` | Next sequential numbered step |
 | `Esc` | Selection mode, or leave Inspect |
 
-Redact, Blur, Crop, Resize, Rotate, and Reset use the same flattened render path as
+Redact, Crop, Resize, Rotate, and Reset use the same flattened render path as
 export. Destructive operations register Undo first. Redact replaces selected pixels
-with opaque pixels. Blur is an appearance effect and is never presented as secure
-redaction.
+with opaque pixels.
 
 Finish actions are explicit:
 
 - **Copy** places the flattened edited image on the clipboard.
 - **Copy and Close** (`⌘Return`) closes only after a successful image clipboard
   write and does not intercept text entry or an attached sheet.
-- **Export Image** previews PNG/JPEG, original/1× dimensions, JPEG quality, and encoded size before Save. Direct PNG save, PNG file drag, and a chosen Share service remain available.
+- **Export Image** previews PNG/JPEG, original/1× dimensions, JPEG quality, and encoded size before Save. PNG file drag and a chosen Share service remain available.
 - **Pin Above Windows** creates a flattened, session-only floating image with opacity, zoom, and click-through controls. A global shortcut hides/restores pins; the menu can unlock them.
 
-## Review, text preview, and composition
+## Redaction review
 
 Redaction review detects email/phone patterns and literal text locally. Matching
 recognized lines are masked conservatively, with optional manually drawn rectangles.
@@ -241,12 +251,6 @@ The editor presents review as a sheet so edits cannot race with applying its sna
 A clipboard ticket prevents approval's asynchronous rendering from overwriting newer
 clipboard ownership or a newer explicit copy. Suggestions are not a guarantee that
 all sensitive data has been found.
-
-Structured text preview infers table cells or code spacing from recognized word
-positions. The preview remains editable and only the Copy button delivers text.
-Combining two to five Recents retains chronological ordering and creates a vertical,
-horizontal, or grid image, with a 64-million-pixel output bound. Combination opens an
-editor and leaves the clipboard unchanged; closing the picker cancels pending work.
 
 ## Instant Inspect
 
@@ -285,8 +289,8 @@ are announced through the app status and macOS accessibility announcements. The
 latest status remains in a wrapping menu row. Attention notices expire after eight
 seconds, never become key windows, and offer the relevant capture, Recents, or editor
 recovery action. Successful default captures remain quiet. Starting another capture
-dismisses the previous notice. The editor wraps its tools and actions at narrower
-widths and keeps status in a separate strip below the image. Escape
+dismisses the previous notice. The editor keeps its one-row header at every width
+and keeps status in a separate strip below the image. Escape
 cancels selectors and editor interaction modes. The menu remains a complete fallback
 for capture commands whose global shortcuts are unavailable.
 
@@ -315,7 +319,7 @@ The following checks establish different facts and must not be conflated:
 | `swift test --parallel` | Pure helpers and native component contracts pass on the build machine | Screen Recording permission or real desktop capture |
 | `./qa.sh` | Release build, Universal 2 app/helper, property lists, nested signing, ZIP, and executable self-checks | Visual polish, login launch, or notarized public distribution |
 | `SCREENWREN_LIVE_QA=1 ./qa.sh` | A permitted signed app can acquire real pixels in the current user session | Every monitor layout, source app, or protected-content case |
-| Manual macOS QA | Readiness, permission/relaunch, shortcut conflict, selector, editor, clipboard race, scrolling, and Launch at Login behavior on the tested machine | Untested hardware and OS combinations |
+| Manual macOS QA | Permissions & Shortcuts, permission/relaunch, shortcut conflict, selector, editor, clipboard race, scrolling, and Launch at Login behavior on the tested machine | Untested hardware and OS combinations |
 | Developer ID signing, notarization, and Gatekeeper verification | A particular release archive is suitable for public binary distribution | Correctness of a different local or rebuilt archive |
 
 A green headless run is not a claim that the permission dialog or editor has been
