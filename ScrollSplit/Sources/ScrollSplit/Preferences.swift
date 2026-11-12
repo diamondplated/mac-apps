@@ -22,6 +22,7 @@ final class Preferences {
         value.holdToQuit = defaults.bool(forKey: "holdToQuit")
         value.capsLockIsHyper = defaults.bool(forKey: "capsLockIsHyper") && CapsLockRemap.isAvailable
         value.capsLockTapIsEscape = defaults.bool(forKey: "capsLockTapIsEscape")
+        value.cutAndPasteFilesInFinder = defaults.bool(forKey: "cutAndPasteFilesInFinder")
         return value
     }
     func apply(_ patch: SettingsPatch) throws {
@@ -75,7 +76,7 @@ final class Preferences {
                 "enabled": s.enabled, "reverseVertical": s.reverseVertical, "reverseHorizontal": s.reverseHorizontal, "speedMultiplier": s.speedMultiplier,
                 "smoothScrolling": s.smoothScrolling, "sideButtonsNavigate": s.sideButtonsNavigate,
                 "mouseAccelerationOff": s.mouseAccelerationOff, "mouseAccelerationAvailable": PointerAcceleration.isAvailable,
-                "holdToQuit": s.holdToQuit, "capsLockIsHyper": s.capsLockIsHyper, "capsLockTapIsEscape": s.capsLockTapIsEscape,
+                "holdToQuit": s.holdToQuit, "capsLockIsHyper": s.capsLockIsHyper, "capsLockTapIsEscape": s.capsLockTapIsEscape, "cutAndPasteFilesInFinder": s.cutAndPasteFilesInFinder,
                 "capsLockRemapAvailable": CapsLockRemap.isAvailable, "shortcuts": shortcuts.snapshot,
                 "permissions": permissions, "eventTapStatus": tapStatus, "permissionsSource": tapStatus == "checked" ? "runningApp" : "currentProcess"]
     }

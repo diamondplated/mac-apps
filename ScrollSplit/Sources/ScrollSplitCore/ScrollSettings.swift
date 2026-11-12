@@ -12,16 +12,18 @@ public struct ScrollSettings: Equatable {
     public var holdToQuit = false
     public var capsLockIsHyper = false
     public var capsLockTapIsEscape = false
+    public var cutAndPasteFilesInFinder = false
     public init() {}
 
     /// The key tap exists only while a feature that needs it is on.
-    public var needsKeyTap: Bool { enabled && (holdToQuit || capsLockIsHyper) }
+    public var needsKeyTap: Bool { enabled && (holdToQuit || capsLockIsHyper || cutAndPasteFilesInFinder) }
 }
 
 public struct SettingsPatch {
     public static let booleanKeys: Set<String> = ["enabled", "reverseVertical", "reverseHorizontal", "launchAtLogin",
                                                   "smoothScrolling", "sideButtonsNavigate", "mouseAccelerationOff",
-                                                  "holdToQuit", "capsLockIsHyper", "capsLockTapIsEscape"]
+                                                  "holdToQuit", "capsLockIsHyper", "capsLockTapIsEscape",
+                                                  "cutAndPasteFilesInFinder"]
     public static let shortcutKeys: Set<String> = ["shortcuts", "resetShortcuts"]
     /// Boolean and number preferences, written as they are.
     public let values: [String: Any]

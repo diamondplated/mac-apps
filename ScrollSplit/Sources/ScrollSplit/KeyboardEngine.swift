@@ -24,6 +24,7 @@ final class KeyboardEngine {
     private var tap: (port: CFMachPort, source: CFRunLoopSource)?
     private var gate = HoldToQuitGate()
     private var hyper = HyperKey()
+    private var cut = FinderCut()
     private let panel = HoldToQuitPanel()
     private let remap = CapsLockRemap()
     private(set) var settings = ScrollSettings()
@@ -36,6 +37,7 @@ final class KeyboardEngine {
         settings = newSettings
         if !(settings.enabled && settings.holdToQuit) { endHold() }
         if !(settings.enabled && settings.capsLockIsHyper) { hyper.reset() }
+        if !(settings.enabled && settings.cutAndPasteFilesInFinder) { cut.reset() }
         guard settings.needsKeyTap, AXIsProcessTrusted(), CGPreflightListenEventAccess() else {
             stop()
             return
@@ -55,6 +57,7 @@ final class KeyboardEngine {
         }
         endHold()
         hyper.reset()
+        cut.reset()
     }
 
     private func makeTap() -> (port: CFMachPort, source: CFRunLoopSource)? {
@@ -82,7 +85,7 @@ final class KeyboardEngine {
         let pass = Unmanaged.passUnretained(event)
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             // Keys may have been released while the tap was off: start both features clean.
-            endHold(); hyper.reset()
+            endHold(); hyper.reset(); cut.reset()
             if let tap, settings.needsKeyTap, AXIsProcessTrusted(), CGPreflightListenEventAccess() {
                 CGEvent.tapEnable(tap: tap.port, enable: true)
             }
@@ -113,6 +116,7 @@ final class KeyboardEngine {
                 event.flags = event.flags.union(HyperKey.flags)
             }
         }
+        if let claimed = handleFinderCut(isDown: isDown, keyCode: keyCode, event: event) { return claimed ? nil : pass }
         let action: HoldToQuitGate.Action
         if isDown {
             action = gate.keyDown(keyCode: keyCode, flags: event.flags,
@@ -140,6 +144,58 @@ final class KeyboardEngine {
             DispatchQueue.main.asyncAfter(deadline: .now() + HoldToQuitGate.holdDuration) { [weak self] in self?.holdTimerFired() }
             return nil
         }
+    }
+
+    /// Cut and paste files in Finder. Returns true to swallow the event, false to pass it, nil
+    /// when the feature has nothing to say (the other features then look at the key).
+    private func handleFinderCut(isDown: Bool, keyCode: Int64, event: CGEvent) -> Bool? {
+        guard isDown else { return cut.keyUp(keyCode: keyCode) == .swallow ? true : nil }
+        let enabled = settings.enabled && settings.cutAndPasteFilesInFinder
+        // The clipboard and the front app are read only for the two keys that could matter.
+        let relevant = enabled && (keyCode == FinderCut.xKeyCode || keyCode == FinderCut.vKeyCode)
+        let front = relevant ? NSWorkspace.shared.frontmostApplication : nil
+        let action = cut.keyDown(keyCode: keyCode, flags: event.flags,
+                                 isRepeat: event.getIntegerValueField(.keyboardEventAutorepeat) != 0,
+                                 enabled: enabled, isOwnEvent: false,
+                                 frontmostBundleIdentifier: front?.bundleIdentifier,
+                                 changeCount: relevant ? NSPasteboard.general.changeCount : 0,
+                                 focus: { Self.finderFocus(pid: front?.processIdentifier) })
+        switch action {
+        case .pass: return nil
+        case .swallow: return true
+        case .copy(let generation, let before):
+            guard let pid = front?.processIdentifier else { return nil }
+            // Posting and the settle check run after the callback returns: no slow work in the tap.
+            DispatchQueue.main.async { postKeyPress(8, character: "c", flags: .maskCommand, to: pid) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + FinderCut.copySettleDelay) { [weak self] in
+                self?.cut.copyFinished(generation: generation, changeCountBefore: before,
+                                       changeCountNow: NSPasteboard.general.changeCount)
+            }
+            return true
+        case .move:
+            guard let pid = front?.processIdentifier else { return nil }
+            DispatchQueue.main.async { postKeyPress(CGKeyCode(FinderCut.vKeyCode), character: "v", flags: [.maskCommand, .maskAlternate], to: pid) }
+            return true
+        }
+    }
+
+    /// One Accessibility query for the role of Finder's focused element, with a short
+    /// messaging timeout. Anything but a clear answer reads as timeout or error: pass the key.
+    private static func finderFocus(pid: pid_t?) -> FinderCut.Focus {
+        guard let pid else { return .error }
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, FinderCut.focusTimeout)
+        var focused: CFTypeRef?
+        let focusError = AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &focused)
+        if focusError == .cannotComplete { return .timeout }
+        guard focusError == .success, let focused, CFGetTypeID(focused) == AXUIElementGetTypeID() else { return .error }
+        let element = focused as! AXUIElement
+        AXUIElementSetMessagingTimeout(element, FinderCut.focusTimeout)
+        var role: CFTypeRef?
+        let roleError = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role)
+        if roleError == .cannotComplete { return .timeout }
+        guard roleError == .success else { return .error }
+        return FinderCut.Focus.from(role: role as? String)
     }
 
     private func holdTimerFired() {
