@@ -14,10 +14,10 @@ final class SettingsPageSnapshotTests: XCTestCase {
         let library = LibraryModel()
         library.settingsApp = app
         library.toolSettings.snapshot = try JSONDecoder().decode(ToolSettingsSnapshot.self, from: JSONSerialization.data(withJSONObject: json))
-        let page = Form { ToolSettingsView(library: library, app: app) }.formStyle(.grouped).frame(width: 720, height: 760)
+        let page = Form { ToolSettingsView(library: library, app: app) }.formStyle(.grouped).frame(width: 720, height: 1100)
         let host = NSHostingView(rootView: page)
         host.appearance = NSAppearance(named: appearance)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 760), styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 1100), styleMask: [.borderless], backing: .buffered, defer: false)
         window.appearance = NSAppearance(named: appearance)
         window.contentView = host
         host.layoutSubtreeIfNeeded()
@@ -34,6 +34,7 @@ final class SettingsPageSnapshotTests: XCTestCase {
         let directory = ProcessInfo.processInfo.environment["MACTOOLS_SETTINGS_SNAPSHOT"]
         let dockPeek: [String: Any] = ["previewsEnabled": true, "showsTabs": true, "dismissalDelay": 0.6, "switcherEnabled": true,
                                        "dockClickHidesFrontApp": false, "dockScrollCyclesWindows": true, "dockMiddleClickOpensWindow": false,
+                                       "restoresWindowLayouts": true,
                                        "permissions": ["accessibility": true, "screenRecording": false], "permissionsSource": "runningApp"]
         let browsers: [[String: Any]] = [["identifier": "com.google.Chrome", "name": "Google Chrome",
                                           "profiles": [["directory": "Profile 1", "name": "Work"], ["directory": "Default", "name": "Personal"]]],
@@ -45,10 +46,17 @@ final class SettingsPageSnapshotTests: XCTestCase {
             ["id": "3", "domain": "apple.com", "includeSubdomains": true, "browserIdentifier": "com.apple.Safari"],
         ]
         let linkRoutes: [String: Any] = ["defaultBrowserIdentifier": "com.apple.Safari", "isDefaultBrowser": true, "availableBrowsers": browsers,
-                                         "rules": rules, "stripsTrackingParameters": true, "unwrapsRedirects": false]
+                                         "rules": rules, "stripsTrackingParameters": true, "unwrapsRedirects": false,
+                                         "fileRules": [["id": "f1", "fileExtension": "md", "folder": "~/Notes/Work", "applicationIdentifier": "com.apple.TextEdit"],
+                                                       ["id": "f2", "fileExtension": "csv", "applicationIdentifier": "com.apple.Numbers"]],
+                                         "takenOverExtensions": ["md", "csv"]]
         let scrollSplit: [String: Any] = ["enabled": true, "reverseVertical": true, "reverseHorizontal": false, "speedMultiplier": 1.5,
                                           "smoothScrolling": true, "sideButtonsNavigate": true, "mouseAccelerationOff": false,
                                           "mouseAccelerationAvailable": true,
+                                          "holdToQuit": true, "capsLockIsHyper": true, "capsLockTapIsEscape": false, "capsLockRemapAvailable": true,
+                                          "shortcuts": [["command": "pastePlainText", "title": "Paste as Plain Text",
+                                                         "shortcut": ["keyCode": 9, "carbonModifiers": 4352, "keyEquivalent": "v", "keyLabel": "V"]],
+                                                        ["command": "toggleMicrophoneMute", "title": "Mute or Unmute Microphone", "shortcut": NSNull()]],
                                           "permissions": ["accessibility": true, "inputMonitoring": true, "eventTapActive": true],
                                           "permissionsSource": "runningApp"]
         for appearance in [NSAppearance.Name.aqua, .darkAqua] {

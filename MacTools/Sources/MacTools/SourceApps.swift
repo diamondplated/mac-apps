@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 
 /// An app a link can come from, for LinkRoutes rules that depend on where a link was clicked.
 struct SourceApp: Identifiable, Equatable {
@@ -34,5 +35,26 @@ enum SourceApps {
         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: identifier) else { return identifier }
         let name = FileManager.default.displayName(atPath: url.path)
         return name.hasSuffix(".app") ? String(name.dropLast(4)) : name
+    }
+}
+
+/// Apps that can open a kind of file, for LinkRoutes file rules.
+enum FileApps {
+    /// Apps macOS says can open files with this extension, by name.
+    @MainActor
+    static func able(toOpen fileExtension: String) -> [SourceApp] {
+        guard !fileExtension.isEmpty, let type = UTType(filenameExtension: fileExtension) else { return [] }
+        return NSWorkspace.shared.urlsForApplications(toOpen: type).compactMap { url in
+            guard let identifier = Bundle(url: url)?.bundleIdentifier else { return nil }
+            let name = FileManager.default.displayName(atPath: url.path)
+            return SourceApp(identifier: identifier, name: name.hasSuffix(".app") ? String(name.dropLast(4)) : name)
+        }
+    }
+
+    /// A folder as it is shown in a rule: the home folder shortened to `~`.
+    static func display(folder: String?, home: String = NSHomeDirectory()) -> String {
+        guard let folder, !folder.isEmpty else { return "Any folder" }
+        if folder == home { return "~" }
+        return folder.hasPrefix(home + "/") ? "~" + folder.dropFirst(home.count) : folder
     }
 }

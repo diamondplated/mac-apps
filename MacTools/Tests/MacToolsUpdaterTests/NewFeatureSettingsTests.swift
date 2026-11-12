@@ -33,6 +33,58 @@ final class NewFeatureSettingsTests: XCTestCase {
         XCTAssertEqual(newer.mouseAccelerationAvailable, false)
     }
 
+    func testRoundThreeKeysAreAbsentFromOlderAppsAndReadFromNewerOnes() throws {
+        XCTAssertNil(try snapshot("dockPeek").restoresWindowLayouts)
+        XCTAssertEqual(try snapshot("dockPeek", ["restoresWindowLayouts": true]).restoresWindowLayouts, true)
+        XCTAssertFalse(try snapshot("scrollSplit").hasKeyboardOverrides)
+        let keyboard = try snapshot("scrollSplit", ["holdToQuit": true, "capsLockIsHyper": false, "capsLockTapIsEscape": false,
+                                                    "capsLockRemapAvailable": false,
+                                                    "shortcuts": [["command": "pastePlainText", "title": "Paste as Plain Text", "shortcut": NSNull()]]])
+        XCTAssertTrue(keyboard.hasKeyboardOverrides)
+        XCTAssertEqual(keyboard.capsLockRemapAvailable, false)
+        XCTAssertEqual(keyboard.shortcuts?.first?.command, "pastePlainText")
+        XCTAssertNil(keyboard.shortcuts?.first?.shortcut)
+        XCTAssertNil(try snapshot("linkRoutes").fileRules)
+        let files = try snapshot("linkRoutes", ["fileRules": [["id": "1", "fileExtension": "md", "folder": "~/Notes", "applicationIdentifier": "com.example.editor"]],
+                                                "takenOverExtensions": ["md"]])
+        XCTAssertEqual(files.fileRules?.first?.folder, "~/Notes")
+        XCTAssertEqual(files.takenOverExtensions, ["md"])
+    }
+
+    func testAFileRuleIsTidiedBeforeItIsSaved() throws {
+        let rule = FileRouteRule(id: "1", fileExtension: " *.MD ", folder: "   ", applicationIdentifier: "com.example.editor")
+        let ready = rule.readyToSave
+        XCTAssertEqual(ready.fileExtension, "md")
+        XCTAssertNil(ready.folder)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(ready)) as? [String: Any])
+        XCTAssertEqual(Set(json.keys), ["id", "fileExtension", "applicationIdentifier"])
+        XCTAssertEqual(FileRouteRule(id: "2", fileExtension: "csv", folder: " /Volumes/Data ", applicationIdentifier: "x").readyToSave.folder, "/Volumes/Data")
+    }
+
+    func testFoldersAreShownRelativeToHome() {
+        XCTAssertEqual(FileApps.display(folder: nil), "Any folder")
+        XCTAssertEqual(FileApps.display(folder: "/Users/someone/Notes/Work", home: "/Users/someone"), "~/Notes/Work")
+        XCTAssertEqual(FileApps.display(folder: "/Users/someone", home: "/Users/someone"), "~")
+        XCTAssertEqual(FileApps.display(folder: "/Users/someoneelse/Notes", home: "/Users/someone"), "/Users/someoneelse/Notes")
+    }
+
+    @MainActor
+    func testFileRuleDraftsSurviveARefreshAndKeepEditsMadeDuringASave() throws {
+        let model = ToolSettingsModel()
+        let saved = FileRouteRule(id: "1", fileExtension: "md", applicationIdentifier: "a")
+        model.synchronizeFileRuleDraft([saved])
+        model.fileRules.append(FileRouteRule(id: "2", fileExtension: "csv", applicationIdentifier: "b"))
+        let sent = model.fileRules
+        model.synchronizeFileRuleDraft([saved])
+        XCTAssertEqual(model.fileRules.count, 2)
+        model.fileRules[1].fileExtension = "tsv"
+        model.fileRulesSaved(sent, sent: sent)
+        XCTAssertEqual(model.fileRules[1].fileExtension, "tsv")
+        XCTAssertTrue(model.hasUnsavedFileRules)
+        model.discardFileRuleChanges()
+        XCTAssertEqual(model.fileRules, sent)
+    }
+
     func testSourceRulesAreOfferedOnlyWhenLinkRoutesReportsLinkCleaning() throws {
         XCTAssertFalse(try snapshot("linkRoutes").supportsSourceRules)
         let newer = try snapshot("linkRoutes", ["stripsTrackingParameters": true, "unwrapsRedirects": false])

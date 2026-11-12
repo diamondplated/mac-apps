@@ -14,6 +14,7 @@ struct ToolSettingsSnapshot: Decodable {
     var dockClickHidesFrontApp: Bool?
     var dockScrollCyclesWindows: Bool?
     var dockMiddleClickOpensWindow: Bool?
+    var restoresWindowLayouts: Bool?
     var captureDestination: String?
     var showsThumbnail: Bool?
     var adjustBeforeCapture: Bool?
@@ -32,6 +33,13 @@ struct ToolSettingsSnapshot: Decodable {
     var mouseAccelerationOff: Bool?
     /// False when this Mac cannot turn acceleration off per device. Read-only.
     var mouseAccelerationAvailable: Bool?
+    // ScrollSplit's keyboard overrides. Absent from older ScrollSplit builds.
+    var holdToQuit: Bool?
+    var capsLockIsHyper: Bool?
+    var capsLockTapIsEscape: Bool?
+    /// False when this Mac cannot remap Caps Lock. Read-only.
+    var capsLockRemapAvailable: Bool?
+    var hasKeyboardOverrides: Bool { holdToQuit != nil || capsLockIsHyper != nil }
     var hasMouseFixes: Bool { smoothScrolling != nil || sideButtonsNavigate != nil || mouseAccelerationOff != nil }
     var permissions: [String: Bool]?
     var permissionsSource: String?
@@ -66,6 +74,30 @@ struct ToolSettingsSnapshot: Decodable {
     var stripsTrackingParameters: Bool?
     var unwrapsRedirects: Bool?
     var supportsSourceRules: Bool { stripsTrackingParameters != nil }
+    // LinkRoutes file rules. Absent from older LinkRoutes builds.
+    var fileRules: [FileRouteRule]?
+    /// File types LinkRoutes is currently the default app for. Read-only.
+    var takenOverExtensions: [String]?
+}
+
+/// "Files of this type, in this folder, open with this app."
+struct FileRouteRule: Codable, Equatable, Identifiable {
+    var id: String = UUID().uuidString
+    var fileExtension: String
+    /// An absolute or `~/` path, or nil for anywhere.
+    var folder: String?
+    var applicationIdentifier: String
+
+    /// The rule as LinkRoutes expects it: a bare lowercase extension and no empty folder.
+    var readyToSave: FileRouteRule {
+        var rule = self
+        var ext = fileExtension.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        while ext.hasPrefix(".") || ext.hasPrefix("*") { ext.removeFirst() }
+        rule.fileExtension = ext
+        let trimmed = folder?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        rule.folder = trimmed.isEmpty ? nil : trimmed
+        return rule
+    }
 }
 
 struct BrowserRouteRule: Codable, Equatable, Identifiable {
@@ -158,6 +190,24 @@ final class ToolSettingsModel: ObservableObject {
     /// Values the user just chose, shown immediately while the app confirms them.
     @Published private(set) var pending: [String: Any] = [:]
     var hasUnsavedRoutes: Bool { routeRules != savedRouteRules }
+    @Published var fileRules: [FileRouteRule] = []
+    @Published private(set) var savedFileRules: [FileRouteRule] = []
+    var hasUnsavedFileRules: Bool { fileRules != savedFileRules }
+
+    /// Adopts the app's saved file rules unless the user has unsaved edits.
+    func synchronizeFileRuleDraft(_ rules: [FileRouteRule]) {
+        guard !hasUnsavedFileRules else { return }
+        fileRules = rules
+        savedFileRules = rules
+    }
+
+    /// Records a finished save. Edits made while it was in flight are kept as a new draft.
+    func fileRulesSaved(_ saved: [FileRouteRule], sent: [FileRouteRule]) {
+        if fileRules == sent { fileRules = saved }
+        savedFileRules = saved
+    }
+
+    func discardFileRuleChanges() { fileRules = savedFileRules }
     /// True while a read or write may be holding the app manager, including a read that a
     /// newer one has superseded. Installs and other actions wait for this to clear.
     var isUsingManager: Bool { saving || readsInFlight > 0 }
@@ -193,6 +243,7 @@ final class ToolSettingsModel: ObservableObject {
         selectionHeight = snapshot.selectionHeight.flatMap { $0 > 0 ? String($0) : nil } ?? ""
         scrollSpeed = snapshot.speedMultiplier ?? 1
         if let rules = snapshot.rules { synchronizeRouteDraft(rules) }
+        if let rules = snapshot.fileRules { synchronizeFileRuleDraft(rules) }
     }
 
     /// Reads an app's settings. A newer request supersedes an older one, so moving between

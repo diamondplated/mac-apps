@@ -16,6 +16,7 @@ struct ToolSettingsView: View {
     }
 
     private var app: ManagedApp { explicitApp ?? library.settingsApp }
+    @State private var confirmingStopRouting = false
 
     var body: some View {
         if let snapshot = settings.snapshot, snapshot.app == app.rawValue {
@@ -25,8 +26,13 @@ struct ToolSettingsView: View {
                 captureSettings(snapshot)
                 selectionSettings(snapshot)
                 shortcutSettings(snapshot)
-            case .scrollSplit: scrollSettings(snapshot)
-            case .linkRoutes: linkSettings(snapshot)
+            case .scrollSplit:
+                scrollSettings(snapshot)
+                keyboardSettings(snapshot)
+                if snapshot.shortcuts?.isEmpty == false { shortcutSettings(snapshot) }
+            case .linkRoutes:
+                linkSettings(snapshot)
+                fileSettings(snapshot)
             case .latent, .sift: EmptyView()
             }
             general(snapshot)
@@ -162,6 +168,15 @@ struct ToolSettingsView: View {
                 Text("Dock Clicks")
             } footer: {
                 footnote("These change what the Dock normally does, so they start off.")
+            }
+        }
+        if let restores = value.restoresWindowLayouts {
+            Section {
+                Toggle("Put windows back when displays change", isOn: toggle(restores, key: "restoresWindowLayouts"))
+            } header: {
+                Text("Window Layouts")
+            } footer: {
+                footnote("DockPeek remembers where windows were for each monitor setup. Save or restore a layout by hand from its menu bar menu.")
             }
         }
     }
@@ -351,6 +366,31 @@ struct ToolSettingsView: View {
         }
     }
 
+    @ViewBuilder
+    private func keyboardSettings(_ value: ToolSettingsSnapshot) -> some View {
+        if value.hasKeyboardOverrides {
+            Section {
+                if let hold = value.holdToQuit {
+                    Toggle("Hold ⌘Q to quit", isOn: toggle(hold, key: "holdToQuit"))
+                }
+                if let hyper = value.capsLockIsHyper {
+                    Toggle("Caps Lock is a Hyper key (⌃⌥⇧⌘)", isOn: toggle(hyper, key: "capsLockIsHyper"))
+                        .disabled(value.capsLockRemapAvailable == false)
+                    if let tap = value.capsLockTapIsEscape {
+                        Toggle("Tap Caps Lock for Escape", isOn: toggle(tap, key: "capsLockTapIsEscape"))
+                            .disabled(!(settings.pending["capsLockIsHyper"] as? Bool ?? hyper))
+                    }
+                }
+            } header: {
+                Text("Keyboard")
+            } footer: {
+                footnote(value.capsLockRemapAvailable == false
+                    ? "Caps Lock can’t be remapped on this Mac."
+                    : "While Caps Lock is a Hyper key it no longer locks capitals.")
+            }
+        }
+    }
+
     // MARK: LinkRoutes
 
     @ViewBuilder
@@ -400,6 +440,104 @@ struct ToolSettingsView: View {
             footnote(value.supportsSourceRules
                 ? "The first rule that matches wins. A rule can also depend on the app a link was clicked in; choose it from the rule’s menu."
                 : "The first rule that matches wins.")
+        }
+    }
+
+    @ViewBuilder
+    private func fileSettings(_ value: ToolSettingsSnapshot) -> some View {
+        if value.fileRules != nil {
+            Section {
+                ForEach($settings.fileRules) { $rule in fileRow($rule) }
+                HStack {
+                    Button("Add File Rule", systemImage: "plus") {
+                        settings.fileRules.append(FileRouteRule(fileExtension: "", applicationIdentifier: ""))
+                    }
+                    Spacer()
+                    if settings.hasUnsavedFileRules {
+                        Button("Revert") { settings.discardFileRuleChanges() }
+                        Button("Save File Rules") { saveFileRules() }.buttonStyle(.borderedProminent)
+                    }
+                }
+                if let taken = value.takenOverExtensions, !taken.isEmpty {
+                    LabeledContent("LinkRoutes opens \(ListFormatter.localizedString(byJoining: taken.map { "." + $0 })) files first") {
+                        Button("Stop Routing Files…") { confirmingStopRouting = true }
+                    }
+                }
+            } header: {
+                Text("Files")
+            } footer: {
+                footnote("The first rule that matches wins. LinkRoutes becomes the default app for a file type only while that type has a rule; files that match no rule open in the app that was the default before.")
+            }
+            .confirmationDialog("Stop routing files?", isPresented: $confirmingStopRouting, titleVisibility: .visible) {
+                Button("Stop Routing Files") { save(["stopRoutingFiles": true]) }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Every file type goes back to the app that opened it before, and the file rules are removed.")
+            }
+        }
+    }
+
+    /// One file rule on one line: the type, where, and what opens it.
+    private func fileRow(_ rule: Binding<FileRouteRule>) -> some View {
+        let id = rule.wrappedValue.id
+        let ext = rule.wrappedValue.readyToSave.fileExtension
+        let current = rule.wrappedValue.applicationIdentifier
+        let apps = SourceApps.choices(running: FileApps.able(toOpen: ext), current: current,
+                                      excluding: [ManagedApp.linkRoutes.bundleIdentifier], nameFor: SourceApps.name(for:))
+        return HStack(spacing: 8) {
+            TextField("Type", text: rule.fileExtension, prompt: Text("md")).textFieldStyle(.roundedBorder).labelsHidden()
+                .frame(width: 64).accessibilityLabel("File extension")
+            Text("in").foregroundStyle(.secondary)
+            Text(FileApps.display(folder: rule.wrappedValue.folder)).lineLimit(1).truncationMode(.middle)
+                .foregroundStyle(rule.wrappedValue.folder == nil ? .secondary : .primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Image(systemName: "arrow.right").font(.caption).foregroundStyle(.tertiary)
+            Picker("Open With", selection: rule.applicationIdentifier) {
+                if current.isEmpty { Text("Choose an app").tag("") }
+                ForEach(apps) { app in Text(app.name).tag(app.identifier) }
+            }.labelsHidden().frame(width: 170)
+            Menu {
+                Button("Choose Folder…") { chooseFolder(for: rule) }
+                Button("Any Folder") { rule.wrappedValue.folder = nil }.disabled(rule.wrappedValue.folder == nil)
+                Divider()
+                Button("Move Up") { moveFileRule(id, by: -1) }.disabled(settings.fileRules.first?.id == id)
+                Button("Move Down") { moveFileRule(id, by: 1) }.disabled(settings.fileRules.last?.id == id)
+                Divider()
+                Button("Remove", role: .destructive) { settings.fileRules.removeAll { $0.id == id } }
+            } label: {
+                Image(systemName: "ellipsis")
+            }
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("Rule options")
+        }
+    }
+
+    private func chooseFolder(for rule: Binding<FileRouteRule>) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose"
+        panel.message = "Files inside this folder follow the rule."
+        if panel.runModal() == .OK, let url = panel.url { rule.wrappedValue.folder = url.path }
+    }
+
+    private func moveFileRule(_ id: String, by offset: Int) {
+        guard let index = settings.fileRules.firstIndex(where: { $0.id == id }), settings.fileRules.indices.contains(index + offset) else { return }
+        settings.fileRules.swapAt(index, index + offset)
+    }
+
+    private func saveFileRules() {
+        let selectedApp = app
+        let sent = settings.fileRules
+        Task {
+            let prepared = sent.map(\.readyToSave)
+            guard let data = try? JSONEncoder().encode(prepared),
+                  let rules = try? JSONSerialization.jsonObject(with: data) else { return }
+            let accepted = await settings.save(["fileRules": rules], app: selectedApp, library: library)
+            if accepted {
+                let stored = library.settingsApp == selectedApp ? settings.snapshot?.fileRules : nil
+                settings.fileRulesSaved(stored ?? prepared, sent: sent)
+            }
         }
     }
 
