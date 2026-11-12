@@ -351,7 +351,7 @@ struct FolderRowView: View {
             chevron
             Image(systemName: "folder")
                 .foregroundStyle(isSelected ? Color.white : Color.accentColor)
-                .font(.system(size: 12))
+                .font(.callout)
             Text(node.name)
                 .font(.system(.callout))
                 .foregroundStyle(isSelected ? Color.white : Color.primary)
@@ -380,7 +380,7 @@ struct FolderRowView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(isSelected ? Color.accentColor : Color.clear,
-                    in: RoundedRectangle(cornerRadius: 4))
+                    in: Theme.shape(Theme.Radius.control))
         .padding(.horizontal, 4)
         .contentShape(Rectangle())
         // Tree-driven loads:
@@ -440,7 +440,7 @@ struct FolderRowView: View {
                 node.isExpanded.toggle()
             } label: {
                 Image(systemName: node.isExpanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.caption.weight(.semibold))
                     .frame(width: 12, height: 12)
             }
             .buttonStyle(.plain)
@@ -450,7 +450,7 @@ struct FolderRowView: View {
                 node.isExpanded.toggle()
             } label: {
                 Image(systemName: node.isExpanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.caption.weight(.semibold))
                     .frame(width: 12, height: 12)
             }
             .buttonStyle(.plain)

@@ -55,52 +55,19 @@ public func vimGGTwoChord() async throws {
     try require(keymap.pendingPrefix.isEmpty, "second g should clear pendingPrefix, got \(keymap.pendingPrefix)")
 }
 
+/// Vim marks were removed. `m` and `'` must not open a chord that would
+/// swallow the next key.
 @MainActor
-public func vimMarkRoundtrip() async throws {
+public func vimRetiredMarkKeysAreInert() async throws {
     let keymap = VimKeymap()
-    let folder = URL(fileURLWithPath: "/tmp/photos")
-    let url = folder.appendingPathComponent("p3.jpg")
-
-    // Set: m, then a
-    let m = keymap.handle(
-        keyCharacter: "m",
-        modifiers: [],
-        currentURL: url,
-        currentIndex: 3,
-        totalCount: 5
-    )
-    try require(m == .none, "m alone should return .none, got \(m)")
-    try require(keymap.pendingPrefix == "m", "m should set pendingPrefix=m, got \(keymap.pendingPrefix)")
-
-    let a = keymap.handle(
-        keyCharacter: "a",
-        modifiers: [],
-        currentURL: url,
-        currentIndex: 3,
-        totalCount: 5
-    )
-    try require(a == .setMark("a"), "expected .setMark(a), got \(a)")
-    try require(keymap.marks[Character("a")] == url, "mark a should map to current URL, got \(String(describing: keymap.marks[Character("a")]))")
-
-    // Jump: ', then a
-    let quote = keymap.handle(
-        keyCharacter: "'",
-        modifiers: [],
-        currentURL: url,
-        currentIndex: 3,
-        totalCount: 5
-    )
-    try require(quote == .none, "' alone should return .none, got \(quote)")
-    try require(keymap.pendingPrefix == "'", "' should set pendingPrefix=', got \(keymap.pendingPrefix)")
-
-    let jump = keymap.handle(
-        keyCharacter: "a",
-        modifiers: [],
-        currentURL: url,
-        currentIndex: 3,
-        totalCount: 5
-    )
-    try require(jump == .jumpToMark("a"), "expected .jumpToMark(a), got \(jump)")
+    let url = URL(fileURLWithPath: "/tmp/photos/p3.jpg")
+    for key: Character in ["m", "'"] {
+        let action = keymap.handle(keyCharacter: key, modifiers: [], currentURL: url, currentIndex: 3, totalCount: 5)
+        try require(action == .none, "\(key) should do nothing, got \(action)")
+        try require(keymap.pendingPrefix.isEmpty, "\(key) must not set a pending prefix, got \(keymap.pendingPrefix)")
+        let next = keymap.handle(keyCharacter: "j", modifiers: [], currentURL: url, currentIndex: 3, totalCount: 5)
+        try require(next == .next, "j after \(key) should still navigate, got \(next)")
+    }
 }
 
 @MainActor
@@ -201,7 +168,7 @@ public func vimLoadFailureYieldsAnEmptyKeymap() async throws {
 
         keymap = (try? VimKeymap.load(folder: corrupt)) ?? VimKeymap()
         try require(!keymap.isPicked(previousPhoto), "the previous folder's pick survived a failed load")
-        try require(keymap.picks.isEmpty && keymap.rejects.isEmpty && keymap.colorLabels.isEmpty && keymap.marks.isEmpty,
+        try require(keymap.picks.isEmpty && keymap.rejects.isEmpty && keymap.colorLabels.isEmpty,
                     "a failed load must install an empty keymap, got \(keymap.picks.count) picks / \(keymap.colorLabels.count) labels")
     }
 }
@@ -221,9 +188,6 @@ public func vimSaveLoadRoundtrip() async throws {
     let urlC = folder.appendingPathComponent("c.jpg")
 
     let keymap = VimKeymap()
-    // Mark a -> urlA via m+a chord
-    _ = keymap.handle(keyCharacter: "m", modifiers: [], currentURL: urlA, currentIndex: 0, totalCount: 3)
-    _ = keymap.handle(keyCharacter: "a", modifiers: [], currentURL: urlA, currentIndex: 0, totalCount: 3)
     // Color label 3 on urlB
     _ = keymap.handle(keyCharacter: "3", modifiers: [], currentURL: urlB, currentIndex: 1, totalCount: 3)
     // Pick urlA, reject urlC
@@ -233,8 +197,6 @@ public func vimSaveLoadRoundtrip() async throws {
     try keymap.save(folder: folder)
 
     let reloaded = try VimKeymap.load(folder: folder)
-    try require(reloaded.marks[Character("a")] == urlA,
-                "mark a lost in roundtrip: got \(String(describing: reloaded.marks[Character("a")]))")
     try require(reloaded.colorLabel(for: urlB) == 3,
                 "color label on urlB lost: got \(reloaded.colorLabel(for: urlB))")
     try require(reloaded.isPicked(urlA), "pick on urlA lost in roundtrip")
@@ -261,7 +223,6 @@ public func vimStateSurvivesFolderRename() async throws {
     let originalPicked = originalFolder.appendingPathComponent("picked.jpg")
     let originalRejected = originalFolder.appendingPathComponent("rejected.jpg")
     let keymap = VimKeymap()
-    keymap.marks["a"] = originalPicked
     keymap.colorLabels[originalPicked] = 4
     keymap.picks.insert(originalPicked)
     keymap.rejects.insert(originalRejected)
@@ -279,7 +240,6 @@ public func vimStateSurvivesFolderRename() async throws {
     let renamedPicked = renamedFolder.appendingPathComponent("picked.jpg")
     let renamedRejected = renamedFolder.appendingPathComponent("rejected.jpg")
     let loaded = try VimKeymap.load(folder: renamedFolder)
-    try require(loaded.marks["a"] == renamedPicked, "mark did not follow renamed folder")
     try require(loaded.colorLabel(for: renamedPicked) == 4, "label did not follow renamed folder")
     try require(loaded.isPicked(renamedPicked), "pick did not follow renamed folder")
     try require(loaded.isRejected(renamedRejected), "reject did not follow renamed folder")
@@ -306,8 +266,7 @@ public func vimStateDoesNotLeakToReplacementFolder() async throws {
     try require(
         loadedReplacement.picks.isEmpty
             && loadedReplacement.rejects.isEmpty
-            && loadedReplacement.colorLabels.isEmpty
-            && loadedReplacement.marks.isEmpty,
+            && loadedReplacement.colorLabels.isEmpty,
         "stale bookmark leaked the deleted folder's culling state into its replacement"
     )
 }
@@ -344,8 +303,7 @@ public func vimLegacyStateDoesNotLeakToReplacementFolder() async throws {
     try require(
         replacement.picks.isEmpty
             && replacement.rejects.isEmpty
-            && replacement.colorLabels.isEmpty
-            && replacement.marks.isEmpty,
+            && replacement.colorLabels.isEmpty,
         "legacy path state leaked into a replacement directory"
     )
     try require(
@@ -769,11 +727,15 @@ public func vimLegacyPathStateMigratesToStableIdentity() async throws {
     try require(FileManager.default.fileExists(atPath: stableFile.path), "stable state file was not created")
     try require(!FileManager.default.fileExists(atPath: legacyFile.path), "legacy state file was not retired")
     try require(migrated.lastPersistenceError == nil, "migration reported \(String(describing: migrated.lastPersistenceError))")
+    // The legacy mark is dropped, but the key is still written (empty) so an
+    // older build can load the migrated file.
+    let migratedObject = try JSONSerialization.jsonObject(with: Data(contentsOf: stableFile)) as? [String: Any]
+    try require((migratedObject?["marks"] as? [String: Any])?.isEmpty == true,
+                "migrated state must keep an empty marks key for older builds")
 
     try FileManager.default.moveItem(at: folder, to: renamedFolder)
     let reloaded = try VimKeymap.load(folder: renamedFolder)
     let renamedPicked = renamedFolder.appendingPathComponent("picked.jpg")
-    try require(reloaded.marks["a"] == renamedPicked, "migrated mark did not follow rename")
     try require(reloaded.colorLabel(for: renamedPicked) == 6, "migrated label did not follow rename")
     try require(reloaded.isPicked(renamedPicked), "migrated pick did not follow rename")
     try require(

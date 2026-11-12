@@ -222,10 +222,8 @@ extension VimKeymap {
         // Rehydrate URLs against the live folder. If the folder has been
         // renamed since the save, the absolute paths will reflect the new
         // location, which is exactly what we want.
-        keymap.marks = payload.marks.reduce(into: [:]) { acc, kv in
-            guard let ch = kv.key.first, kv.key.count == 1 else { return }
-            acc[ch] = folder.appendingPathComponent(kv.value)
-        }
+        // `payload.marks` is deliberately not read: marks were removed, and
+        // whatever an older build saved there is dropped on the next save.
         keymap.colorLabels = payload.colorLabels.reduce(into: [:]) { acc, kv in
             guard (1...9).contains(kv.value) else { return }
             acc[folder.appendingPathComponent(kv.key)] = kv.value

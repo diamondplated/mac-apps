@@ -238,7 +238,7 @@ extension EnhancementState {
             PipelineStep(
                 stage: AnyStage(Upscale(), params: upscaleParams),
                 enabled: upscaleEnabled
-                    && StageStatusResolver.upscale(params: upscaleParams).isOperational
+                    && StageStatusResolver.upscale().isOperational
             ),
             PipelineStep(
                 stage: AnyStage(Sharpen(), params: sharpenParams),

@@ -1,8 +1,8 @@
 import Foundation
 
-/// Focused selection state extracted from AppState. Manages single-select,
-/// multi-select (⌘-click toggle, shift-click range, ⌘A select-all), and
-/// navigation (next/prev/first/last/jump-to-URL).
+/// Focused selection state extracted from AppState: the primary selection
+/// and the multi-selection. Filter-aware navigation lives on AppState
+/// (`selectNextVisible` and friends) because it needs the active filter.
 ///
 /// Operates on a reference to the parent's `imageURLs` array via a closure
 /// so the selection stays in sync without duplicating the URL list.
@@ -33,29 +33,8 @@ final class SelectionManager {
 
     // MARK: - Navigation
 
-    func selectNext() {
-        let urls = imageURLs()
-        guard !urls.isEmpty else { return }
-        selectedIndex = min((selectedIndex ?? -1) + 1, urls.count - 1)
-    }
-
-    func selectPrevious() {
-        let urls = imageURLs()
-        guard !urls.isEmpty else { return }
-        selectedIndex = max((selectedIndex ?? urls.count) - 1, 0)
-    }
-
-    func selectFirst() {
-        selectedIndex = imageURLs().isEmpty ? nil : 0
-    }
-
-    func selectLast() {
-        let urls = imageURLs()
-        selectedIndex = urls.isEmpty ? nil : urls.count - 1
-    }
-
     /// Jump to a specific URL (no-op if it's not in the current folder).
-    /// Used by vim mark-jump and map-cluster selection.
+    /// Used by map-cluster selection, search results and the phone.
     func select(url: URL) {
         if let i = imageURLs().firstIndex(of: url) {
             selectedIndex = i
@@ -63,38 +42,6 @@ final class SelectionManager {
     }
 
     // MARK: - Multi-selection
-
-    /// Toggle a single URL in the multi-selection (⌘-click handler).
-    /// Also makes this URL the primary so subsequent shift-clicks anchor
-    /// from here.
-    func toggleMultiSelect(url: URL) {
-        guard imageURLs().contains(url) else { return }
-        if multiSelection.contains(url) {
-            multiSelection.remove(url)
-        } else {
-            multiSelection.insert(url)
-        }
-        select(url: url)
-    }
-
-    /// Range-select from the current primary (selectedIndex) through the
-    /// target URL. Replaces the current multi-selection.
-    func extendMultiSelect(to url: URL) {
-        let urls = imageURLs()
-        guard let idx = urls.firstIndex(of: url) else { return }
-        let anchor = selectedIndex ?? idx
-        let lo = min(anchor, idx)
-        let hi = max(anchor, idx)
-        multiSelection = Set(urls[lo...hi])
-        selectedIndex = idx
-    }
-
-    /// Select every photo. Bound to ⌘A.
-    func selectAll() {
-        let urls = imageURLs()
-        guard !urls.isEmpty else { return }
-        multiSelection = Set(urls)
-    }
 
     /// Drop the multi-selection back to single-select mode.
     func clearMultiSelection() {

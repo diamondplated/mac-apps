@@ -35,6 +35,9 @@ struct PhotoViewerApp: App {
     /// closes after a disk failure. Reopening the window reuses this instance;
     /// application termination is separately vetoed until its flush succeeds.
     @State private var state = AppState()
+    /// App-scoped so File > Export Enhanced Copy works whether or not the
+    /// enhancement panel is open.
+    @State private var enhanceState = EnhancementState()
 
     var body: some Scene {
         // Single Window (not WindowGroup): Latent is a viewer, one library
@@ -45,7 +48,7 @@ struct PhotoViewerApp: App {
         // open-event; now it routes through onOpenURL on the existing
         // window.
         Window("Latent", id: "main") {
-            ContentView(state: state)
+            ContentView(state: state, enhanceState: enhanceState)
                 .frame(minWidth: 800, minHeight: 600)
                 .onAppear {
                     lifecycleDelegate.flushBeforeTermination = { [weak state] in
@@ -55,7 +58,7 @@ struct PhotoViewerApp: App {
         }
         .windowStyle(.titleBar)
         .commands {
-            CommandGroup(replacing: .newItem) {}  // no "New" menu item
+            LatentCommands(state: state, enhanceState: enhanceState)
         }
     }
 }

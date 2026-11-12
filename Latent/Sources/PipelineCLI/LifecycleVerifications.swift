@@ -54,6 +54,29 @@ func missingModelFallbacks() async throws {
     let denoise = try await Denoise().process(input: input, params: .init(), progress: .noop)
     try require(artifact.contentHash == input.contentHash && denoise.contentHash == input.contentHash,
                 "missing restoration models must pass input through unchanged")
-    let upscale = try await Upscale().process(input: input, params: .init(scale: 2), progress: .noop)
+    let upscale = try await Upscale().process(input: input, params: .init(), progress: .noop)
     try require(upscale.width == 8 && upscale.height == 6, "missing upscale model must produce 2x Lanczos fallback")
+}
+
+/// Older builds offered 4x, a SwinIR model and a tile-size slider. Their
+/// sidecars must load as the supported configuration instead of failing, and
+/// new sidecars keep the three-key shape those builds require.
+func legacyUpscaleSidecarsFallBack() async throws {
+    let legacy = [
+        #"{"scale":4,"model":"swinIRLarge","tileSize":256}"#,
+        #"{"scale":4,"model":"realESRGANx4plus","tileSize":1024}"#,
+        #"{"scale":0,"model":"realESRGANx4plus","tileSize":64}"#,
+        #"{"scale":"four","model":7}"#,
+    ]
+    for json in legacy {
+        let bag = try JSONDecoder().decode(ParameterBag.self, from: Data(json.utf8))
+        let params = try bag.decode(as: Upscale.Params.self)
+        try require(params == Upscale.Params() && params.scale == 2 && params.tileSize == 512,
+                    "legacy upscale sidecar \(json) did not fall back to 2x / 512")
+    }
+    let encoded = try JSONEncoder().encode(Upscale.Params())
+    let object = try JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+    try require(object?["scale"] as? Int == 2 && object?["model"] as? String == "realESRGANx4plus"
+                    && object?["tileSize"] as? Int == 512 && object?.count == 3,
+                "new upscale sidecars must keep the older three-key shape")
 }

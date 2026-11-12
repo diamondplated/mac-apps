@@ -23,123 +23,113 @@ enum PhotoFilter: Equatable, Hashable, Identifiable {
         case .all: "All"
         case .picked: "Picked"
         case .rejected: "Rejected"
-        case .colorLabel(let n): "Label \(n)"
+        case .colorLabel(let n): ColorLabel.name(n)
         }
     }
 
-    var symbol: String {
-        switch self {
-        case .all: "photo.on.rectangle"
-        case .picked: "checkmark.circle"
-        case .rejected: "xmark.circle"
-        case .colorLabel: "circle.fill"
-        }
-    }
-
-    var chipColor: Color {
-        switch self {
-        case .all: .secondary
-        case .picked: .green
-        case .rejected: .red
-        case .colorLabel(let n):
-            switch n {
-            case 1: .red
-            case 2: .yellow
-            case 3: .green
-            case 4: .blue
-            case 5: .purple
-            case 6: .orange
-            case 7: .cyan
-            case 8: .mint
-            case 9: .pink
-            default: .gray
-            }
-        }
+    /// The label number when this is a colour-label filter.
+    var labelNumber: Int? {
+        if case .colorLabel(let n) = self { return n }
+        return nil
     }
 }
 
-/// Horizontal filter bar with chips for All, Picked, Rejected, and
-/// color labels 1-9. Filters the grid through the VimKeymap's label/pick/
-/// reject data. Appears above the thumbnail grid when the filter is active.
+/// Filter bar above the grid: All, Picked and Rejected as one segmented
+/// control, plus a single Label menu for the nine colour labels.
 struct FilterBar: View {
     @Binding var activeFilter: PhotoFilter
     let vimKeymap: VimKeymap
     let imageURLs: [URL]
 
-    private let filters: [PhotoFilter] = [
-        .all, .picked, .rejected,
-        .colorLabel(1), .colorLabel(2), .colorLabel(3),
-        .colorLabel(4), .colorLabel(5), .colorLabel(6),
-        .colorLabel(7), .colorLabel(8), .colorLabel(9),
-    ]
+    /// The segmented control's own selection. A colour-label filter selects
+    /// no segment, so it maps to a tag none of the segments carry.
+    private enum Segment: Hashable { case all, picked, rejected, none }
 
     var body: some View {
         let counts = filterCounts
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(filters) { filter in
-                    filterChip(filter, count: counts[filter, default: 0])
-                }
+        HStack(spacing: Theme.Spacing.small) {
+            Picker("Show", selection: segmentBinding) {
+                Text("All").tag(Segment.all)
+                Text("Picked").tag(Segment.picked)
+                Text("Rejected").tag(Segment.rejected)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            .help("\(counts[.picked, default: 0]) picked, \(counts[.rejected, default: 0]) rejected")
+            .accessibilityLabel("Show")
+
+            labelMenu(counts: counts)
+
+            Spacer(minLength: 0)
         }
+        .controlSize(.small)
+        .padding(.horizontal, Theme.Spacing.small)
+        .padding(.vertical, 6)
     }
 
-    private func filterChip(_ filter: PhotoFilter, count: Int) -> some View {
-        let isActive = activeFilter == filter
-
-        return Button {
-            activeFilter = filter
-        } label: {
-            HStack(spacing: 4) {
-                if case .colorLabel = filter {
-                    Circle()
-                        .fill(filter.chipColor)
-                        .frame(width: 8, height: 8)
-                } else {
-                    Image(systemName: filter.symbol)
-                        .font(.system(size: 10))
-                        .accessibilityHidden(true)
+    private var segmentBinding: Binding<Segment> {
+        Binding(
+            get: {
+                switch activeFilter {
+                case .all: .all
+                case .picked: .picked
+                case .rejected: .rejected
+                case .colorLabel: .none
                 }
-                Text(filter.label)
-                    .font(.caption.weight(.medium))
-                if count > 0 && filter != .all {
-                    Text("\(count)")
-                        .font(.system(.caption2, design: .rounded))
-                        .foregroundStyle(.secondary)
+            },
+            set: { segment in
+                switch segment {
+                case .all: activeFilter = .all
+                case .picked: activeFilter = .picked
+                case .rejected: activeFilter = .rejected
+                case .none: break
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .background(
-                Capsule().fill(
-                    isActive
-                        ? filter.chipColor.opacity(0.2)
-                        : Color.secondary.opacity(0.08)
-                )
-            )
-            .overlay(
-                Capsule().strokeBorder(
-                    isActive ? filter.chipColor.opacity(0.5) : .clear,
-                    lineWidth: 1
-                )
-            )
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(isActive ? filter.chipColor : .secondary)
-        .accessibilityLabel(filter.label)
-        .accessibilityValue(
-            filter == .all
-                ? "\(count) items"
-                : "\(count) matching items"
         )
-        .accessibilityAddTraits(isActive ? .isSelected : [])
     }
 
-    /// Build every chip count in one pass. Large recursive folders can contain
-    /// 100k items; filtering that list once per chip on every keystroke makes a
-    /// tiny status bar disproportionately expensive.
+    private func labelMenu(counts: [PhotoFilter: Int]) -> some View {
+        let active = activeFilter.labelNumber
+        return Menu {
+            ForEach(ColorLabel.all, id: \.self) { label in
+                let count = counts[.colorLabel(label), default: 0]
+                Toggle(isOn: Binding(
+                    get: { active == label },
+                    set: { activeFilter = $0 ? .colorLabel(label) : .all }
+                )) {
+                    Label {
+                        Text(count > 0 ? "\(ColorLabel.name(label))  (\(count))" : ColorLabel.name(label))
+                    } icon: {
+                        ColorLabel.menuIcon(label)
+                    }
+                }
+            }
+            if active != nil {
+                Divider()
+                Button("Show All") { activeFilter = .all }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                if let active {
+                    Circle()
+                        .fill(ColorLabel.color(active))
+                        .frame(width: 8, height: 8)
+                    Text(ColorLabel.name(active))
+                } else {
+                    Text("Label")
+                }
+            }
+        }
+        .menuStyle(.button)
+        .fixedSize()
+        .accessibilityLabel("Label filter")
+        .accessibilityValue(active.map { ColorLabel.name($0) } ?? "Off")
+    }
+
+    /// Build every count in one pass. Large recursive folders can contain
+    /// 100k items; filtering that list once per option on every keystroke
+    /// makes a tiny status bar disproportionately expensive.
     private var filterCounts: [PhotoFilter: Int] {
         var counts: [PhotoFilter: Int] = [.all: imageURLs.count]
         for url in imageURLs {

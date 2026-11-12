@@ -55,7 +55,7 @@ func realPhotoFolderRoundTrip(folder: URL) async throws {
         let pipelineMs = Date().timeIntervalSince(t1) * 1000
         totalPipelineMs += pipelineMs
 
-        // Upscale.scale=2 → output dims should be 2x (or 4x if scale=4)
+        // Upscale.scale=2 → output dims should be 2x 
         let expectedW = buffer.width * 2
         let expectedH = buffer.height * 2
         try require(output.width == expectedW && output.height == expectedH,

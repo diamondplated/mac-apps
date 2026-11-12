@@ -27,8 +27,6 @@ public enum VimAction: Sendable, Equatable {
     case prev
     case first
     case last
-    case setMark(Character)
-    case jumpToMark(Character)
     /// Color label 0-9. 0 means "clear label".
     case setColorLabel(Int)
     case togglePick
@@ -111,8 +109,8 @@ public struct VimKeymapPersistenceFailure: LocalizedError, Sendable, Equatable, 
 /// resource-id and version-1 path-hash files are migrated on first load.
 /// The dispatcher is a tiny state machine: `pendingPrefix` is a `String`
 /// (rather than an enum) so future chords like counts (`5j`) or two-key
-/// operators can extend it without re-shaping the state field. Single-quote
-/// for mark-jump is handled by checking the literal character `"'"`.
+/// operators can extend it without re-shaping the state field. Today the
+/// only chord is `gg`.
 @MainActor
 @Observable
 public final class VimKeymap {
@@ -122,13 +120,6 @@ public final class VimKeymap {
     static let supportedReferenceRegistryVersion = 1
     static let referenceRegistryFilename = "folder-references.json"
     static var nextSaveRevision: UInt64 = 0
-
-    /// Marks (`m<x>` to set, `'<x>` to jump). Stored in memory as URLs;
-    /// serialized as relative paths so the JSON is portable across moves
-    /// of the parent folder.
-    public var marks: [Character: URL] = [:] {
-        didSet { markStateChanged() }
-    }
 
     /// Color label 0-9 per photo URL. Absence == 0 / no label.
     public var colorLabels: [URL: Int] = [:] {
@@ -146,7 +137,7 @@ public final class VimKeymap {
     }
 
     /// Chord prefix accumulator. Empty between completed actions; non-empty
-    /// after a leader key (`g`, `m`, `'`) until the second key arrives or
+    /// after the `g` leader until the second key arrives or
     /// any unrecognized key clears it.
     public var pendingPrefix: String = ""
 
@@ -196,13 +187,13 @@ public final class VimKeymap {
     // MARK: - Dispatch
 
     /// Translate one keystroke into a `VimAction` and update internal state
-    /// (marks/labels/picks/rejects + `pendingPrefix`).
+    /// (labels/picks/rejects + `pendingPrefix`).
     ///
     /// Returns `.none` for unhandled keys and for the first key of a
     /// multi-key chord (e.g. the first `g` in `gg`). The dispatcher does not
     /// itself navigate; it converts keystrokes into intent. `currentURL`
     /// is required for any action that mutates state on a specific photo
-    /// (label/pick/reject/setMark); `currentIndex`/`totalCount` are taken
+    /// (label/pick/reject); `currentIndex`/`totalCount` are taken
     /// for future bounds-check needs but are not used for dispatch today.
     public func handle(
         keyCharacter: Character,
@@ -223,21 +214,6 @@ public final class VimKeymap {
                     return .first
                 }
                 // Anything else after `g` aborts the chord.
-                return .none
-
-            case "m":
-                if keyCharacter.isLetter {
-                    if let url = currentURL {
-                        marks[keyCharacter] = url
-                    }
-                    return .setMark(keyCharacter)
-                }
-                return .none
-
-            case "'":
-                if keyCharacter.isLetter {
-                    return .jumpToMark(keyCharacter)
-                }
                 return .none
 
             default:
@@ -261,12 +237,6 @@ public final class VimKeymap {
             if modifiers.contains(.shift) {
                 return .last
             }
-            return .none
-        case "m":
-            pendingPrefix = "m"
-            return .none
-        case "'":
-            pendingPrefix = "'"
             return .none
         case "P":
             if modifiers.contains(.shift), let url = currentURL {

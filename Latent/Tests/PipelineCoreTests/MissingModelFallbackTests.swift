@@ -14,7 +14,7 @@ final class MissingModelFallbackTests: XCTestCase {
         let denoise = try await Denoise().process(input: input, params: .init(), progress: .noop)
         XCTAssertEqual(artifact.contentHash, input.contentHash)
         XCTAssertEqual(denoise.contentHash, input.contentHash)
-        let upscale = try await Upscale().process(input: input, params: .init(scale: 2), progress: .noop)
+        let upscale = try await Upscale().process(input: input, params: .init(), progress: .noop)
         XCTAssertEqual(upscale.width, 8)
         XCTAssertEqual(upscale.height, 6)
     }

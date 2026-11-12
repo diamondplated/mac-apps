@@ -152,15 +152,11 @@ struct PhotoMapView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "map")
-                .font(.system(size: 48))
-                .foregroundStyle(.secondary)
-            Text("No photos with GPS data")
-                .font(.title3)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        ContentUnavailableView(
+            "No Locations",
+            systemImage: "map",
+            description: Text("None of these photos have GPS data.")
+        )
     }
 
     // MARK: - Clustering

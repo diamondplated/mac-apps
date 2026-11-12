@@ -58,27 +58,16 @@ final class VimKeymapTests: XCTestCase {
         XCTAssertTrue(km.pendingPrefix.isEmpty)
     }
 
-    // MARK: - Marks
+    // MARK: - Retired marks
 
-    func testSetMarkAndJump() {
+    func testMarkKeysNoLongerStartAChord() {
         let km = makeKeymap()
-        // m + a sets mark
-        _ = km.handle(keyCharacter: "m", modifiers: [], currentURL: photoA, currentIndex: 0, totalCount: 10)
-        let setResult = km.handle(keyCharacter: "a", modifiers: [], currentURL: photoA, currentIndex: 0, totalCount: 10)
-        XCTAssertEqual(setResult, .setMark("a"))
-        XCTAssertEqual(km.marks["a"], photoA)
-
-        // ' + a jumps to mark
-        _ = km.handle(keyCharacter: "'", modifiers: [], currentURL: photoB, currentIndex: 1, totalCount: 10)
-        let jumpResult = km.handle(keyCharacter: "a", modifiers: [], currentURL: photoB, currentIndex: 1, totalCount: 10)
-        XCTAssertEqual(jumpResult, .jumpToMark("a"))
-    }
-
-    func testMarkWithNonLetterAborts() {
-        let km = makeKeymap()
-        _ = km.handle(keyCharacter: "m", modifiers: [], currentURL: photoA, currentIndex: 0, totalCount: 10)
-        let result = km.handle(keyCharacter: "1", modifiers: [], currentURL: photoA, currentIndex: 0, totalCount: 10)
-        XCTAssertEqual(result, .none)
+        for key: Character in ["m", "'"] {
+            XCTAssertEqual(km.handle(keyCharacter: key, modifiers: [], currentURL: photoA, currentIndex: 0, totalCount: 10), .none)
+            XCTAssertTrue(km.pendingPrefix.isEmpty, "\(key) must not wait for a second key")
+            // The letter that used to complete the chord is just a letter.
+            XCTAssertEqual(km.handle(keyCharacter: "j", modifiers: [], currentURL: photoA, currentIndex: 0, totalCount: 10), .next)
+        }
     }
 
     // MARK: - Color labels
@@ -160,7 +149,6 @@ final class VimKeymapTests: XCTestCase {
         let photo2 = folder.appendingPathComponent("img2.jpg")
 
         let original = VimKeymap()
-        original.marks["a"] = photo1
         original.colorLabels[photo1] = 3
         original.picks.insert(photo1)
         original.rejects.insert(photo2)
@@ -168,7 +156,6 @@ final class VimKeymapTests: XCTestCase {
         try original.save(folder: folder)
         let loaded = try VimKeymap.load(folder: folder)
 
-        XCTAssertEqual(loaded.marks["a"], photo1)
         XCTAssertEqual(loaded.colorLabel(for: photo1), 3)
         XCTAssertTrue(loaded.isPicked(photo1))
         XCTAssertTrue(loaded.isRejected(photo2))
@@ -189,7 +176,6 @@ final class VimKeymapTests: XCTestCase {
         let originalPicked = originalFolder.appendingPathComponent("picked.jpg")
         let originalRejected = originalFolder.appendingPathComponent("rejected.jpg")
         let keymap = VimKeymap()
-        keymap.marks["a"] = originalPicked
         keymap.colorLabels[originalPicked] = 4
         keymap.picks.insert(originalPicked)
         keymap.rejects.insert(originalRejected)
@@ -204,7 +190,6 @@ final class VimKeymapTests: XCTestCase {
         let renamedPicked = renamedFolder.appendingPathComponent("picked.jpg")
         let renamedRejected = renamedFolder.appendingPathComponent("rejected.jpg")
         let loaded = try VimKeymap.load(folder: renamedFolder)
-        XCTAssertEqual(loaded.marks["a"], renamedPicked)
         XCTAssertEqual(loaded.colorLabel(for: renamedPicked), 4)
         XCTAssertTrue(loaded.isPicked(renamedPicked))
         XCTAssertTrue(loaded.isRejected(renamedRejected))
@@ -256,11 +241,13 @@ final class VimKeymapTests: XCTestCase {
         )
         XCTAssertEqual(migratedObject["version"] as? Int, VimKeymap.supportedVersion)
         XCTAssertNotNil(migratedObject["folderIdentity"] as? String)
+        // The legacy file's mark is dropped, but the key is still written so
+        // an older build can load the migrated file.
+        XCTAssertEqual((migratedObject["marks"] as? [String: Any])?.count, 0)
 
         try FileManager.default.moveItem(at: folder, to: renamedFolder)
         let reloaded = try VimKeymap.load(folder: renamedFolder)
         let renamedPicked = renamedFolder.appendingPathComponent("picked.jpg")
-        XCTAssertEqual(reloaded.marks["a"], renamedPicked)
         XCTAssertEqual(reloaded.colorLabel(for: renamedPicked), 6)
         XCTAssertTrue(reloaded.isPicked(renamedPicked))
         XCTAssertTrue(reloaded.isRejected(renamedFolder.appendingPathComponent("rejected.jpg")))
@@ -288,7 +275,6 @@ final class VimKeymapTests: XCTestCase {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
 
         let replacement = try VimKeymap.load(folder: folder)
-        XCTAssertTrue(replacement.marks.isEmpty)
         XCTAssertTrue(replacement.colorLabels.isEmpty)
         XCTAssertTrue(replacement.picks.isEmpty)
         XCTAssertTrue(replacement.rejects.isEmpty)
@@ -401,7 +387,6 @@ final class VimKeymapTests: XCTestCase {
         let folder = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("nonexistent-\(UUID().uuidString)")
         let loaded = try VimKeymap.load(folder: folder)
-        XCTAssertTrue(loaded.marks.isEmpty)
         XCTAssertTrue(loaded.picks.isEmpty)
         XCTAssertTrue(loaded.colorLabels.isEmpty)
     }

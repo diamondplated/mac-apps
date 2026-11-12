@@ -57,6 +57,7 @@ struct PipelineCLI {
         failures += await runVerification("distinct inputs occupy independent cache entries", check: distinctInputsDontCollide)
         failures += await runVerification("sidecar round-trip preserves stage parameters", check: sidecarRoundTrip)
         failures += await runVerification("sidecar load rejects newer schema versions", check: sidecarRejectsNewerVersion)
+        failures += await runVerification("legacy 4x / SwinIR upscale sidecars load as the supported 2x", check: legacyUpscaleSidecarsFallBack)
         failures += await runVerification("LRU eviction drops least-recently-used entry", check: lruEviction)
         failures += await runVerification("oversized cache entries preserve upstream results", check: oversizedCachePreservesUpstream)
         failures += await runVerification("enhancement decode and upscale respect memory ceilings", check: enhancementMemoryCeilings)
@@ -92,8 +93,8 @@ struct PipelineCLI {
         failures += await runVerification("VimKeymap: gg chord returns .none then .first") {
             try await Task { @MainActor in try await vimGGTwoChord() }.value
         }
-        failures += await runVerification("VimKeymap: m a sets mark, ' a jumps to it") {
-            try await Task { @MainActor in try await vimMarkRoundtrip() }.value
+        failures += await runVerification("VimKeymap: retired mark keys m and ' are inert") {
+            try await Task { @MainActor in try await vimRetiredMarkKeysAreInert() }.value
         }
         failures += await runVerification("VimKeymap: digit key sets color label") {
             try await Task { @MainActor in try await vimDigitSetsColorLabel() }.value
@@ -101,7 +102,7 @@ struct PipelineCLI {
         failures += await runVerification("VimKeymap: shift+P toggles pick") {
             try await Task { @MainActor in try await vimShiftPTogglesPick() }.value
         }
-        failures += await runVerification("VimKeymap: save/load roundtrip preserves marks/labels/picks") {
+        failures += await runVerification("VimKeymap: save/load roundtrip preserves labels/picks/rejects") {
             try await Task { @MainActor in try await vimSaveLoadRoundtrip() }.value
         }
         failures += await runVerification("VimKeymap: folder rename preserves culling state") {

@@ -39,9 +39,9 @@ files stay exactly where they are, and everything the app can do runs on your ow
 
 - 🗂 **Folder-first.** Drag a folder in, or `open -a Latent ~/Pictures/2024`. No import step, no
   catalog file, no migration when you change your mind.
-- ⌨️ **Vim keymap.** `j`/`k`, `gg`/`G`, marks, picks, rejects, colour labels. If you've culled a
-  shoot before, your fingers already know it. Saved culling state follows folder renames and moves
-  on the same volume.
+- ⌨️ **Vim keymap.** `j`/`k`, `gg`/`G`, picks, rejects, colour labels. If you've culled a
+  shoot before, your fingers already know it. Every command is also in the menu bar with its
+  shortcut. Saved culling state follows folder renames and moves on the same volume.
 - ✨ **Four-stage enhancement**, all local — upscale, denoise, artifact removal, sharpen — with
   live A/B compare and non-destructive sidecars.
 - 🔎 **Search your own photos locally.** Press `⌘F`, explicitly index the folder, then search by
@@ -102,7 +102,11 @@ open build/Latent.app
 works: Sharpen runs classically, Upscale falls back to Lanczos, and the model-backed stages pass
 through untouched. Clone, build, browse — that's it.
 
-To enable the AI stages (one-time, ~1.2 GB, needs Python with `coremltools`):
+### Installing models
+
+The enhancement inspector shows **Model not installed** under any stage whose model is missing; its
+help button opens this section. To enable the AI stages and search (one-time, ~1.2 GB, needs Python
+with `coremltools`):
 
 ```bash
 pip install -r scripts/requirements.txt
@@ -110,9 +114,11 @@ pip install -r scripts/requirements.txt
 ```
 
 Running that script is the explicit model-download step; the app never fetches models in the
-background. It also prepares the OpenCLIP image encoder, text encoder, and tokenizer used by
-semantic search. Run it before `scripts/build_app.sh` if you want those local assets included in
-your own app bundle.
+background. It converts FBCNN, NAFNet and Real-ESRGAN x2 for the enhancement stages and prepares the
+OpenCLIP image encoder, text encoder, and tokenizer used by semantic search. The converted models
+land in `Resources/Models/`; copy them to `~/Library/Application Support/photo-viewer/Models/` to
+use them with an installed copy of Latent, or run the script before `scripts/build_app.sh` to
+include them in your own app bundle.
 
 > See [THIRD_PARTY_MODELS.md](THIRD_PARTY_MODELS.md) for what each model is. All four are
 > permissively licensed, and downloads are checksum-verified.
@@ -133,15 +139,16 @@ not something `Info.plist` can fix. The drag and command-line paths above are th
 ## What it does
 
 **Browsing.** Folder tree sidebar (collapsible, lazy, `⌘L`), thumbnail grid with colour labels and
-pick/reject state, non-recursive by default with an opt-in **Include Subfolders**, sort by name or
-recently-modified, and predictive prefetch so the next image is already decoded. Filesystem changes
+pick/reject state, non-recursive by default with an opt-in **Include Subfolders** (`⌘R`), and
+predictive prefetch so the next image is already decoded. Sort order and thumbnail size live in the
+toolbar's View Options menu. The filter bar shows All, Picked or Rejected, or one colour label. Filesystem changes
 refresh the view live; with **Include Subfolders** enabled, the watcher covers the entire subtree,
 including deep additions, removals, and renames.
 
-**Culling.** The vim keymap is the point: `j`/`k` to move, `gg`/`G` for ends, `m`+letter to set a
-mark and `'`+letter to jump back, digits for colour labels, `⇧P` to pick, one-click trash with `⌘Z`
-undo, and bulk select for batch operations. Marks, labels, picks, and rejects are stored outside the
-photo folder under a durable macOS folder reference, so they survive renaming the folder or moving
+**Culling.** The vim keymap is the point: `j`/`k` to move, `gg`/`⇧G` for ends, `1`–`9` for colour
+labels and `0` to clear one, `⇧P` to pick, `⇧X` to reject, `⌫` to move to the Trash with `⌘Z`
+undo, and bulk select for batch operations. The same commands are in the Go and Photo menus, and
+`?` shows every shortcut. Labels, picks, and rejects are stored outside the photo folder under a durable macOS folder reference, so they survive renaming the folder or moving
 it elsewhere on the same volume. The first time v0.3 finds path-only culling state from v0.2, it
 asks you to confirm that this is the same folder before importing; declining leaves the old file
 untouched and keeps culling disabled for that folder.
@@ -151,9 +158,10 @@ untouched and keeps culling disabled for that folder.
 conversion when their codecs are ones macOS can decode, and with the reason shown when they aren't),
 and a map view built from EXIF GPS.
 
-**Enhancing.** Per-stage toggles and sliders with live preview, A/B compare (enhanced / original /
-side-by-side, hold `B` to blink), and `.enhance.json` sidecars so your edits are non-destructive and
-diffable.
+**Enhancing.** An inspector (`⌘E`) with one section per stage, a switch in each header and sliders
+with live preview, A/B compare (enhanced / original / side-by-side, hold `B` to blink), Export Copy
+(`⌘S`), and `.enhance.json` sidecars so your edits are non-destructive and diffable. Upscale is
+always 2×; sidecars from older builds that asked for 4× or SwinIR load as 2×.
 
 **Searching.** Press `⌘F` to open folder-scoped semantic search. Opening the search UI only inspects
 the saved index; indexing starts when you choose **Index This Folder**, and stale indexes refresh

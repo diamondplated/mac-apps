@@ -72,41 +72,44 @@ public struct Denoise: Stage {
 }
 
 public struct Upscale: Stage {
-    public enum Model: String, Codable, Sendable {
-        case realESRGANx4plus
-        case swinIRLarge
-    }
-
+    /// Upscale has one configuration: Real-ESRGAN x2 (the only upscaler with a
+    /// conversion script) or its 2x Lanczos fallback, in 512 px tiles. There is
+    /// nothing for the user to choose, so `Params` stores nothing.
     public struct Params: StageParameters, Codable {
-        public var scale: Int       // 2 or 4
-        public var model: Model
-        public var tileSize: Int    // px; larger = fewer seams, more memory
+        /// The one supported scale factor.
+        public static let supportedScale = 2
+        /// Tile edge in pixels. Large enough to keep seams rare, small enough
+        /// to bound per-tile memory; comfortably above `TileExecutor`'s
+        /// `overlap * 2 < tileSize` floor for the 32 px overlap `process` uses.
+        public static let tileSize = 512
+        /// What the sidecar's `model` key has always been written as. Older
+        /// builds require the key, so new sidecars keep writing it.
+        static let legacyModelName = "realESRGANx4plus"
 
-        public init(scale: Int = 2, model: Model = .realESRGANx4plus, tileSize: Int = 512) {
-            precondition(scale == 2 || scale == 4, "Only 2x and 4x are supported")
-            self.scale = scale
-            self.model = model
-            self.tileSize = tileSize
-        }
+        public var scale: Int { Self.supportedScale }
+        public var tileSize: Int { Self.tileSize }
 
-        /// Tile sizes a sidecar may ask for. The floor keeps `TileExecutor`'s
-        /// `overlap * 2 < tileSize` precondition true with the 32 px overlap
-        /// `process` uses; the ceiling bounds per-tile memory.
-        public static let tileSizeRange = 128...1024
+        public init() {}
 
         private enum CodingKeys: String, CodingKey { case scale, model, tileSize }
 
         /// Sidecars travel with folders and archives, so their values are
-        /// untrusted. Synthesized decoding skipped `init`'s precondition and
-        /// let `scale: 0` or `tileSize: 64` reach `TileExecutor`'s traps;
-        /// clamp them to what the stage supports instead of crashing.
+        /// untrusted, and older builds offered a 4x scale, a SwinIR model and
+        /// a tile-size slider. None of those had an installable model or a
+        /// visible effect, so any value they wrote (including a missing or
+        /// malformed key) loads as the supported configuration instead of
+        /// failing the whole sidecar.
         public init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            let rawScale = try container.decode(Int.self, forKey: .scale)
-            let rawTile = try container.decode(Int.self, forKey: .tileSize)
-            self.scale = rawScale >= 4 ? 4 : 2
-            self.model = try container.decode(Model.self, forKey: .model)
-            self.tileSize = min(max(rawTile, Self.tileSizeRange.lowerBound), Self.tileSizeRange.upperBound)
+            _ = try decoder.container(keyedBy: CodingKeys.self)
+        }
+
+        /// Written in the old three-key shape so a sidecar saved here still
+        /// opens in a build that predates this simplification.
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(Self.supportedScale, forKey: .scale)
+            try container.encode(Self.legacyModelName, forKey: .model)
+            try container.encode(Self.tileSize, forKey: .tileSize)
         }
     }
 
@@ -122,9 +125,8 @@ public struct Upscale: Stage {
         defer { progress.report(1.0) }
 
         _ = try ImageMemoryPolicy.validate(width: input.width, height: input.height, scale: params.scale, maxBytes: maxWorkingMemoryBytes)
-        let modelID = modelID(for: params)
 
-        let model = try await ModelManager.shared.model(for: modelID, spec: .realESRGANx2)
+        let model = try await ModelManager.shared.model(for: Self.modelID, spec: .realESRGANx2)
 
         if let model {
             let executor = TileExecutor(tileSize: params.tileSize, overlap: 32, scale: params.scale, maxWorkingMemoryBytes: maxWorkingMemoryBytes)
@@ -165,14 +167,8 @@ public struct Upscale: Stage {
         return try ImageBuffer.fromCGImage(outCG)
     }
 
-    private func modelID(for params: Params) -> ModelID {
-        switch (params.model, params.scale) {
-        case (.realESRGANx4plus, 4): .upscaleRealESRGANx4
-        case (.realESRGANx4plus, 2): .upscaleRealESRGANx2
-        case (.swinIRLarge, _):       .upscaleSwinIRLarge
-        default:                      .upscaleRealESRGANx2
-        }
-    }
+    /// The model the stage loads when it is installed.
+    public static let modelID: ModelID = .upscaleRealESRGANx2
 }
 
 // MARK: - Sharpen (final, classical unsharp mask)
@@ -431,7 +427,7 @@ public enum StandardPipeline {
         [
             PipelineStep(stage: AnyStage(ArtifactRemoval(), params: .init())),
             PipelineStep(stage: AnyStage(Denoise(), params: .init())),
-            PipelineStep(stage: AnyStage(Upscale(), params: .init(scale: 2))),
+            PipelineStep(stage: AnyStage(Upscale(), params: .init())),
             PipelineStep(stage: AnyStage(Sharpen(), params: .init())),
         ]
     }
