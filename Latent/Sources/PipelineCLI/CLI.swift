@@ -196,6 +196,14 @@ struct PipelineCLI {
         failures += await runVerification("Matroska: audio lands within 2 ms of video for every audio codec", check: verifyMatroskaAudioSync)
         failures += await runVerification("Matroska: lacing, live and cut-off files index exactly", check: verifyMatroskaLacingAndDamage)
         failures += await runVerification("Matroska: unplayable files fail with a reason", check: verifyMatroskaRejectsUnplayableFiles)
+        failures += await runVerification("Bursts: near-identical frames group; later, unrelated and animated files do not", check: verifyBurstGrouping)
+        failures += await runVerification("Bursts: a blurred copy ranks below its sharp original", check: verifyBurstRanksSharpest)
+        failures += await runVerification("Bursts: faces outrank sharpness, sharpness outranks the earlier frame", check: verifyBurstReasonOrdering)
+        failures += await runVerification("Bursts: gap and distance limits, and slow drift", check: verifyBurstThresholds)
+        failures += await runVerification("Bursts: cache hits skip work; changed files recompute", check: verifyBurstCache)
+        failures += await runVerification("Bursts: keep sets the expected flags and undo restores them") {
+            try await Task { @MainActor in try await verifyBurstKeepActions() }.value
+        }
         failures += await runVerification("AVI: every fixture codec decodes in full and thumbnails", check: verifyAVIFixturesDecode)
         failures += await runVerification("AVI: video and audio land where ffmpeg places them", check: verifyAVIAudioSync)
         failures += await runVerification("AVI: OpenDML, idx1, scanned and cut-off files index alike", check: verifyAVIIndexes)

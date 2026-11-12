@@ -206,6 +206,7 @@ extension AppState {
         }
         if batch != nil, viewerBatch == nil { return }
         browserContentChangeTick &+= 1
+        scheduleBurstAnalysis(force: true)
         if let viewerBatch { invalidateMediaCaches(for: viewerBatch, root: root) }
 
         // A subtree event can arrive while the initial recursive snapshot is

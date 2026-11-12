@@ -32,8 +32,10 @@ struct KeyboardShortcutOverlay: View {
             Shortcut(keys: "⇧X", action: "Reject"),
             Shortcut(keys: "1 – 9", action: "Color label"),
             Shortcut(keys: "0", action: "Clear label"),
+            Shortcut(keys: "↩", action: "Keep best of burst"),
+            Shortcut(keys: "⇧↩", action: "Keep this one"),
             Shortcut(keys: "⌫", action: "Move to Trash"),
-            Shortcut(keys: "⌘Z", action: "Undo Trash"),
+            Shortcut(keys: "⌘Z", action: "Undo trash or keep"),
         ]),
         Section(title: "Selection", shortcuts: [
             Shortcut(keys: "⌘-click", action: "Add or remove"),

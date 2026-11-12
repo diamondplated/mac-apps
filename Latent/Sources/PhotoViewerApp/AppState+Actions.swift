@@ -46,6 +46,8 @@ extension AppState {
         case .first: selectFirstVisible()
         case .last:  selectLastVisible()
         case .setColorLabel, .togglePick, .toggleReject:
+            // A hand edit after a Keep means ⌘Z must not revert it wholesale.
+            lastKeepUndo = nil
             guard ensureActiveFolderContinuity() else { return }
             guard !isCullingPersistenceBlocked else {
                 reportBlockedCullingEdit()
@@ -110,11 +112,13 @@ extension AppState {
 
     func trashImage(at url: URL) {
         guard ensureWritableSource() else { return }
+        lastKeepUndo = nil
         trash.trashImage(at: url)
     }
 
     func trashImages(_ urls: [URL]) {
         guard ensureWritableSource() else { return }
+        lastKeepUndo = nil
         trash.trashImages(urls)
     }
 
@@ -147,6 +151,7 @@ extension AppState {
     /// otherwise the single primary photo. Bound to Backspace.
     func trashCurrentImage() {
         guard ensureWritableSource() else { return }
+        lastKeepUndo = nil
         if !multiSelection.isEmpty {
             trash.trashImages(Array(multiSelection))
             return
@@ -155,8 +160,17 @@ extension AppState {
         trash.trashImage(at: imageURLs[i])
     }
 
-    func undoTrash() { trash.undoTrash() }
-    var canUndoTrash: Bool { trash.canUndoTrash }
+    /// ⌘Z: undo the last Keep Best / Keep This One if it is the newest
+    /// change, otherwise the last trash.
+    func undoTrash() {
+        if let snapshot = lastKeepUndo {
+            lastKeepUndo = nil
+            undoKeep(snapshot)
+            return
+        }
+        trash.undoTrash()
+    }
+    var canUndoTrash: Bool { lastKeepUndo != nil || trash.canUndoTrash }
 
     /// Drop the multi-selection back to single-select mode.
     func clearMultiSelection() { selection.clearMultiSelection() }
@@ -225,6 +239,7 @@ extension AppState {
         folder = nil
         anchorFolder = nil
         imageURLs = []
+        lastKeepUndo = nil
         vimKeymap = VimKeymap()
         isCullingPersistenceBlocked = false
         pendingUnverifiedCullingFolder = nil

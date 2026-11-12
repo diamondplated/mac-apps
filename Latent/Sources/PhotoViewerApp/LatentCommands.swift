@@ -7,7 +7,7 @@ import AppKit
 /// Ownership of each shortcut is single, so nothing fires twice:
 /// - Command shortcuts (⌘O, ⌘L, ⌘F, ⌘E, ⌘S, ⌘R, ⌘↑, ⌘1, ⌘2, ⌘/) belong to
 ///   these menu items alone; no toolbar button or key handler registers them.
-/// - ⇧P, ⇧X, 0-9 and ⇧G are menu key equivalents too. The browser's key
+/// - ⇧P, ⇧X, 0-9, ⇧G, Return and ⇧Return are menu key equivalents too. The browser's key
 ///   handler skips them while these items are enabled, and the items are
 ///   disabled whenever the search field, cheat sheet or pairing sheet has
 ///   the keyboard, so typing in the search field never culls a photo.
@@ -204,6 +204,18 @@ private struct PhotoMenuItems: View {
                 .keyboardShortcut("0", modifiers: [])
         }
         .disabled(!state.canCullCurrent)
+
+        Divider()
+
+        // Live only in the Bursts view, with a burst selected. Return keeps
+        // the suggested frame, ⇧Return the one on screen; both pick it and
+        // reject the rest of the burst, and neither moves a file.
+        Button("Keep Best of Burst") { state.keepBestOfBurst() }
+            .keyboardShortcut(.return, modifiers: [])
+            .disabled(!state.canKeepBurst)
+        Button("Keep This One") { state.keepThisOneOfBurst() }
+            .keyboardShortcut(.return, modifiers: .shift)
+            .disabled(!state.canKeepBurst)
 
         Divider()
 

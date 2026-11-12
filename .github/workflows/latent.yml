@@ -55,7 +55,8 @@ jobs:
 
       # The pv-pipeline runner asserts the same scenarios as the XCTest targets but
       # also runs on a macOS CommandLineTools-only machine. It covers cache
-      # behaviour, sidecars, image I/O, tiling, search primitives, vim state, GPS,
+      # behaviour, sidecars, image I/O, tiling, search primitives, burst grouping and
+      # ranking, vim state, GPS,
       # Quick Look, archive extraction, and LAN HTTP parsing, address gating, pairing,
       # authorization and phone actions. No model weights required — the stages
       # degrade to identity or a classical fallback when a model is absent.

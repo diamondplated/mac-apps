@@ -141,7 +141,7 @@ not something `Info.plist` can fix. The drag and command-line paths above are th
 **Browsing.** Folder tree sidebar (collapsible, lazy, `⌘L`), thumbnail grid with colour labels and
 pick/reject state, non-recursive by default with an opt-in **Include Subfolders** (`⌘R`), and
 predictive prefetch so the next image is already decoded. Sort order and thumbnail size live in the
-toolbar's View Options menu. The filter bar shows All, Picked or Rejected, or one colour label. Filesystem changes
+toolbar's View Options menu. The filter bar shows All, Picked, Rejected or Bursts, or one colour label. Filesystem changes
 refresh the view live; with **Include Subfolders** enabled, the watcher covers the entire subtree,
 including deep additions, removals, and renames.
 
@@ -152,6 +152,21 @@ undo, and bulk select for batch operations. The same commands are in the Go and 
 it elsewhere on the same volume. The first time v0.3 finds path-only culling state from v0.2, it
 asks you to confirm that this is the same folder before importing; declining leaves the old file
 untouched and keeps culling disabled for that folder.
+
+**Bursts.** After a folder loads, Latent looks in the background for runs of photos that look alike and
+were taken within four seconds of each other, using Apple's built-in image feature prints, so no model
+is downloaded. The filter bar shows "Finding bursts…" with a count while it works. **Bursts** in the
+filter bar shows one stack per group with the suggested frame on top, a badge saying why ("Sharpest",
+or "Best faces" when faces are in the frames), and the number of other frames; selecting a stack opens
+it to show every frame. `Return` (Photo › Keep Best of Burst) picks the suggested frame and rejects the
+rest, then moves to the next burst; `⇧Return` (Photo › Keep This One) does the same for the frame you
+are looking at, and `⌘Z` puts the flags back. Keeping only sets pick and reject flags, as `⇧P` and `⇧X`
+do; nothing is moved to the Trash. The suggestion is the frame with open eyes and the best face quality
+when faces are present, otherwise the sharpest, otherwise the earlier one. Outside the Bursts view the grid
+still shows every photo. Videos and GIFs are never grouped. Archive previews are analysed but their keep
+actions are disabled, like other edits. Each photo's likeness and sharpness are cached per folder, keyed
+by file identity and modification date, so reopening a folder is instant; folders over 10,000 photos are
+not analysed.
 
 **Viewing.** Synced zoom and pan (0.25–16×, drag to pan, pinch to zoom, double-tap to cycle
 2×→3×→4×→1×), animated GIFs, video playback (including `.mkv` and `.avi`, played without
@@ -241,7 +256,7 @@ swift test                 # XCTest suites, needs Xcode
 ```
 
 `pv-pipeline` exercises cache behaviour, sidecar round-trips, image I/O and EXIF orientation,
-tiling, search indexing, durable vim state, recursive folder watching, GPS extraction, Quick Look,
+tiling, search indexing, burst grouping, ranking, caching and keep actions, durable vim state, recursive folder watching, GPS extraction, Quick Look,
 archive extraction, and LAN server behaviour (HTTP parsing, address gating, pairing, authorization,
 and phone actions).
 
@@ -260,12 +275,13 @@ latent/
 │   ├── PhotoServe/            LAN listener, routes, pairing, the phone client
 │   ├── PhotoViewerCore/       vim keymap and durable culling state
 │   ├── PhotoGeo/              EXIF GPS extraction for the map view
+│   ├── PhotoBursts/           burst grouping, best-frame ranking, per-folder signature cache
 │   ├── PhotoViewerApp/        the SwiftUI app
 │   ├── PhotoQuickLook/        QuickLookRenderer
 │   └── PipelineCLI/           pv-pipeline
 ├── Resources/Models/          .mlpackage files land here (gitignored)
 ├── scripts/                   model conversion + app packaging
-└── Tests/                     XCTest targets (PipelineCoreTests, PhotoViewerCoreTests, PhotoServeTests)
+└── Tests/                     XCTest targets (PipelineCoreTests, PhotoViewerCoreTests, PhotoBurstsTests, PhotoServeTests)
 ```
 
 > **On naming:** the SwiftPM package and most modules are still `PhotoViewer` / `Photo*` from before
