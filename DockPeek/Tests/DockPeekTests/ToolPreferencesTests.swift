@@ -131,4 +131,26 @@ final class ToolPreferencesTests: XCTestCase {
             }
         }
     }
+    func testWindowLayoutSettingDefaultsOffAndPersists() throws {
+        XCTAssertFalse(preferences.restoresWindowLayouts)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(preferences.snapshot(loginStatus: .notRegistered))) as? [String: Any])
+        let number = try XCTUnwrap(json["restoresWindowLayouts"] as? NSNumber)
+        XCTAssertEqual(CFGetTypeID(number), CFBooleanGetTypeID())
+        XCTAssertFalse(number.boolValue)
+        XCTAssertEqual(json["schemaVersion"] as? Int, 1)
+        try preferences.apply(patch(#"{"restoresWindowLayouts":true}"#)) { _ in XCTFail() }
+        XCTAssertTrue(ToolPreferences(defaults: UserDefaults(suiteName: suite)!, runningAppPermissions: { nil }).restoresWindowLayouts)
+        XCTAssertTrue(DockPeekSettingsPatch.booleanKeys.contains("restoresWindowLayouts"))
+    }
+    func testWindowLayoutSettingMustBeABooleanAndIsValidatedWithTheWholePatch() {
+        for bad in ["1", "\"true\"", "null"] {
+            let json = "{\"previewsEnabled\":false,\"restoresWindowLayouts\":\(bad)}"
+            XCTAssertThrowsError(try preferences.apply(patch(json)) { _ in XCTFail() }, json)
+            XCTAssertNil(defaults.object(forKey: "previewsEnabled"))
+            XCTAssertNil(defaults.object(forKey: "restoresWindowLayouts"))
+        }
+        // An old patch without the key still validates and leaves it alone.
+        XCTAssertNoThrow(try preferences.apply(patch(#"{"showsTabs":false}"#)) { _ in XCTFail() })
+        XCTAssertNil(defaults.object(forKey: "restoresWindowLayouts"))
+    }
 }

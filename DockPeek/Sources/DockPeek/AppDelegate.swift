@@ -14,11 +14,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate, DockObserverDelegate,
     private let preferences = ToolPreferences.shared
     private let switcher = SwitcherController()
     private let dockClicks = DockClickController()
+    private let layouts = LayoutController()
+    private var layoutResult: (text: String, date: Date)?
     private var statusAnswerer: NSObjectProtocol?
     
     public func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
         setupPreviewPanel()
+        layouts.onResult = { [weak self] text in self?.layoutResult = (text, Date()) }
         
         dockObserver.delegate = self
         statusAnswerer = RunningAppPermissions.startAnswering()
@@ -87,6 +90,19 @@ public class AppDelegate: NSObject, NSApplicationDelegate, DockObserverDelegate,
             if !screenGranted { addItem("Grant Screen Recording…", #selector(handleScreenCaptureAction)) }
         }
 
+        statusMenu.addItem(.separator())
+        if let result = layoutResult, Date().timeIntervalSince(result.date) < 120 {
+            let line = NSMenuItem(title: result.text, action: nil, keyEquivalent: "")
+            line.isEnabled = false
+            statusMenu.addItem(line)
+        }
+        addItem("Save Window Layout", #selector(saveLayout))
+        addItem("Restore Window Layout", #selector(restoreLayout))
+        // Holding Option swaps in the item that clears everything remembered.
+        let forget = statusMenu.addItem(withTitle: "Forget Saved Layouts", action: #selector(forgetLayouts), keyEquivalent: "")
+        forget.target = self
+        forget.isAlternate = true
+        forget.keyEquivalentModifierMask = .option
         statusMenu.addItem(.separator())
         addItem("Settings…", #selector(openSettings), key: ",")
         statusMenu.addItem(.separator())
@@ -187,6 +203,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate, DockObserverDelegate,
             screenRecordingGranted: permissions.screenCaptureStatus == .granted
         )
         dockClicks.apply(preferences.dockClickSettings, accessibilityGranted: axGranted)
+        layouts.apply(automatic: preferences.restoresWindowLayouts, accessibilityGranted: axGranted)
         updateMenu()
     }
 
@@ -229,6 +246,20 @@ public class AppDelegate: NSObject, NSApplicationDelegate, DockObserverDelegate,
         updateMenu()
     }
     
+    @objc private func saveLayout() { layouts.saveNow() }
+    @objc private func restoreLayout() { layouts.restoreNow() }
+    @objc private func forgetLayouts() {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Forget Saved Window Layouts?"
+        alert.informativeText = "DockPeek will no longer know where windows belonged on any monitor arrangement. This cannot be undone."
+        alert.alertStyle = .warning
+        let forget = alert.addButton(withTitle: "Forget")
+        forget.hasDestructiveAction = true
+        alert.addButton(withTitle: "Cancel")
+        if alert.runModal() == .alertFirstButtonReturn { layouts.forgetAll() }
+    }
+
     @objc private func quitApp() {
         NSApplication.shared.terminate(nil)
     }
