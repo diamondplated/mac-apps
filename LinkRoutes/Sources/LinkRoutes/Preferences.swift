@@ -58,18 +58,28 @@ struct SettingsSnapshot: Encodable {
     let rules: [RouteRule]
     let availableBrowsers: [Browser]
     let isDefaultBrowser: Bool
+    let stripsTrackingParameters: Bool
+    let unwrapsRedirects: Bool
+    var configuration: Configuration {
+        Configuration(defaultBrowserIdentifier: defaultBrowserIdentifier, rules: rules, stripsTrackingParameters: stripsTrackingParameters, unwrapsRedirects: unwrapsRedirects)
+    }
 }
 struct SettingsPatch {
     var configuration: Configuration
     var launchAtLogin: Bool?
     init(data: Data, current: Configuration, browsers: [Browser]) throws {
         guard data.count <= 262_144, let values = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              Set(values.keys).isSubset(of: ["launchAtLogin", "defaultBrowserIdentifier", "rules"]) else { throw RouteError.invalid("Unknown or read-only setting, or oversized patch.") }
+              Set(values.keys).isSubset(of: ["launchAtLogin", "defaultBrowserIdentifier", "rules", "stripsTrackingParameters", "unwrapsRedirects"]) else { throw RouteError.invalid("Unknown or read-only setting, or oversized patch.") }
         if let value = values["launchAtLogin"] {
             guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { throw RouteError.invalid("launchAtLogin must be a Boolean.") }
             launchAtLogin = number.boolValue
         }
         var config = current
+        for (key, path) in [("stripsTrackingParameters", \Configuration.stripsTrackingParameters), ("unwrapsRedirects", \Configuration.unwrapsRedirects)] {
+            guard let value = values[key] else { continue }
+            guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { throw RouteError.invalid("\(key) must be a Boolean.") }
+            config[keyPath: path] = number.boolValue
+        }
         if let value = values["defaultBrowserIdentifier"] {
             guard let identifier = value as? String else { throw RouteError.invalid("defaultBrowserIdentifier must be a string.") }
             config.defaultBrowserIdentifier = identifier
@@ -77,8 +87,9 @@ struct SettingsPatch {
         if let value = values["rules"] {
             guard let rows = value as? [[String: Any]] else { throw RouteError.invalid("rules must be an array of rule objects.") }
             for row in rows {
-                guard Set(row.keys).isSubset(of: ["id", "domain", "includeSubdomains", "browserIdentifier", "profileDirectory"]),
+                guard Set(row.keys).isSubset(of: ["id", "domain", "includeSubdomains", "browserIdentifier", "profileDirectory", "sourceBundleIdentifier"]),
                       let bool = row["includeSubdomains"] as? NSNumber, CFGetTypeID(bool) == CFBooleanGetTypeID() else { throw RouteError.invalid("A rule contains unknown fields or an invalid includeSubdomains value.") }
+                if let source = row["sourceBundleIdentifier"], !(source is NSNull), !(source is String) { throw RouteError.invalid("sourceBundleIdentifier must be a string.") }
             }
             config.rules = try JSONDecoder().decode([RouteRule].self, from: JSONSerialization.data(withJSONObject: rows))
         }
@@ -101,7 +112,7 @@ final class Preferences {
         let browsers = BrowserCatalog.browsers(), config = configuration(browsers: browsers), status = SMAppService.mainApp.status
         let name: String
         switch status { case .enabled: name = "enabled"; case .notRegistered: name = "notRegistered"; case .requiresApproval: name = "requiresApproval"; case .notFound: name = "notFound"; @unknown default: name = "unknown" }
-        return SettingsSnapshot(launchAtLogin: status == .enabled, loginStatus: name, defaultBrowserIdentifier: config.defaultBrowserIdentifier, rules: config.rules, availableBrowsers: browsers, isDefaultBrowser: BrowserCatalog.isDefault)
+        return SettingsSnapshot(launchAtLogin: status == .enabled, loginStatus: name, defaultBrowserIdentifier: config.defaultBrowserIdentifier, rules: config.rules, availableBrowsers: browsers, isDefaultBrowser: BrowserCatalog.isDefault, stripsTrackingParameters: config.stripsTrackingParameters, unwrapsRedirects: config.unwrapsRedirects)
     }
     func apply(data: Data) throws {
         let browsers = BrowserCatalog.browsers()

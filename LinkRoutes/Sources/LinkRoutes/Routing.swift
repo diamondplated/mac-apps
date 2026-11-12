@@ -21,10 +21,28 @@ struct RouteRule: Codable, Equatable, Identifiable {
     var includeSubdomains: Bool
     var browserIdentifier: String
     var profileDirectory: String?
+    /// Bundle identifier of the app the link was clicked in. `nil` matches any app.
+    var sourceBundleIdentifier: String?
 }
 struct Configuration: Codable, Equatable {
     var defaultBrowserIdentifier: String
     var rules: [RouteRule]
+    var stripsTrackingParameters: Bool
+    var unwrapsRedirects: Bool
+    init(defaultBrowserIdentifier: String, rules: [RouteRule], stripsTrackingParameters: Bool = true, unwrapsRedirects: Bool = false) {
+        self.defaultBrowserIdentifier = defaultBrowserIdentifier
+        self.rules = rules
+        self.stripsTrackingParameters = stripsTrackingParameters
+        self.unwrapsRedirects = unwrapsRedirects
+    }
+    // Configurations saved by earlier versions have no cleaning keys.
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        defaultBrowserIdentifier = try values.decode(String.self, forKey: .defaultBrowserIdentifier)
+        rules = try values.decode([RouteRule].self, forKey: .rules)
+        stripsTrackingParameters = try values.decodeIfPresent(Bool.self, forKey: .stripsTrackingParameters) ?? true
+        unwrapsRedirects = try values.decodeIfPresent(Bool.self, forKey: .unwrapsRedirects) ?? false
+    }
 }
 struct RouteTarget: Equatable {
     let browserIdentifier: String
@@ -44,6 +62,15 @@ enum Routing {
             throw RouteError.invalid("Enter a hostname such as example.com, without a scheme, path, or wildcard. Use punycode for international domains.")
         }
         return result
+    }
+    /// The website condition that matches every site; valid only with a source app.
+    static let anyWebsite = "*"
+    static func sourceBundleIdentifier(_ text: String) throws -> String {
+        guard !text.isEmpty, text.utf8.count <= 255,
+              text.unicodeScalars.allSatisfy({ $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "." || $0 == "-" || $0 == "_") }) else {
+            throw RouteError.invalid("A rule has an invalid source app.")
+        }
+        return text
     }
     static func webURL(_ text: String) throws -> URL {
         guard !text.isEmpty, !text.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.contains($0) || CharacterSet.controlCharacters.contains($0) }),
@@ -79,9 +106,21 @@ enum Routing {
             throw RouteError.invalid("Rules must have unique identifiers, with at most 200 rules.")
         }
         var normalized = configuration
+        var seen = Set<String>()
         for index in normalized.rules.indices {
-            normalized.rules[index].domain = try domain(normalized.rules[index].domain)
+            if let source = normalized.rules[index].sourceBundleIdentifier { normalized.rules[index].sourceBundleIdentifier = try sourceBundleIdentifier(source) }
+            if normalized.rules[index].domain.trimmingCharacters(in: .whitespacesAndNewlines) == anyWebsite {
+                guard normalized.rules[index].sourceBundleIdentifier != nil else {
+                    throw RouteError.invalid("A rule for every website needs a source app.")
+                }
+                normalized.rules[index].domain = anyWebsite
+            } else {
+                normalized.rules[index].domain = try domain(normalized.rules[index].domain)
+            }
             let rule = normalized.rules[index]
+            let scope = rule.domain == anyWebsite ? "any" : (rule.includeSubdomains ? "sub" : "exact")
+            let key = [rule.domain, scope, rule.sourceBundleIdentifier?.lowercased() ?? ""].joined(separator: "|")
+            guard seen.insert(key).inserted else { throw RouteError.invalid("Two rules have the same website and source app.") }
             guard rule.browserIdentifier != applicationIdentifier, let browser = browserMap[rule.browserIdentifier] else {
                 throw RouteError.invalid("A rule refers to a browser that is not installed.")
             }
@@ -93,10 +132,21 @@ enum Routing {
         }
         return normalized
     }
-    static func target(for url: URL, configuration: Configuration, browsers: [Browser]) -> RouteTarget? {
+    /// A rule's website condition. `*` matches every site.
+    static func matchesWebsite(_ rule: RouteRule, host: String) -> Bool {
+        rule.domain == anyWebsite || host == rule.domain || (rule.includeSubdomains && host.hasSuffix("." + rule.domain))
+    }
+    /// A rule without a source matches any app. A rule with one needs a known,
+    /// equal source; an unknown source never matches it.
+    static func matchesSource(_ rule: RouteRule, source: String?) -> Bool {
+        guard let wanted = rule.sourceBundleIdentifier else { return true }
+        guard let source else { return false }
+        return wanted.caseInsensitiveCompare(source) == .orderedSame
+    }
+    static func target(for url: URL, source: String? = nil, configuration: Configuration, browsers: [Browser]) -> RouteTarget? {
         let host = canonicalHost(url.host ?? "")
         for rule in configuration.rules {
-            guard host == rule.domain || (rule.includeSubdomains && host.hasSuffix("." + rule.domain)) else { continue }
+            guard matchesWebsite(rule, host: host), matchesSource(rule, source: source) else { continue }
             if rule.profileDirectory != nil && !browsers.contains(where: { $0.identifier == rule.browserIdentifier && $0.identifier != applicationIdentifier }) { return nil }
             if let browser = browsers.first(where: { $0.identifier == rule.browserIdentifier && $0.identifier != applicationIdentifier }) {
                 // A missing profile must not silently send a work link into a different account.

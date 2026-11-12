@@ -31,7 +31,7 @@ import ServiceManagement
     func setDefault(router: Bool, completion: @escaping (String?) -> Void) {
         guard !busy else { return }
         let snapshot = Preferences.shared.snapshot()
-        let configuration = Configuration(defaultBrowserIdentifier: snapshot.defaultBrowserIdentifier, rules: snapshot.rules)
+        let configuration = snapshot.configuration
         let target = router ? Bundle.main.bundleURL : BrowserCatalog.application(configuration.defaultBrowserIdentifier)
         guard let target else { return completion("Choose an installed fallback browser in Settings first.") }
         if router {
@@ -55,15 +55,16 @@ import ServiceManagement
         }
     }
 
-    func open(_ urls: [URL]) {
+    func open(_ urls: [URL], source: String? = nil) {
         // Incoming traffic always uses saved preferences.
         let snapshot = Preferences.shared.snapshot()
         let savedBrowsers = snapshot.availableBrowsers
-        let savedConfiguration = Configuration(defaultBrowserIdentifier: snapshot.defaultBrowserIdentifier, rules: snapshot.rules)
+        let savedConfiguration = snapshot.configuration
         for incoming in urls {
             do {
-                let url = try Routing.webURL(incoming.absoluteString)
-                guard let target = Routing.target(for: url, configuration: savedConfiguration, browsers: savedBrowsers), let application = BrowserCatalog.application(target.browserIdentifier) else {
+                let received = try Routing.webURL(incoming.absoluteString)
+                let url = LinkCleaning.clean(received, stripsTracking: savedConfiguration.stripsTrackingParameters, unwrapsRedirects: savedConfiguration.unwrapsRedirects)
+                guard let target = Routing.target(for: url, source: source, configuration: savedConfiguration, browsers: savedBrowsers), let application = BrowserCatalog.application(target.browserIdentifier) else {
                     throw RouteError.invalid("The selected browser or profile is unavailable. Review the matching rule and fallback browser in Settings.")
                 }
                 let options = NSWorkspace.OpenConfiguration(); options.activates = true
@@ -110,7 +111,13 @@ import ServiceManagement
         offerSetupOnFirstLaunch(launchedAsLoginItem: loginItem)
     }
 
-    func application(_ application: NSApplication, open urls: [URL]) { receivedURL = true; model.open(urls) }
+    func application(_ application: NSApplication, open urls: [URL]) {
+        receivedURL = true
+        // The sender is only available while the delivering Apple Event is current.
+        let pid = NSAppleEventManager.shared().currentAppleEvent?.attributeDescriptor(forKeyword: keySenderPIDAttr)?.int32Value
+        let source = LinkSource.bundleIdentifier(processIdentifier: pid) { NSRunningApplication(processIdentifier: $0)?.bundleIdentifier }
+        model.open(urls, source: source)
+    }
 
     // MARK: Menu
 
