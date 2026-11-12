@@ -367,6 +367,7 @@ final class PlainPasteTests: XCTestCase {
 
 private final class FakeDevice: InputDeviceControl {
     let id: UInt32
+    var uid: String { "fake-\(id)" }
     let hasMute: Bool
     var muted = false
     var levels: [Float]?
@@ -378,8 +379,73 @@ private final class FakeDevice: InputDeviceControl {
 }
 
 final class MicrophoneMuteTests: XCTestCase {
-    private func lookup(_ devices: FakeDevice...) -> (UInt32) -> InputDeviceControl? {
-        { id in devices.first { $0.id == id } }
+    private func lookup(_ devices: FakeDevice...) -> (String) -> InputDeviceControl? {
+        { uid in devices.first { $0.uid == uid } }
+    }
+
+    private func withStore(_ body: (MuteRecordStore, UserDefaults) throws -> Void) rethrows {
+        let suite = "ScrollSplitTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        try body(MuteRecordStore(defaults: defaults), defaults)
+    }
+
+    func testARecordIsWrittenOnMuteAndRemovedOnUnmute() {
+        withStore { store, defaults in
+            let builtIn = FakeDevice(id: 1, hasMute: true)
+            let headset = FakeDevice(id: 2, hasMute: false, levels: [0.6, 0.4])
+            var muter = MicrophoneMuter(store: store)
+            XCTAssertNil(defaults.data(forKey: MuteRecordStore.key))
+            muter.mute(builtIn)
+            XCTAssertEqual(store.load(), ["fake-1": .unmute])
+            muter.defaultDeviceChanged(to: headset)
+            XCTAssertEqual(store.load(), ["fake-1": .unmute, "fake-2": .volumes([0.6, 0.4])], "the previous volume is saved")
+            muter.unmuteAll(lookup: lookup(builtIn, headset))
+            XCTAssertNil(defaults.data(forKey: MuteRecordStore.key), "nothing left once unmuted")
+            muter.mute(builtIn)
+            builtIn.muted = false
+            muter.reconcile(lookup: lookup(builtIn))
+            XCTAssertTrue(store.load().isEmpty, "a mute ended elsewhere is dropped from the record too")
+        }
+    }
+
+    func testLaunchWithALeftoverRecordUndoesIt() {
+        withStore { store, _ in
+            let builtIn = FakeDevice(id: 1, hasMute: true)
+            let headset = FakeDevice(id: 2, hasMute: false, levels: [0.6, 0.4])
+            var crashed: MicrophoneMuter? = MicrophoneMuter(store: store)
+            crashed?.mute(builtIn)
+            crashed?.mute(headset)
+            crashed = nil // the run ends without unmuting
+            XCTAssertTrue(builtIn.muted)
+            XCTAssertEqual(headset.levels, [0, 0])
+            MicrophoneMuter.recover(store: store, lookup: lookup(builtIn, headset))
+            XCTAssertFalse(builtIn.muted)
+            XCTAssertEqual(headset.levels, [0.6, 0.4], "the fallback volume comes back")
+            XCTAssertTrue(store.load().isEmpty)
+        }
+    }
+
+    func testARecordForAMissingDeviceIsDroppedWithoutTouchingOthers() {
+        withStore { store, _ in
+            store.save(["fake-9": .unmute])
+            let other = FakeDevice(id: 1, hasMute: true)
+            other.muted = true // muted by the user, not by ScrollSplit
+            MicrophoneMuter.recover(store: store, lookup: lookup(other))
+            XCTAssertTrue(other.muted, "never unmute a device with no record")
+            XCTAssertTrue(store.load().isEmpty)
+        }
+    }
+
+    func testNoRecordTouchesNothing() {
+        withStore { store, defaults in
+            let device = FakeDevice(id: 1, hasMute: false, levels: [0])
+            var asked = 0
+            MicrophoneMuter.recover(store: store, lookup: { _ in asked += 1; return device })
+            XCTAssertEqual(asked, 0)
+            XCTAssertEqual(device.levels, [0])
+            XCTAssertNil(defaults.data(forKey: MuteRecordStore.key))
+        }
     }
 
     func testMutePropertyToggles() {

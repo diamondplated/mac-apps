@@ -4,8 +4,32 @@ import ScrollSplitCore
 
 /// One CoreAudio input device, by its input-scope mute and volume properties.
 final class CoreAudioInput: InputDeviceControl {
-    let id: UInt32
-    init(id: AudioObjectID) { self.id = id }
+    let id: AudioObjectID
+    let uid: String
+    /// Nil for a device without a UID, which could not be found again after a crash.
+    init?(id: AudioObjectID) {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyDeviceUID, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var value: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        guard AudioObjectGetPropertyData(id, &address, 0, nil, &size, &value) == noErr,
+              let uid = value?.takeRetainedValue() as String?, !uid.isEmpty else { return nil }
+        self.id = id
+        self.uid = uid
+    }
+
+    /// The device with this UID, if it is present now.
+    convenience init?(uid: String) {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyTranslateUIDToDevice, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var name = uid as CFString
+        var id = AudioObjectID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioObjectID>.size)
+        let status = withUnsafePointer(to: &name) { pointer in
+            AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address,
+                                       UInt32(MemoryLayout<CFString>.size), pointer, &size, &id)
+        }
+        guard status == noErr, id != kAudioObjectUnknown else { return nil }
+        self.init(id: id)
+    }
 
     private func address(_ selector: AudioObjectPropertySelector, _ element: AudioObjectPropertyElement) -> AudioObjectPropertyAddress {
         AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioDevicePropertyScopeInput, mElement: element)
@@ -69,7 +93,7 @@ final class CoreAudioInput: InputDeviceControl {
 /// Mute for the default input device, following it when it changes. Listens to CoreAudio
 /// only while the mute shortcut is assigned or a mute is in force.
 final class Microphone {
-    private var muter = MicrophoneMuter()
+    private var muter: MicrophoneMuter
     private var device: CoreAudioInput?
     private var listening = false
     private var defaultListener: AudioObjectPropertyListenerBlock?
@@ -79,6 +103,14 @@ final class Microphone {
     private static var defaultInputAddress = AudioObjectPropertyAddress(
         mSelector: kAudioHardwarePropertyDefaultInputDevice, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
     private static let deviceSelectors = [kAudioDevicePropertyMute, kAudioDevicePropertyVolumeScalar]
+
+    /// Undoes a mute a crashed run left behind before anything else, then keeps saving the
+    /// record of what is muted so the next crash is undone too.
+    init(defaults: UserDefaults = .standard) {
+        let store = MuteRecordStore(defaults: defaults)
+        MicrophoneMuter.recover(store: store, lookup: { CoreAudioInput(uid: $0) })
+        muter = MicrophoneMuter(store: store)
+    }
 
     private static func defaultInput() -> CoreAudioInput? {
         var id = AudioObjectID(kAudioObjectUnknown)
@@ -94,16 +126,16 @@ final class Microphone {
 
     func toggle() {
         startListening()
-        muter.reconcile(lookup: { CoreAudioInput(id: $0) })
+        muter.reconcile(lookup: { CoreAudioInput(uid: $0) })
         device = Self.defaultInput()
-        muter.toggle(current: device, lookup: { CoreAudioInput(id: $0) })
+        muter.toggle(current: device, lookup: { CoreAudioInput(uid: $0) })
         didChange?()
     }
 
     /// Restores every device ScrollSplit muted. Called by the menu, when ScrollSplit turns
     /// off and when it quits.
     func unmute() {
-        muter.unmuteAll(lookup: { CoreAudioInput(id: $0) })
+        muter.unmuteAll(lookup: { CoreAudioInput(uid: $0) })
         didChange?()
     }
 
@@ -148,7 +180,7 @@ final class Microphone {
     private func watch(_ device: CoreAudioInput?) {
         guard let device else { return }
         let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-            self?.muter.reconcile(lookup: { CoreAudioInput(id: $0) })
+            self?.muter.reconcile(lookup: { CoreAudioInput(uid: $0) })
             self?.didChange?()
         }
         deviceListener = listener
