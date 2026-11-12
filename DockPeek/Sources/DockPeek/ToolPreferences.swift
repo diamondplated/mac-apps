@@ -13,6 +13,7 @@ struct DockPeekSettingsSnapshot: Encodable {
     let showsTabs: Bool
     let dismissalDelay: Double
     let permissions: [String: Bool]
+    let permissionsSource: String
 }
 
 struct DockPeekSettingsPatch {
@@ -64,13 +65,15 @@ final class ToolPreferences {
     static let bundleIdentifier = "com.andrew.dockpeek"
     private let defaults: UserDefaults
     private let permissionState: () -> [String: Bool]
+    private let runningAppPermissions: () -> [String: Bool]?
 
     init(defaults: UserDefaults = .standard, permissionState: @escaping () -> [String: Bool] = {
         // Preflight only: the settings CLI must never request permission or capture content.
         ["accessibility": AXIsProcessTrusted(), "screenRecording": CGPreflightScreenCaptureAccess()]
-    }) {
+    }, runningAppPermissions: @escaping () -> [String: Bool]? = RunningAppPermissions.queryRunningApp) {
         self.defaults = defaults
         self.permissionState = permissionState
+        self.runningAppPermissions = runningAppPermissions
     }
 
     var previewsEnabled: Bool { defaults.object(forKey: "previewsEnabled") as? Bool ?? true }
@@ -92,10 +95,13 @@ final class ToolPreferences {
         case .notFound: status = "notFound"
         @unknown default: status = "unknown"
         }
+        // Prefer the running app's own answer; fall back to this process's checks.
+        let live = runningAppPermissions()
         return DockPeekSettingsSnapshot(
             launchAtLogin: loginStatus == .enabled, loginStatus: status,
             previewsEnabled: previewsEnabled, showsTabs: showsTabs, dismissalDelay: dismissalDelay,
-            permissions: permissionState()
+            permissions: live ?? permissionState(),
+            permissionsSource: live == nil ? "currentProcess" : "runningApp"
         )
     }
 

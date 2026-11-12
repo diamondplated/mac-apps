@@ -8,7 +8,6 @@ final class ScrollEngine {
     private var transformer = WheelTransformer(settings: ScrollSettings())
     private(set) var settings = ScrollSettings()
     var didChange: ((Bool) -> Void)?
-    static let ownMarker: Int64 = 0x535343524F4C4C
     var active: Bool { tap.map { CGEvent.tapIsEnabled(tap: $0) } ?? false }
     func configure(_ newSettings: ScrollSettings) {
         if settings != newSettings { transformer = WheelTransformer(settings: newSettings) }

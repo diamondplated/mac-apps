@@ -59,7 +59,8 @@ public class PreviewPanel: NSPanel {
         self.isOpaque = false
         self.backgroundColor = .clear
         self.level = .popUpMenu
-        self.hasShadow = false
+        // The window shadow follows the card's rounded shape and is never clipped by the panel.
+        self.hasShadow = true
         self.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
         self.isReleasedWhenClosed = false
         self.alphaValue = 0.0
@@ -119,26 +120,33 @@ public class PreviewPanel: NSPanel {
         // Calculate appropriate size
         let panelSize = layout.size
         
-        let container = TrackingContainerView(frame: NSRect(origin: .zero, size: panelSize))
-        container.onMouseEntered = { [weak self] in
-            self?.onMouseEntered?()
+        // Content changes while a preview is showing update in place so the panel
+        // can animate to its new size instead of being rebuilt.
+        let wasShowing = isVisible && alphaValue > 0 && hostingView != nil
+        if let hosting = hostingView, wasShowing {
+            hosting.rootView = AnyView(view)
+        } else {
+            let container = TrackingContainerView(frame: NSRect(origin: .zero, size: panelSize))
+            container.onMouseEntered = { [weak self] in
+                self?.onMouseEntered?()
+            }
+            container.onMouseMoved = { [weak self] in
+                self?.onMouseMoved?()
+            }
+            container.onMouseExited = { [weak self] in
+                self?.onMouseExited?()
+            }
+
+            let hosting = NSHostingView(rootView: AnyView(view))
+            hosting.frame = container.bounds
+            hosting.autoresizingMask = [.width, .height]
+            container.addSubview(hosting)
+
+            self.contentView = container
+            self.containerView = container
+            self.hostingView = hosting
         }
-        container.onMouseMoved = { [weak self] in
-            self?.onMouseMoved?()
-        }
-        container.onMouseExited = { [weak self] in
-            self?.onMouseExited?()
-        }
-        
-        let hosting = NSHostingView(rootView: AnyView(view))
-        hosting.frame = container.bounds
-        hosting.autoresizingMask = [.width, .height]
-        container.addSubview(hosting)
-        
-        self.contentView = container
-        self.containerView = container
-        self.hostingView = hosting
-        
+
         // Position panel adjacent to the Dock item based on orientation
         var origin = CGPoint.zero
         let dockRect = dockItem.frame
@@ -169,11 +177,23 @@ public class PreviewPanel: NSPanel {
             origin.x = max(origin.x, screen.visibleFrame.minX + 10)
         }
         
-        self.setFrame(NSRect(origin: origin, size: panelSize), display: true)
-        self.orderFront(nil)
-        
+        let frame = NSRect(origin: origin, size: panelSize)
+        if wasShowing && self.frame != frame {
+            let duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.2
+            NSAnimationContext.runAnimationGroup({ context in
+                context.duration = duration
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                self.animator().setFrame(frame, display: true)
+            }, completionHandler: { [weak self] in self?.invalidateShadow() })
+        } else {
+            self.setFrame(frame, display: true)
+            self.orderFront(nil)
+        }
+        // Recompute the shadow once SwiftUI has drawn the new content.
+        DispatchQueue.main.async { [weak self] in self?.invalidateShadow() }
+
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.15
+            context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.15
             self.animator().alphaValue = 1.0
         }
     }

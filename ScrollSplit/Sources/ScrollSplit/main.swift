@@ -1,5 +1,4 @@
 import AppKit
-import SwiftUI
 import ApplicationServices
 import ServiceManagement
 import ScrollSplitCore
@@ -18,43 +17,77 @@ if CommandLine.arguments.contains("--self-check") {
     exit(0)
 }
 
-final class AppModel: ObservableObject {
+@MainActor
+final class AppModel {
     let preferences = Preferences()
     let engine = ScrollEngine()
-    @Published var settings = ScrollSettings()
-    @Published var active = false
-    @Published var accessible = false
-    @Published var monitoring = false
-    @Published var error: String?
-    @Published var launchAtLogin = false
-    private var observer: NSObjectProtocol?
+    private(set) var settings = ScrollSettings()
+    private(set) var accessible = false
+    private(set) var monitoring = false
+    private var observers: [NSObjectProtocol] = []
     private var timer: Timer?
-    private var statusObserver: NSObjectProtocol?
+    var didChange: (() -> Void)?
+
+    var hasAccess: Bool { accessible && monitoring }
+    var isActive: Bool { engine.active }
+
     init() {
-        engine.didChange = { [weak self] active in self?.active = active }
-        statusObserver = DistributedNotificationCenter.default().addObserver(forName: Preferences.statusRequest, object: Preferences.identifier, queue: .main) { [weak self] notification in
-            guard let self, let token = notification.userInfo?["token"] as? String else { return }
-            DistributedNotificationCenter.default().postNotificationName(Preferences.statusReply, object: token, userInfo: [
-                "pid": ProcessInfo.processInfo.processIdentifier,
-                "permissions": ["accessibility": AXIsProcessTrusted(), "inputMonitoring": CGPreflightListenEventAccess(), "eventTapActive": self.engine.active]
-            ], deliverImmediately: true)
+        // A tap disabled by the system (for example after access is revoked) lands here:
+        // refresh the access flags and restart the poll if access is now missing.
+        engine.didChange = { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.accessible = AXIsProcessTrusted(); self.monitoring = CGPreflightListenEventAccess()
+                self.updatePoll()
+                self.didChange?()
+            }
         }
-        observer = DistributedNotificationCenter.default().addObserver(forName: Preferences.changed, object: Preferences.identifier, queue: .main) { [weak self] _ in self?.reload() }
+        let center = DistributedNotificationCenter.default()
+        observers.append(center.addObserver(forName: Preferences.statusRequest, object: Preferences.identifier, queue: .main) { [weak self] notification in
+            guard let token = notification.userInfo?["token"] as? String else { return }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                center.postNotificationName(Preferences.statusReply, object: token, userInfo: [
+                    "pid": ProcessInfo.processInfo.processIdentifier,
+                    "permissions": ["accessibility": AXIsProcessTrusted(), "inputMonitoring": CGPreflightListenEventAccess(), "eventTapActive": self.engine.active]
+                ], deliverImmediately: true)
+            }
+        })
+        observers.append(center.addObserver(forName: Preferences.changed, object: Preferences.identifier, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.reload() }
+        })
         reload()
-        timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.reload() }
     }
+
     func reload() {
         settings = preferences.settings
         accessible = AXIsProcessTrusted(); monitoring = CGPreflightListenEventAccess()
-        launchAtLogin = SMAppService.mainApp.status == .enabled
         engine.configure(settings)
+        updatePoll()
+        didChange?()
     }
+
+    /// Access changes in System Settings post no notification, so poll only while
+    /// the user wants ScrollSplit on and a permission is still missing.
+    private func updatePoll() {
+        let needsPoll = settings.enabled && !hasAccess
+        if needsPoll, timer == nil {
+            timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.reload() }
+            }
+        } else if !needsPoll, let timer {
+            timer.invalidate(); self.timer = nil
+        }
+    }
+
     func set(_ key: String, _ value: Any) {
         do {
             let data = try JSONSerialization.data(withJSONObject: [key: value])
-            try preferences.apply(SettingsPatch(data: data)); error = nil; reload()
-        } catch { self.error = error.localizedDescription }
+            try preferences.apply(SettingsPatch(data: data))
+        } catch { NSLog("ScrollSplit could not save \(key): \(error.localizedDescription)") }
+        reload()
     }
+
     func enableFromUserAction() {
         // Native requests are restricted to this explicit user action.
         if !AXIsProcessTrusted() {
@@ -63,95 +96,134 @@ final class AppModel: ObservableObject {
         if !CGPreflightListenEventAccess() { _ = CGRequestListenEventAccess() }
         set("enabled", true)
     }
+
     func openPrivacy(_ pane: String) {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") { NSWorkspace.shared.open(url) }
     }
 }
 
-struct SettingsView: View {
-    @ObservedObject var model: AppModel
-    var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            HStack(spacing: 15) {
-                Image(systemName: "computermouse.fill").font(.system(size: 32)).foregroundStyle(.teal).frame(width: 64, height: 64).background(.teal.opacity(0.12), in: RoundedRectangle(cornerRadius: 18))
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("ScrollSplit").font(.largeTitle.bold())
-                    Text("Your mouse. Your direction.").foregroundStyle(.secondary)
-                }
-                Spacer()
-            }
-            HStack(spacing: 10) {
-                Circle().fill(model.active ? Color.green : Color.secondary).frame(width: 8, height: 8)
-                Text(model.active ? "Mouse scrolling is customized" : model.settings.enabled ? "Waiting for permission" : "Ready when you are").font(.headline)
-                Spacer()
-                Button(model.settings.enabled ? "Disable" : "Enable") {
-                    if model.settings.enabled { model.set("enabled", false) } else { model.enableFromUserAction() }
-                }.buttonStyle(.borderedProminent).tint(.teal)
-            }.padding(16).background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 14))
-            Form {
-                Section("Mouse wheel") {
-                    Toggle("Reverse vertical scrolling", isOn: Binding(get: { model.settings.reverseVertical }, set: { model.set("reverseVertical", $0) }))
-                    Toggle("Reverse horizontal scrolling", isOn: Binding(get: { model.settings.reverseHorizontal }, set: { model.set("reverseHorizontal", $0) }))
-                    HStack {
-                        Text("Scroll speed")
-                        Slider(value: Binding(get: { model.settings.speedMultiplier }, set: { model.set("speedMultiplier", $0) }), in: 0.25...4, step: 0.25).accessibilityLabel("Mouse scroll speed")
-                        Text(model.settings.speedMultiplier.formatted(.number.precision(.fractionLength(2))) + "×").monospacedDigit().frame(width: 52)
-                    }
-                }
-                Section("Permissions") {
-                    permission("Accessibility", granted: model.accessible, pane: "Privacy_Accessibility")
-                    permission("Input Monitoring", granted: model.monitoring, pane: "Privacy_ListenEvent")
-                }
-                Section { Toggle("Launch at login", isOn: Binding(get: { model.launchAtLogin }, set: { model.set("launchAtLogin", $0) })) }
-            }.formStyle(.grouped)
-            Text("Trackpad and other continuous scrolling stay unchanged. Some high-resolution mice also send continuous events and cannot be separated reliably; their scrolling stays unchanged too.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            if let error = model.error { Text(error).foregroundStyle(.red).textSelection(.enabled) }
-            if model.settings.enabled && (!model.accessible || !model.monitoring) {
-                Text("Grant ScrollSplit access in System Settings, then return here. If macOS requests a restart, quit and reopen ScrollSplit.").font(.callout).foregroundStyle(.secondary)
-                Button("Request access again") { model.enableFromUserAction() }
-            }
-        }.padding(28).frame(width: 560, height: 640)
-    }
-    private func permission(_ title: String, granted: Bool, pane: String) -> some View {
-        HStack {
-            Label(title, systemImage: granted ? "checkmark.circle.fill" : "lock.fill").foregroundStyle(granted ? Color.green : Color.secondary)
-            Spacer()
-            Button(granted ? "Open Settings" : "Review Access") { model.openPrivacy(pane) }
-        }
-    }
-}
-
-final class AppDelegate: NSObject, NSApplicationDelegate {
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+    static let managerIdentifier = "com.andrew.mactools"
     var model: AppModel!
     var item: NSStatusItem!
-    var window: NSWindow?
+    private var alertShowing = false
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         model = AppModel()
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(systemSymbolName: "computermouse", accessibilityDescription: "ScrollSplit")
         let menu = NSMenu()
-        let settings = menu.addItem(withTitle: "ScrollSplit Settings…", action: #selector(showSettings), keyEquivalent: ",")
-        settings.target = self
-        menu.addItem(.separator())
-        let quit = menu.addItem(withTitle: "Quit ScrollSplit", action: #selector(quitApp), keyEquivalent: "q"); quit.target = self
+        menu.delegate = self
         item.menu = menu
-        if !UserDefaults.standard.bool(forKey: "hasOpenedSettings") { showSettings(); UserDefaults.standard.set(true, forKey: "hasOpenedSettings") }
+        rebuildMenu(menu)
+        model.didChange = { [weak self] in self?.updateIcon() }
+        updateIcon()
     }
-    @objc func showSettings() {
-        if window == nil {
-            let controller = NSHostingController(rootView: SettingsView(model: model))
-            let created = NSWindow(contentViewController: controller)
-            created.title = "ScrollSplit"; created.styleMask = [.titled, .closable, .miniaturizable]; created.isReleasedWhenClosed = false; created.center()
-            window = created
+
+    private var isWorking: Bool { model.settings.enabled && model.hasAccess && model.isActive }
+
+    private var statusTitle: String {
+        if !model.settings.enabled { return "Off" }
+        return isWorking ? "On" : "Needs Access"
+    }
+
+    private func updateIcon() {
+        item.button?.appearsDisabled = !isWorking
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        model.reload()
+        rebuildMenu(menu)
+    }
+
+    private func rebuildMenu(_ menu: NSMenu) {
+        menu.removeAllItems()
+        let status = NSMenuItem(title: "ScrollSplit Is \(statusTitle)", action: nil, keyEquivalent: "")
+        status.isEnabled = false
+        menu.addItem(status)
+        menu.addItem(.separator())
+        add(model.settings.enabled ? "Turn Off" : "Turn On", #selector(toggle), to: menu)
+        if !model.accessible { add("Grant Accessibility…", #selector(grantAccessibility), to: menu) }
+        if !model.monitoring { add("Grant Input Monitoring…", #selector(grantInputMonitoring), to: menu) }
+        menu.addItem(.separator())
+        add("Settings…", #selector(openSettings), key: ",", to: menu)
+        menu.addItem(.separator())
+        add("Quit ScrollSplit", #selector(quitApp), key: "q", to: menu)
+    }
+
+    private func add(_ title: String, _ action: Selector, key: String = "", to menu: NSMenu) {
+        let entry = menu.addItem(withTitle: title, action: action, keyEquivalent: key)
+        entry.target = self
+    }
+
+    @objc private func toggle() {
+        if model.settings.enabled { model.set("enabled", false) } else { model.enableFromUserAction() }
+    }
+
+    @objc private func grantAccessibility() {
+        if !AXIsProcessTrusted() {
+            _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
         }
-        NSApplication.shared.activate(ignoringOtherApps: true); window?.makeKeyAndOrderFront(nil)
+        model.openPrivacy("Privacy_Accessibility")
     }
-    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { showSettings(); return true }
+
+    @objc private func grantInputMonitoring() {
+        if !CGPreflightListenEventAccess() { _ = CGRequestListenEventAccess() }
+        model.openPrivacy("Privacy_ListenEvent")
+    }
+
+    /// Opens ScrollSplit's page in Mac Tools. Older managers do not answer the
+    /// page URL, so fall back to opening the manager, then to an install alert.
+    @objc func openSettings() {
+        guard let page = URL(string: "mactools://app/scrollSplit") else { return }
+        NSWorkspace.shared.open(page, configuration: NSWorkspace.OpenConfiguration()) { [weak self] _, error in
+            guard error != nil else { return }
+            Task { @MainActor in self?.openManager() }
+        }
+    }
+
+    private func openManager() {
+        guard let manager = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.managerIdentifier) else { return showInstallAlert() }
+        NSWorkspace.shared.openApplication(at: manager, configuration: NSWorkspace.OpenConfiguration()) { [weak self] _, error in
+            if error != nil { Task { @MainActor in self?.showInstallAlert() } }
+        }
+    }
+
+    private func showInstallAlert() {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Install Mac Tools"
+        alert.informativeText = "Mac Tools holds ScrollSplit's settings. Place it in Applications, then open it."
+        alert.runModal()
+    }
+
+    /// Opening the app again is the manager's Open button: offer to turn
+    /// scrolling on when it is not working, and do nothing when it is.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        model.reload()
+        guard !alertShowing, !isWorking else { return false }
+        alertShowing = true
+        defer { alertShowing = false }
+        NSApp.activate(ignoringOtherApps: true)
+        let needsAccess = model.settings.enabled
+        let alert = NSAlert()
+        alert.messageText = needsAccess ? "ScrollSplit Needs Access" : "ScrollSplit Is Off"
+        alert.informativeText = needsAccess ? "Allow Accessibility and Input Monitoring to customize mouse scrolling." : "Turn it on to customize mouse scrolling."
+        alert.addButton(withTitle: needsAccess ? "Grant Access" : "Turn On")
+        alert.addButton(withTitle: "Not Now")
+        if alert.runModal() == .alertFirstButtonReturn { model.enableFromUserAction() }
+        return false
+    }
+
     func applicationWillTerminate(_ notification: Notification) { model.engine.stop() }
     @objc func quitApp() { NSApplication.shared.terminate(nil) }
 }
-let app = NSApplication.shared
-let delegate = AppDelegate()
-app.delegate = delegate
-app.setActivationPolicy(.accessory)
-app.run()
+
+MainActor.assumeIsolated {
+    let app = NSApplication.shared
+    let delegate = AppDelegate()
+    app.delegate = delegate
+    app.setActivationPolicy(.accessory)
+    app.run()
+}

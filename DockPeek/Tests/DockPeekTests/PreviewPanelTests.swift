@@ -1,4 +1,5 @@
 import Cocoa
+import SwiftUI
 import XCTest
 @testable import DockPeek
 
@@ -94,6 +95,43 @@ final class PreviewPanelTests: XCTestCase {
             view.cacheDisplay(in: view.bounds, to: bitmap)
             let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
             try data.write(to: URL(fileURLWithPath: path))
+        }
+    }
+
+    /// With DOCKPEEK_PREVIEW_SNAPSHOT=/dir/name.png also writes name-{light,dark}-{tabs,windows}.png.
+    func testRendersInBothAppearancesWithAndWithoutTabs() throws {
+        let path = ProcessInfo.processInfo.environment["DOCKPEEK_PREVIEW_SNAPSHOT"]
+        func thumbnail(_ color: NSColor) -> NSImage {
+            let image = NSImage(size: NSSize(width: 320, height: 200))
+            image.lockFocus()
+            NSGradient(starting: color, ending: color.blended(withFraction: 0.5, of: .white) ?? color)?.draw(in: NSRect(x: 0, y: 0, width: 320, height: 200), angle: 90)
+            image.unlockFocus()
+            return image
+        }
+        let icon = NSWorkspace.shared.icon(for: .applicationBundle)
+        let titles = ["Project overview", "Design notes", "A long tab title that should truncate cleanly", "Pull requests", "Documentation", "Release notes"]
+        let tabs = titles.enumerated().map { TabInfo(title: $0.element, isSelected: $0.offset == 1, axElement: nil) }
+        let windows = [
+            WindowInfo(id: 1, pid: 1, title: "Design notes", bounds: .zero, thumbnail: thumbnail(.systemIndigo), appIcon: icon, axElement: nil),
+            WindowInfo(id: 2, pid: 1, title: "Minimized window", bounds: .zero, thumbnail: nil, appIcon: icon, axElement: nil, isMinimized: true),
+            WindowInfo(id: 3, pid: 1, title: "Inbox", bounds: .zero, thumbnail: thumbnail(.systemTeal), appIcon: icon, axElement: nil, isMinimized: true)
+        ]
+        let withTabs = windows.map { WindowInfo(id: $0.id, pid: 1, title: $0.title, bounds: .zero, thumbnail: $0.thumbnail, appIcon: icon, axElement: nil, isMinimized: $0.isMinimized, tabs: $0.id == 1 ? tabs : []) }
+        for (name, set) in [("windows", windows), ("tabs", withTabs)] {
+            let layout = PreviewLayout(windows: set, availableSize: CGSize(width: 1400, height: 900))
+            for (mode, appearance) in [("light", NSAppearance.Name.aqua), ("dark", NSAppearance.Name.darkAqua)] {
+                let view = PreviewView(appName: "Browser", appIcon: icon, windows: set, tabListHeight: layout.tabListHeight, onSelectWindow: { _ in }, onCloseWindow: { _ in })
+                let hosting = NSHostingView(rootView: view)
+                hosting.appearance = NSAppearance(named: appearance)
+                hosting.frame = NSRect(origin: .zero, size: layout.size)
+                hosting.layoutSubtreeIfNeeded()
+                XCTAssertGreaterThan(hosting.fittingSize.width, 0)
+                guard let path else { continue }
+                let bitmap = try XCTUnwrap(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
+                hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+                let url = URL(fileURLWithPath: path).deletingPathExtension()
+                try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: url.path + "-\(mode)-\(name).png"))
+            }
         }
     }
 }

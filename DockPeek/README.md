@@ -1,4 +1,4 @@
-# DockPeek 🔍
+# DockPeek
 
 A native, lightweight macOS utility built in Swift that brings live window hover previews ("Window Peeking") to the macOS Dock — similar to DockDoor and DockMate.
 
@@ -7,9 +7,9 @@ A native, lightweight macOS utility built in Swift that brings live window hover
 - **Live Window Hover Previews:** Hover over any active application icon in the macOS Dock to see live thumbnail previews of all open windows for that app.
 - **Smart Alignment:** Automatically detects Dock orientation (Bottom, Left, or Right) and positions the floating preview HUD cleanly adjacent to the hovered icon.
 - **Click to Focus:** Clicking any window preview immediately brings that specific window to the front and activates the application.
-- **Open Tabs:** Windows that expose an accessible tab strip (including Chrome) show a scrollable list of tab titles below their preview. The active tab is marked; click a tab to select it and bring its window forward. Tabs stay grouped by window, and duplicate titles remain separate entries.
+- **Open Tabs:** Windows that expose an accessible tab strip (including Chrome) show a scrollable list of tab titles below their preview. The active tab carries a checkmark; click a tab to select it and bring its window forward. Tabs stay grouped by window, and duplicate titles remain separate entries.
 - **Quick Close (`x`):** Hover over a window card to reveal a close button to dismiss windows directly from the preview without switching into the app.
-- **Menu Bar Companion:** Runs as an accessory (`LSUIElement`) with a menu bar status icon. It checks permission status and gives one-click access to privacy settings.
+- **Menu Bar Companion:** Runs as an accessory (`LSUIElement`) with a menu bar status icon. The menu shows a status line, **Grant Accessibility…** / **Grant Screen Recording…** only while that permission is missing, **Settings…** (opens DockPeek's page in Mac Tools, `mactools://app/dockPeek`, falling back to opening Mac Tools) and **Quit**.
 - **Reliable Dismissal:** Previews close after the pointer spends about 0.6 seconds outside the Dock icon and preview, with a grace period for crossing between them.
 - **Lightweight Hover Checks:** Event-driven Dock detection, with pointer-position checks only during an active hover to recover from missed mouse-exit events.
 
@@ -30,7 +30,7 @@ Because macOS protects other applications' windows and screen contents, two stan
 2. **Screen Recording (`System Settings > Privacy & Security > Screen & System Audio Recording`)**:
    - Allows macOS to generate live visual thumbnails of running application windows.
 
-When you launch DockPeek for the first time, click the **DockPeek icon** in your menu bar (top right) to see the permission status and open the settings shortcuts.
+When you launch DockPeek for the first time, click the **DockPeek icon** in your menu bar (top right) to see the status and grant any missing permission.
 
 Tab discovery uses the existing Accessibility permission; no browser extension or Automation permission is required. Lists refresh whenever you hover over the app again. Background tabs are listed by title; the thumbnail shows the window's currently selected tab. Availability depends on the app exposing its tab strip, so hidden/collapsed tabs that an app omits from Accessibility cannot be listed. Apps without an accessible tab strip retain their window previews. Discovery skips webpage content and is bounded to keep an unresponsive app or an unusually large accessibility tree from blocking previews.
 
@@ -60,7 +60,8 @@ Accessibility and Screen Recording.
 - **`HoverDismissalState.swift`**: Uses current pointer geometry and a bounded departure grace period; no cached mouse-enter flag or permanent transit corridor.
 - **`WindowService.swift`**: Enumerates active application windows using `CGWindowListCopyWindowInfo` and captures live thumbnails using `CGWindowListCreateImage`. Manages window raising via `AXUIElementPerformAction(kAXRaiseAction)`.
 - **`TabService.swift`**: Finds native Accessibility tab groups, reads their tab titles and selection state, and selects the original tab element without relying on a mutable index or a unique title.
-- **`PreviewPanel.swift` & `PreviewView.swift`**: Non-activating, floating `NSPanel` hosting a SwiftUI view with native `.ultraThinMaterial` styling, drop shadows, and hover animations.
+- **`PreviewPanel.swift` & `PreviewView.swift`**: Non-activating, floating `NSPanel` hosting a SwiftUI view with system material, semantic colours that follow light and dark mode, the suite's corner-radius scale (6, 10, 14), a window shadow, eased hover states and an animated resize when its content changes.
+- **`RunningAppPermissions.swift`**: Lets the settings bridge ask the running DockPeek for its own permission state (matching the exact bundle path), so Mac Tools can show it; the snapshot's `permissionsSource` is `runningApp` when it answered and `currentProcess` otherwise.
 - **`Permissions.swift`**: Queries and prompts for macOS Accessibility and Screen Recording permissions.
 - **`AppDelegate.swift`**: Manages the menu bar status item and coordinates events between the observer and the preview panel.
 
@@ -82,4 +83,4 @@ An optional read-only integration test checks a running Chrome instance and its 
 DOCKPEEK_TEST_CHROME=1 swift test --package-path DockPeek
 ```
 
-Set `DOCKPEEK_PREVIEW_SNAPSHOT=/tmp/dockpeek-preview.png` on the same command to also save a rendered preview fixture for visual inspection.
+Set `DOCKPEEK_PREVIEW_SNAPSHOT=/tmp/dockpeek-preview.png` on the same command to also save rendered preview fixtures for visual inspection: the tabbed fixture at that path, and `-light`/`-dark` with `-windows`/`-tabs` variants beside it.
