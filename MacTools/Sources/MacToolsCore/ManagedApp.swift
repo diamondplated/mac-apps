@@ -7,7 +7,7 @@ public enum ManagedApp: String, CaseIterable, Identifiable, Sendable {
     /// Apps are ordinary windowed apps that keep their settings to themselves.
     public enum Kind: String, CaseIterable, Sendable {
         case utility, app
-        public var title: String { self == .utility ? "Menu Bar Utilities" : "Apps" }
+        public var title: String { self == .utility ? "Menu Bar" : "Apps" }
     }
 
     public var id: String { rawValue }
@@ -50,22 +50,12 @@ public enum ManagedApp: String, CaseIterable, Identifiable, Sendable {
         case .sift: "Drop in a CSV, Parquet, JSON, or Excel file and explore it instantly."
         }
     }
-    public var features: [String] {
-        switch self {
-        case .dockPeek: ["Live previews", "Window switching", "Browser tabs"]
-        case .screenWren: ["Region & window capture", "Markup", "Text recognition"]
-        case .scrollSplit: ["Mouse direction", "Wheel speed", "Trackpad preserved"]
-        case .linkRoutes: ["Domain rules", "Browser profiles", "Link preview"]
-        case .latent: ["Folder browsing", "Vim-style culling", "Local AI enhance"]
-        case .sift: ["Huge files", "SQL", "Parquet & Excel"]
-        }
-    }
     public var onboarding: String {
         switch self {
-        case .dockPeek: "Grant Accessibility and Screen Recording, then hover an app in your Dock. Use DockPeek’s menu bar icon for its permission status."
-        case .screenWren: "Grant Screen Recording, then capture and annotate from the menu bar. Set shortcuts and launch at login in Tool Settings."
-        case .scrollSplit: "Open ScrollSplit to enable scrolling and grant its requested access. Set wheel direction and speed in Tool Settings. Smooth scrolling devices pass through unchanged."
-        case .linkRoutes: "Choose browsers and domain rules in Tool Settings. Open LinkRoutes to make it your default link handler when you’re ready."
+        case .dockPeek: "Grant Accessibility and Screen Recording, then hover an app in your Dock."
+        case .screenWren: "Grant Screen Recording, then capture and annotate from the menu bar."
+        case .scrollSplit: "Open ScrollSplit to turn it on and grant the access it asks for. Trackpads and smooth-scrolling mice are left alone."
+        case .linkRoutes: "Open LinkRoutes to make it your default browser, then add a rule for each site that belongs somewhere else."
         case .latent: "Open a folder of photos, or choose Latent in Finder’s Open With menu. Enhancement models are optional; Latent works without them and picks them up from its Application Support folder."
         case .sift: "Drop a data file or folder on Sift’s window or Dock icon, or choose Sift in Finder’s Open With menu. Sift reads files where they are and never uploads them."
         }
@@ -93,6 +83,16 @@ public enum ManagedApp: String, CaseIterable, Identifiable, Sendable {
         "macOS \(minimumOSMajor) or later" + (requiresAppleSilicon ? " on Apple silicon" : "")
     }
     public var payloadFilename: String { name + ".app" }
+
+    /// The app a `mactools://app/<id>` link points at. Each app's Settings item opens its
+    /// page in Mac Tools this way.
+    public init?(deepLink url: URL) {
+        guard url.scheme?.lowercased() == "mactools", url.host?.lowercased() == "app",
+              url.pathComponents.count == 2 else { return nil }
+        self.init(rawValue: url.pathComponents[1])
+    }
+
+    public var deepLink: URL { URL(string: "mactools://app/\(rawValue)")! }
 }
 
 public enum InstallScope: String, CaseIterable, Identifiable, Sendable {
@@ -101,7 +101,7 @@ public enum InstallScope: String, CaseIterable, Identifiable, Sendable {
     public var directoryURL: URL {
         self == .user ? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications") : URL(fileURLWithPath: "/Applications")
     }
-    public var displayName: String { self == .user ? "Just me (~/Applications)" : "All users (/Applications)" }
+    public var displayName: String { self == .user ? "Only me (~/Applications)" : "All users (/Applications)" }
 }
 
 public struct ManagedAppState: Sendable {

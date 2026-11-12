@@ -28,7 +28,6 @@ final class ManagedAppTests: XCTestCase {
         for app in ManagedApp.allCases {
             XCTAssertFalse(app.summary.isEmpty)
             XCTAssertFalse(app.onboarding.isEmpty)
-            XCTAssertFalse(app.features.isEmpty)
         }
     }
 }
