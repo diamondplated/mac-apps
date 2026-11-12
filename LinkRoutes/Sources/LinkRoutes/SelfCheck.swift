@@ -13,6 +13,24 @@ enum SelfCheck {
         let refusesScript = LinkCleaning.unwrap("https://www.google.com/url?q=javascript%3Aalert(1)") == nil
         let rule = RouteRule(domain: "*", includeSubdomains: false, browserIdentifier: "com.apple.Safari", profileDirectory: nil, sourceBundleIdentifier: "com.tinyspeck.slackmacgap")
         let matches = Routing.matchesSource(rule, source: "com.tinyspeck.slackmacgap") && !Routing.matchesSource(rule, source: nil)
-        return strips && untouched && unwraps && refusesScript && matches
+        return strips && untouched && unwraps && refusesScript && matches && files()
+    }
+
+    /// File rules, against a stand-in for Launch Services.
+    private struct StandInDefaults: FileDefaultsService {
+        func typeIdentifier(forExtension ext: String) -> String? { ext }
+        func defaultApplication(forType type: String) -> String? { "com.example.old" }
+        func canonicalPath(_ path: String) -> String? { nil }
+        func setDefaultApplication(_ bundleIdentifier: String, forType type: String) throws {}
+        func isInstalled(_ bundleIdentifier: String) -> Bool { bundleIdentifier != applicationIdentifier }
+        func candidateApplications(forType type: String) -> [String] { [] }
+    }
+    private static func files() -> Bool {
+        let service = StandInDefaults()
+        let rules = [FileRule(id: "1", fileExtension: "md", folder: "/Users/someone/Work", applicationIdentifier: "com.example.editor")]
+        let inside = FileRouting.decide(file: URL(fileURLWithPath: "/Users/someone/Work/../Work/notes.md"), rules: rules, fallbacks: ["md": TakenType(fallback: "com.example.old")], service: service, home: "/Users/someone")
+        let outside = FileRouting.decide(file: URL(fileURLWithPath: "/Users/someone/Other/notes.md"), rules: rules, fallbacks: ["md": TakenType(fallback: "com.example.old")], service: service, home: "/Users/someone")
+        let blocked = (try? FileRouting.normalizedExtension("sh")) == nil && (try? FileRouting.normalizedExtension("MD")) == "md"
+        return inside == .open(application: "com.example.editor", usedFallback: false) && outside == .open(application: "com.example.old", usedFallback: true) && blocked
     }
 }

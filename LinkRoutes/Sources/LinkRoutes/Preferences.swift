@@ -60,6 +60,9 @@ struct SettingsSnapshot: Encodable {
     let isDefaultBrowser: Bool
     let stripsTrackingParameters: Bool
     let unwrapsRedirects: Bool
+    let fileRules: [FileRule]
+    /// Extensions LinkRoutes is currently the default app for. Read-only.
+    let takenOverExtensions: [String]
     var configuration: Configuration {
         Configuration(defaultBrowserIdentifier: defaultBrowserIdentifier, rules: rules, stripsTrackingParameters: stripsTrackingParameters, unwrapsRedirects: unwrapsRedirects)
     }
@@ -67,12 +70,37 @@ struct SettingsSnapshot: Encodable {
 struct SettingsPatch {
     var configuration: Configuration
     var launchAtLogin: Bool?
-    init(data: Data, current: Configuration, browsers: [Browser]) throws {
+    /// The complete replacement list, already validated, when the patch carries one.
+    var fileRules: [FileRule]?
+    var stopRoutingFiles = false
+    init(data: Data, current: Configuration, browsers: [Browser], fileService: FileDefaultsService = LaunchServicesFileDefaults()) throws {
         guard data.count <= 262_144, let values = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              Set(values.keys).isSubset(of: ["launchAtLogin", "defaultBrowserIdentifier", "rules", "stripsTrackingParameters", "unwrapsRedirects"]) else { throw RouteError.invalid("Unknown or read-only setting, or oversized patch.") }
+              Set(values.keys).isSubset(of: ["launchAtLogin", "defaultBrowserIdentifier", "rules", "stripsTrackingParameters", "unwrapsRedirects", "fileRules", "stopRoutingFiles"]) else { throw RouteError.invalid("Unknown or read-only setting, or oversized patch.") }
         if let value = values["launchAtLogin"] {
             guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { throw RouteError.invalid("launchAtLogin must be a Boolean.") }
             launchAtLogin = number.boolValue
+        }
+        if let value = values["stopRoutingFiles"] {
+            guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { throw RouteError.invalid("stopRoutingFiles must be a Boolean.") }
+            stopRoutingFiles = number.boolValue
+        }
+        if let value = values["fileRules"] {
+            guard !stopRoutingFiles else { throw RouteError.invalid("Send either fileRules or stopRoutingFiles, not both.") }
+            guard let rows = value as? [[String: Any]] else { throw RouteError.invalid("fileRules must be an array of file rule objects.") }
+            var parsed: [FileRule] = []
+            for row in rows {
+                guard Set(row.keys).isSubset(of: ["id", "fileExtension", "folder", "applicationIdentifier"]),
+                      let id = row["id"] as? String, let ext = row["fileExtension"] as? String, let app = row["applicationIdentifier"] as? String else {
+                    throw RouteError.invalid("A file rule contains unknown fields or missing values.")
+                }
+                var folder: String?
+                if let raw = row["folder"], !(raw is NSNull) {
+                    guard let text = raw as? String else { throw RouteError.invalid("A file rule's folder must be a string.") }
+                    folder = text
+                }
+                parsed.append(FileRule(id: id, fileExtension: ext, folder: folder, applicationIdentifier: app))
+            }
+            fileRules = try FileRouting.validate(parsed, service: fileService)
         }
         var config = current
         for (key, path) in [("stripsTrackingParameters", \Configuration.stripsTrackingParameters), ("unwrapsRedirects", \Configuration.unwrapsRedirects)] {
@@ -102,6 +130,7 @@ final class Preferences {
     static let shared = Preferences()
     static let changed = Notification.Name("com.andrew.mactools.settingsChanged")
     private let defaults = UserDefaults.standard
+    var fileStore: FileRoutingStore { FileRoutingStore(defaults: defaults) }
     func configuration(browsers: [Browser]) -> Configuration {
         defaults.synchronize()
         if let data = defaults.data(forKey: "routingConfiguration"), let configuration = try? JSONDecoder().decode(Configuration.self, from: data) { return configuration }
@@ -112,7 +141,8 @@ final class Preferences {
         let browsers = BrowserCatalog.browsers(), config = configuration(browsers: browsers), status = SMAppService.mainApp.status
         let name: String
         switch status { case .enabled: name = "enabled"; case .notRegistered: name = "notRegistered"; case .requiresApproval: name = "requiresApproval"; case .notFound: name = "notFound"; @unknown default: name = "unknown" }
-        return SettingsSnapshot(launchAtLogin: status == .enabled, loginStatus: name, defaultBrowserIdentifier: config.defaultBrowserIdentifier, rules: config.rules, availableBrowsers: browsers, isDefaultBrowser: BrowserCatalog.isDefault, stripsTrackingParameters: config.stripsTrackingParameters, unwrapsRedirects: config.unwrapsRedirects)
+        let files = fileStore.load(), service = LaunchServicesFileDefaults()
+        return SettingsSnapshot(launchAtLogin: status == .enabled, loginStatus: name, defaultBrowserIdentifier: config.defaultBrowserIdentifier, rules: config.rules, availableBrowsers: browsers, isDefaultBrowser: BrowserCatalog.isDefault, stripsTrackingParameters: config.stripsTrackingParameters, unwrapsRedirects: config.unwrapsRedirects, fileRules: files.rules, takenOverExtensions: FileTakeover.takenOver(files, service: service))
     }
     func apply(data: Data) throws {
         let browsers = BrowserCatalog.browsers()
@@ -122,10 +152,22 @@ final class Preferences {
             if enabled && SMAppService.mainApp.status != .enabled && SMAppService.mainApp.status != .requiresApproval { try SMAppService.mainApp.register() }
             if !enabled && SMAppService.mainApp.status != .notRegistered { try SMAppService.mainApp.unregister() }
         }
+        // Taking over or handing back types happens only after the whole patch validated.
+        var fileFailure: Error?
+        do {
+            if patch.stopRoutingFiles { try fileStore.stopRouting(service: LaunchServicesFileDefaults()) }
+            else if let rules = patch.fileRules { try fileStore.replace(rules: rules, service: LaunchServicesFileDefaults()) }
+        } catch let error as PartialRestore { fileFailure = error }
         // One data value commits the complete routing configuration atomically.
         defaults.set(encoded, forKey: "routingConfiguration")
         defaults.synchronize()
         DistributedNotificationCenter.default().postNotificationName(Self.changed, object: applicationIdentifier, userInfo: nil, deliverImmediately: true)
+        if let fileFailure { throw fileFailure }
+    }
+    /// The menu's "Stop Routing Files…": the same path as the bridge's `stopRoutingFiles`.
+    func stopRoutingFiles() throws {
+        defer { DistributedNotificationCenter.default().postNotificationName(Self.changed, object: applicationIdentifier, userInfo: nil, deliverImmediately: true) }
+        try fileStore.stopRouting(service: LaunchServicesFileDefaults())
     }
     static func runCommand(_ arguments: [String]) -> Int32 {
         do {

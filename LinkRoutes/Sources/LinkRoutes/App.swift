@@ -7,10 +7,14 @@ import ServiceManagement
     private(set) var isDefault = false
     private(set) var fallbackName = ""
     private(set) var busy = false
+    private(set) var takenOverExtensions: [String] = []
+    private(set) var ownsFileTypes = false
     private var observer: NSObjectProtocol?
     var didChange: (() -> Void)?
     /// Called with a reason when a link cannot be opened.
     var onFailure: ((String) -> Void)?
+    /// Called with the names of files that could not be opened.
+    var onFileFailure: (([String]) -> Void)?
 
     init() {
         reload()
@@ -23,7 +27,28 @@ import ServiceManagement
         let snapshot = Preferences.shared.snapshot()
         isDefault = snapshot.isDefaultBrowser
         fallbackName = snapshot.availableBrowsers.first { $0.identifier == snapshot.defaultBrowserIdentifier }?.name ?? ""
+        takenOverExtensions = snapshot.takenOverExtensions
+        // Also true for a type left owned by an interrupted take-over, which has no rule.
+        ownsFileTypes = !FileTakeover.ownedTypes(Preferences.shared.fileStore.load(), service: LaunchServicesFileDefaults()).isEmpty
         didChange?()
+    }
+
+    /// Routes files by the saved file rules. A file with no usable rule opens in
+    /// the app that was the default before LinkRoutes took the type over.
+    func openFiles(_ files: [URL]) {
+        let state = Preferences.shared.fileStore.load()
+        let service = LaunchServicesFileDefaults()
+        var failed: [String] = []
+        for file in files {
+            guard case .open(let identifier, _) = FileRouting.decide(file: file, rules: state.rules, fallbacks: state.taken, service: service),
+                  let application = NSWorkspace.shared.urlForApplication(withBundleIdentifier: identifier) else { failed.append(file.lastPathComponent); continue }
+            let options = NSWorkspace.OpenConfiguration(); options.activates = true
+            let name = file.lastPathComponent
+            NSWorkspace.shared.open([file], withApplicationAt: application, configuration: options) { _, error in
+                if error != nil { Task { @MainActor in self.onFileFailure?([name]) } }
+            }
+        }
+        if !failed.isEmpty { onFileFailure?(failed) }
     }
 
     /// Makes LinkRoutes (or the fallback browser) the handler for web links
@@ -98,6 +123,7 @@ import ServiceManagement
         super.init(); Self.shared = self
         // Set before launch finishes: a link can arrive before the status item exists.
         model.onFailure = { [weak self] reason in self?.showFailure(reason) }
+        model.onFileFailure = { [weak self] names in self?.showFileFailure(names) }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -116,7 +142,10 @@ import ServiceManagement
         // The sender is only available while the delivering Apple Event is current.
         let pid = NSAppleEventManager.shared().currentAppleEvent?.attributeDescriptor(forKeyword: keySenderPIDAttr)?.int32Value
         let source = LinkSource.bundleIdentifier(processIdentifier: pid) { NSRunningApplication(processIdentifier: $0)?.bundleIdentifier }
-        model.open(urls, source: source)
+        let files = urls.filter(\.isFileURL)
+        if !files.isEmpty { model.openFiles(files) }
+        let links = urls.filter { !$0.isFileURL }
+        if !links.isEmpty { model.open(links, source: source) }
     }
 
     // MARK: Menu
@@ -131,6 +160,12 @@ import ServiceManagement
         let status = NSMenuItem(title: model.isDefault ? "Routing Links" : "Not the Default Browser", action: nil, keyEquivalent: "")
         status.isEnabled = false
         menu.addItem(status)
+        if !model.takenOverExtensions.isEmpty {
+            let shown = model.takenOverExtensions.prefix(3).map { ".\($0)" }.joined(separator: ", ")
+            let files = NSMenuItem(title: "Routing Files: \(shown)\(model.takenOverExtensions.count > 3 ? "…" : "")", action: nil, keyEquivalent: "")
+            files.isEnabled = false
+            menu.addItem(files)
+        }
         menu.addItem(.separator())
         let title: String
         if model.isDefault {
@@ -140,6 +175,9 @@ import ServiceManagement
         }
         let toggle = menu.addItem(withTitle: title, action: #selector(changeDefault), keyEquivalent: "")
         toggle.target = self
+        if model.ownsFileTypes {
+            menu.addItem(withTitle: "Stop Routing Files…", action: #selector(stopRoutingFiles), keyEquivalent: "").target = self
+        }
         menu.addItem(.separator())
         menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",").target = self
         menu.addItem(.separator())
@@ -151,6 +189,22 @@ import ServiceManagement
         model.setDefault(router: router) { [weak self] failure in
             if let failure { self?.showFailure(failure) }
         }
+    }
+
+    @objc private func stopRoutingFiles() {
+        guard !alertShowing else { return }
+        alertShowing = true
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Stop Routing Files?"
+        alert.informativeText = "Each file type goes back to the app that opened it before, and the file rules are removed."
+        alert.addButton(withTitle: "Stop Routing Files")
+        alert.addButton(withTitle: "Cancel")
+        let choice = alert.runModal()
+        alertShowing = false
+        guard choice == .alertFirstButtonReturn else { return }
+        do { try Preferences.shared.stopRoutingFiles() } catch { showFailure(error.localizedDescription, title: "Couldn't Restore Every File Type") }
+        model.reload()
     }
 
     // MARK: Settings
@@ -183,17 +237,22 @@ import ServiceManagement
     // MARK: Alerts
 
     /// Shown when a link cannot be routed.
-    func showFailure(_ reason: String) {
+    func showFailure(_ reason: String, title: String = "Couldn't Open Link") {
         guard !alertShowing else { return }
         alertShowing = true
         defer { alertShowing = false }
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
-        alert.messageText = "Couldn't Open Link"
+        alert.messageText = title
         alert.informativeText = reason
         alert.addButton(withTitle: "Settings…")
         alert.addButton(withTitle: "OK")
         if alert.runModal() == .alertFirstButtonReturn { openSettings() }
+    }
+
+    func showFileFailure(_ names: [String]) {
+        let listed = names.prefix(3).map { "\u{201C}\($0)\u{201D}" }.joined(separator: ", ") + (names.count > 3 ? " and \(names.count - 3) more" : "")
+        showFailure("\(listed) could not be opened. The app chosen in its file rule, and the app that used to open it, are not available. Review the file rules in Settings.", title: names.count == 1 ? "Couldn't Open File" : "Couldn't Open Files")
     }
 
     /// Opening the app again is the manager's Open button: offer to make it the
