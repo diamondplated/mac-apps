@@ -104,6 +104,96 @@ public class WindowService {
     }()
     
     private init() {}
+
+    struct AXWindow {
+        let element: AXUIElement
+        let id: CGWindowID
+        let title: String
+        let subrole: String
+        let isMinimized: Bool
+        let bounds: CGRect
+    }
+
+    /// An app's windows as Accessibility reports them, front to back, unfiltered.
+    /// `timeout` bounds how long an unresponsive app can hold up the caller.
+    static func accessibilityWindows(for pid: pid_t, timeout: Float? = nil) -> [AXWindow] {
+        accessibilityWindowsIfReadable(for: pid, timeout: timeout) ?? []
+    }
+
+    /// Nil when the app's windows could not be read at all, as opposed to it having none.
+    static func accessibilityWindowsIfReadable(for pid: pid_t, timeout: Float? = nil) -> [AXWindow]? {
+        let appElement = AXUIElementCreateApplication(pid)
+        if let timeout { AXUIElementSetMessagingTimeout(appElement, timeout) }
+        var axWindowsValue: AnyObject?
+        guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &axWindowsValue) == .success,
+              let axWindows = axWindowsValue as? [AXUIElement] else { return nil }
+        let attributes = [kAXTitleAttribute, kAXSubroleAttribute, kAXMinimizedAttribute, kAXPositionAttribute, kAXSizeAttribute] as CFArray
+        return axWindows.map { axWin in
+            if let timeout { AXUIElementSetMessagingTimeout(axWin, timeout) }
+            var values: CFArray?
+            let list = AXUIElementCopyMultipleAttributeValues(axWin, attributes, [], &values) == .success ? (values as? [Any] ?? []) : []
+            func value(_ index: Int) -> Any? { list.indices.contains(index) ? list[index] : nil }
+            let title = (value(0) as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            // AXMinimized is authoritative for windows truly minimized into the Dock.
+            let isMinimized = (value(2) as? Bool) ?? false
+            var bounds = CGRect.zero
+            if let position = value(3), let size = value(4),
+               CFGetTypeID(position as CFTypeRef) == AXValueGetTypeID(), CFGetTypeID(size as CFTypeRef) == AXValueGetTypeID() {
+                var point = CGPoint.zero
+                var extent = CGSize.zero
+                if AXValueGetValue(position as! AXValue, .cgPoint, &point), AXValueGetValue(size as! AXValue, .cgSize, &extent) {
+                    bounds = CGRect(origin: point, size: extent)
+                }
+            }
+            var winID: CGWindowID = 0
+            _ = _AXUIElementGetWindow(axWin, &winID)
+            return AXWindow(element: axWin, id: winID, title: title, subrole: value(1) as? String ?? "", isMinimized: isMinimized, bounds: bounds)
+        }
+    }
+
+    /// The windows a Dock scroll cycles through: the app's real, unminimized windows,
+    /// front to back (or its minimized ones when that is all it has). No thumbnails.
+    func cyclableWindows(for pid: pid_t) -> [WindowInfo] {
+        let windows = Self.accessibilityWindows(for: pid, timeout: 0.5).filter {
+            WindowFilter.includes(title: $0.title, subrole: $0.subrole, bounds: $0.bounds, isMinimized: $0.isMinimized)
+        }
+        let visible = windows.filter { !$0.isMinimized }
+        return (visible.isEmpty ? windows : visible).enumerated().map { index, window in
+            // Windows without a window-server id still need distinct ids to cycle through.
+            WindowInfo(
+                id: window.id != 0 ? window.id : CGWindowID.max - CGWindowID(index), pid: pid, title: window.title,
+                bounds: window.bounds, thumbnail: nil, appIcon: nil, axElement: window.element, isMinimized: window.isMinimized
+            )
+        }
+    }
+
+    /// The most recent thumbnail of a window, without capturing.
+    func cachedThumbnail(for id: CGWindowID) async -> NSImage? {
+        await thumbnailCache.get(id)
+    }
+
+    /// Captures each window and hands every image over as it arrives, front to back.
+    func captureThumbnails(for ids: [CGWindowID], onImage: @escaping @MainActor (CGWindowID, NSImage) -> Void) async {
+        guard !ids.isEmpty,
+              let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false) else { return }
+        let windows = Dictionary(content.windows.map { ($0.windowID, $0) }, uniquingKeysWith: { first, _ in first })
+        for id in ids {
+            guard !Task.isCancelled else { return }
+            guard let window = windows[id], let image = await captureThumbnail(for: window) else { continue }
+            await onImage(id, image)
+        }
+    }
+
+    /// Brings an app forward. `activate()` alone is only a request on macOS 14 and later,
+    /// so Accessibility's frontmost flag backs it up.
+    func activate(_ app: NSRunningApplication) {
+        if app.isHidden { app.unhide() }
+        app.activate()
+        let element = AXUIElementCreateApplication(app.processIdentifier)
+        // A hung app must not hold DockPeek up for the default six seconds.
+        AXUIElementSetMessagingTimeout(element, 0.5)
+        AXUIElementSetAttributeValue(element, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+    }
     
     /// Asynchronously fetches active and minimized windows with live thumbnails for the given process ID
     public func fetchWindows(for pid: pid_t, appIcon: NSImage?, showsTabs: Bool = true, completion: @escaping ([WindowInfo]) -> Void) {
@@ -120,56 +210,9 @@ public class WindowService {
         // 1. Query Accessibility for true user-facing application windows.
         // This is the ground truth on macOS that filters out invisible render surfaces,
         // auxiliary background frames, and web worker layers.
-        let appElement = AXUIElementCreateApplication(pid)
         let bundleIdentifier = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
-        var axWindowsList: [(element: AXUIElement, id: CGWindowID, title: String, isMinimized: Bool, bounds: CGRect)] = []
-        
-        var axWindowsValue: AnyObject?
-        if AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &axWindowsValue) == .success,
-           let axWindows = axWindowsValue as? [AXUIElement] {
-            for axWin in axWindows {
-                var title = ""
-                var titleVal: AnyObject?
-                if AXUIElementCopyAttributeValue(axWin, kAXTitleAttribute as CFString, &titleVal) == .success,
-                   let t = titleVal as? String {
-                    title = t.trimmingCharacters(in: .whitespacesAndNewlines)
-                }
-                
-                var subrole = ""
-                var subroleVal: AnyObject?
-                if AXUIElementCopyAttributeValue(axWin, kAXSubroleAttribute as CFString, &subroleVal) == .success,
-                   let s = subroleVal as? String {
-                    subrole = s
-                }
-                
-                // Check if truly minimized into the Dock (AXMinimized is authoritative!)
-                var isMin = false
-                var minVal: AnyObject?
-                if AXUIElementCopyAttributeValue(axWin, "AXMinimized" as CFString, &minVal) == .success,
-                   let m = minVal as? Bool {
-                    isMin = m
-                }
-                
-                var winID: CGWindowID = 0
-                _ = _AXUIElementGetWindow(axWin, &winID)
-                
-                var bounds = CGRect.zero
-                var posVal: AnyObject?
-                var sizeVal: AnyObject?
-                if AXUIElementCopyAttributeValue(axWin, kAXPositionAttribute as CFString, &posVal) == .success,
-                   AXUIElementCopyAttributeValue(axWin, kAXSizeAttribute as CFString, &sizeVal) == .success,
-                   let p = posVal, let s = sizeVal {
-                    var pt = CGPoint.zero
-                    var sz = CGSize.zero
-                    if AXValueGetValue(p as! AXValue, .cgPoint, &pt) &&
-                       AXValueGetValue(s as! AXValue, .cgSize, &sz) {
-                        bounds = CGRect(origin: pt, size: sz)
-                    }
-                }
-                
-                guard WindowFilter.includes(title: title, subrole: subrole, bounds: bounds, isMinimized: isMin) else { continue }
-                axWindowsList.append((element: axWin, id: winID, title: title, isMinimized: isMin, bounds: bounds))
-            }
+        let axWindowsList = Self.accessibilityWindows(for: pid).filter {
+            WindowFilter.includes(title: $0.title, subrole: $0.subrole, bounds: $0.bounds, isMinimized: $0.isMinimized)
         }
         
         // 2. Fetch ScreenCaptureKit shareable content to map SCWindow objects for thumbnail captures
@@ -345,7 +388,7 @@ public class WindowService {
     /// Focus and raise a window, unminimizing it first if it was minimized
     public func raiseWindow(_ window: WindowInfo) {
         if let app = NSRunningApplication(processIdentifier: window.pid) {
-            app.activate()
+            activate(app)
         }
         
         var axWin = window.axElement

@@ -12,6 +12,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate, DockObserverDelegate,
     private var permissionsPollTimer: Timer?
     private var previewRequestID = UUID()
     private let preferences = ToolPreferences.shared
+    private let switcher = SwitcherController()
+    private let dockClicks = DockClickController()
     private var statusAnswerer: NSObjectProtocol?
     
     public func applicationDidFinishLaunching(_ notification: Notification) {
@@ -177,6 +179,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate, DockObserverDelegate,
         } else {
             dockObserver.stop()
         }
+        // Each tap exists only while its feature is on and Accessibility allows it.
+        let axGranted = permissions.accessibilityStatus == .granted
+        switcher.apply(
+            enabled: preferences.switcherEnabled,
+            accessibilityGranted: axGranted,
+            screenRecordingGranted: permissions.screenCaptureStatus == .granted
+        )
+        dockClicks.apply(preferences.dockClickSettings, accessibilityGranted: axGranted)
         updateMenu()
     }
 

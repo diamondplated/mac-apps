@@ -12,6 +12,10 @@ struct DockPeekSettingsSnapshot: Encodable {
     let previewsEnabled: Bool
     let showsTabs: Bool
     let dismissalDelay: Double
+    let switcherEnabled: Bool
+    let dockClickHidesFrontApp: Bool
+    let dockScrollCyclesWindows: Bool
+    let dockMiddleClickOpensWindow: Bool
     let permissions: [String: Bool]
     let permissionsSource: String
 }
@@ -21,12 +25,18 @@ struct DockPeekSettingsPatch {
     let previewsEnabled: Bool?
     let showsTabs: Bool?
     let dismissalDelay: Double?
+    let switcherEnabled: Bool?
+    let dockClickHidesFrontApp: Bool?
+    let dockScrollCyclesWindows: Bool?
+    let dockMiddleClickOpensWindow: Bool?
+
+    static let booleanKeys = ["switcherEnabled", "dockClickHidesFrontApp", "dockScrollCyclesWindows", "dockMiddleClickOpensWindow"]
 
     init(data: Data) throws {
         guard let values = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw SettingsError.invalid("Expected a JSON object.")
         }
-        let supported: Set<String> = ["launchAtLogin", "previewsEnabled", "showsTabs", "dismissalDelay"]
+        let supported = Set(["launchAtLogin", "previewsEnabled", "showsTabs", "dismissalDelay"] + Self.booleanKeys)
         guard Set(values.keys).isSubset(of: supported) else {
             throw SettingsError.invalid("Unknown or read-only setting.")
         }
@@ -40,6 +50,10 @@ struct DockPeekSettingsPatch {
         launchAtLogin = try bool("launchAtLogin")
         previewsEnabled = try bool("previewsEnabled")
         showsTabs = try bool("showsTabs")
+        switcherEnabled = try bool("switcherEnabled")
+        dockClickHidesFrontApp = try bool("dockClickHidesFrontApp")
+        dockScrollCyclesWindows = try bool("dockScrollCyclesWindows")
+        dockMiddleClickOpensWindow = try bool("dockMiddleClickOpensWindow")
         if let value = values["dismissalDelay"] {
             guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
                   number.doubleValue.isFinite, (0.1...3.0).contains(number.doubleValue) else {
@@ -78,6 +92,19 @@ final class ToolPreferences {
 
     var previewsEnabled: Bool { defaults.object(forKey: "previewsEnabled") as? Bool ?? true }
     var showsTabs: Bool { defaults.object(forKey: "showsTabs") as? Bool ?? true }
+    /// ⌥Tab window switcher. On by default: macOS does not use ⌥Tab.
+    var switcherEnabled: Bool { defaults.object(forKey: "switcherEnabled") as? Bool ?? true }
+    // The Dock actions change what the stock Dock does, so they start off.
+    var dockClickHidesFrontApp: Bool { defaults.object(forKey: "dockClickHidesFrontApp") as? Bool ?? false }
+    var dockScrollCyclesWindows: Bool { defaults.object(forKey: "dockScrollCyclesWindows") as? Bool ?? false }
+    var dockMiddleClickOpensWindow: Bool { defaults.object(forKey: "dockMiddleClickOpensWindow") as? Bool ?? false }
+    var dockClickSettings: DockClickSettings {
+        DockClickSettings(
+            hidesFrontApp: dockClickHidesFrontApp,
+            scrollCyclesWindows: dockScrollCyclesWindows,
+            middleClickOpensWindow: dockMiddleClickOpensWindow
+        )
+    }
     var dismissalDelay: Double {
         guard let value = defaults.object(forKey: "dismissalDelay") as? Double,
               value.isFinite, (0.1...3.0).contains(value) else { return 0.6 }
@@ -100,6 +127,10 @@ final class ToolPreferences {
         return DockPeekSettingsSnapshot(
             launchAtLogin: loginStatus == .enabled, loginStatus: status,
             previewsEnabled: previewsEnabled, showsTabs: showsTabs, dismissalDelay: dismissalDelay,
+            switcherEnabled: switcherEnabled,
+            dockClickHidesFrontApp: dockClickHidesFrontApp,
+            dockScrollCyclesWindows: dockScrollCyclesWindows,
+            dockMiddleClickOpensWindow: dockMiddleClickOpensWindow,
             permissions: live ?? permissionState(),
             permissionsSource: live == nil ? "currentProcess" : "runningApp"
         )
@@ -112,6 +143,10 @@ final class ToolPreferences {
         if let value = patch.previewsEnabled { defaults.set(value, forKey: "previewsEnabled") }
         if let value = patch.showsTabs { defaults.set(value, forKey: "showsTabs") }
         if let value = patch.dismissalDelay { defaults.set(value, forKey: "dismissalDelay") }
+        if let value = patch.switcherEnabled { defaults.set(value, forKey: "switcherEnabled") }
+        if let value = patch.dockClickHidesFrontApp { defaults.set(value, forKey: "dockClickHidesFrontApp") }
+        if let value = patch.dockScrollCyclesWindows { defaults.set(value, forKey: "dockScrollCyclesWindows") }
+        if let value = patch.dockMiddleClickOpensWindow { defaults.set(value, forKey: "dockMiddleClickOpensWindow") }
         defaults.synchronize()
     }
 
