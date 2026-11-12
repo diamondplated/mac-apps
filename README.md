@@ -4,8 +4,7 @@ Andrew's native macOS apps, one repository:
 
 - **Mac Tools**, one app to install, update, open, and configure **DockPeek**,
   **ScreenWren**, **ScrollSplit**, and **LinkRoutes**, and to install, update, and
-  open **Latent** and **Sift**, with six built-in diagnostic
-  workspaces. Public downloads and automatic updates use
+  open **Latent** and **Sift**. Public downloads and automatic updates use
   [diamondplated/mac-tools-releases](https://github.com/diamondplated/mac-tools-releases/releases),
   a separate repository containing release artifacts, not app source.
 - **[Latent](Latent/README.md)**, a folder-first photo viewer with a local AI
@@ -30,10 +29,6 @@ Everything here is MIT licensed.
 | [Latent](Latent/README.md) | Folder-first photo viewer with keyboard culling and local enhancement | macOS 14+ |
 | [Sift](Sift/README.md) | Explore CSV, Parquet, JSON, and Excel files instantly | macOS 14+ |
 
-The manager includes **Permission Doctor**, **Startup Detective**, **SleepPeek**,
-**SpaceWatch**, **HogWatch**, and **NetPeek**. These utilities run in Mac Tools and
-do not need separate installation. See [the utility guide](docs/UTILITIES.md).
-
 ## Use the manager
 
 Get **Mac Tools.app** from the [public downloads](https://github.com/diamondplated/mac-tools-releases/releases).
@@ -42,35 +37,38 @@ is **not notarized**. Its update feed and archives are also signed with the
 project's separate Sparkle key. Initial installation on another Mac may require
 manual approval in macOS Privacy & Security.
 
-Open **Mac Tools.app** and choose **Overview**. Each app has Install/Update and
-Open actions. Its detail page adds Quit, Show in Finder, Settings, and Uninstall.
+Open **Mac Tools.app**. The **Library** lists every app with one action: Install,
+Update, or Open. Select an app for its own page, which holds its settings, the
+macOS permissions it needs, and a menu with Show in Finder, Quit, and Uninstall.
 Uninstall moves the app to the Trash and keeps preferences and saved captures.
 Choose another default browser in LinkRoutes before uninstalling it if it is your
 current link handler; Mac Tools blocks removal until this is resolved.
 Updates quit a running app, replace its bundle, and reopen it. A failed update
 restores the previous bundle and reopens that copy.
 
-Choose **Just Me** to install new apps in `~/Applications`, or **All Users** for
-`/Applications`. Updates keep each app's current location, including renamed
+In **Mac Tools → Settings…** (`⌘,`), choose **Only me** to install new apps in
+`~/Applications`, or **All users** for `/Applications`. Updates keep each app's current location, including renamed
 bundles. A conflicting bundle or multiple installed copies must be resolved
 before installation; the manager never silently overwrites another app.
 
-The four app installers are included inside Mac Tools, so installing them works
+The app installers are included inside Mac Tools, so installing them works
 offline and requires no development tools. Update Mac Tools itself to receive
 new included app versions. The manager compares versions/builds and app contents
 to recognize local rebuilds, and prevents downgrades. It reports unsupported
 macOS versions before installation.
 
-Choose **Mac Tools Updates** for automatic daily checks and optional automatic
+**Mac Tools → Settings…** (`⌘,`) has automatic daily checks and optional automatic
 download and installation of manager updates. **Mac Tools → Check for Updates…**
 also checks on demand. Sparkle verifies both the update feed and downloaded
 archive against the release signing key. After a manager update, use **Update**
-in Overview to install its newer tool versions.
+in the Library to install its newer tool versions.
 
-## All tool settings
+## Tool settings
 
-Choose **Tool Settings** in the sidebar, or use **Mac Tools → Settings…** (`⌘,`).
-Settings use each tool's existing preferences and apply to running tools.
+Select a menu bar tool in the sidebar. Its page shows its settings, which use the
+tool's existing preferences and apply to the running tool as soon as you change
+them. Three things wait for a button: LinkRoutes rules (edit the list, then save
+it), and ScreenWren's fixed size and saved sizes.
 
 - **DockPeek:** launch at login, enable previews, include tabs, and preview
   dismissal delay.
@@ -83,12 +81,13 @@ Settings use each tool's existing preferences and apply to running tools.
 - **LinkRoutes:** startup, fallback browser, ordered domain rules, subdomain
   matching, and supported browser profiles. Making it the default link handler is
   an explicit action in its native settings.
-- **macOS permissions:** direct links to Accessibility, Screen Recording, and
-  Login Items. macOS owns approval; the manager reports real login-item status.
+- **macOS permissions:** each page lists the access its tool needs, with a direct
+  link to the right System Settings pane. macOS owns approval. A permission shows
+  a status only when the running tool itself reports it, which ScrollSplit does
+  today; the others show the link alone.
 
 Tools must be installed from a current Mac Tools build to expose centralized
-settings. Their existing menus and preferences continue to work. Diagnostic
-options live in their utility pages, including watch controls and startup filters.
+settings. Their existing menus and preferences continue to work.
 
 ## Build and install from source
 
@@ -104,7 +103,7 @@ each tool's bundle identity and signing requirements.
 
 Output is `dist/Mac Tools.app` and `dist/Mac-Tools-<version>.zip`. The installer stages
 and verifies the manager, backs up an existing copy, installs to `/Applications`,
-and opens it. Use the manager to install or update the four apps.
+and opens it. Use the manager to install or update the apps.
 
 ScreenWren uses its saved persistent signing identity and timestamp preferences
 in ignored `ScreenWren/.screenwren-signing-identity` and
@@ -158,7 +157,6 @@ process checks are only a preflight; the final evidence comes from your next log
 - `LinkRoutes/`: browser routing app, settings bridge, icon, and rule tests.
 - `Latent/`: standalone photo viewer, with its own README, CLAUDE.md, and CI (`latent.yml`).
 - `Sift/`: standalone data explorer, with its own README, AGENTS.md, and CI (`sift.yml`).
-- `MacTools/Sources/MacTools/Tools/`: six diagnostic workspaces and shared styling.
 - Root scripts and `.github/`: suite packaging, installation, and shared CI.
 
 ScreenWren's, Latent's, and Sift's previous Git histories are retained as merge

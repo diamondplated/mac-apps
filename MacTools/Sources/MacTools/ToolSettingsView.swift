@@ -2,307 +2,335 @@ import AppKit
 import MacToolsCore
 import SwiftUI
 
+/// The settings sections for one menu bar utility. Place it inside a grouped `Form`.
+/// Every change is written through the app's own settings bridge as soon as it is made.
 struct ToolSettingsView: View {
     @ObservedObject var library: LibraryModel
     @ObservedObject var settings: ToolSettingsModel
+    private let explicitApp: ManagedApp?
 
-    init(library: LibraryModel) {
+    init(library: LibraryModel, app: ManagedApp? = nil) {
         self.library = library
         self.settings = library.toolSettings
+        self.explicitApp = app
     }
-    @State private var width = ""
-    @State private var height = ""
-    @State private var presetName = ""
-    @State private var scrollSpeed = 1.0
-    private var hasUnsavedRoutes: Bool { settings.hasUnsavedRoutes }
 
-    private var app: ManagedApp { library.settingsApp }
+    private var app: ManagedApp { explicitApp ?? library.settingsApp }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("One place to make them yours.").font(.system(size: 28, weight: .bold, design: .rounded))
-                Text("Settings are shared with each tool and take effect when you save.").foregroundStyle(.secondary)
+        if let snapshot = settings.snapshot, snapshot.app == app.rawValue {
+            switch app {
+            case .dockPeek: dockSettings(snapshot)
+            case .screenWren:
+                captureSettings(snapshot)
+                selectionSettings(snapshot)
+                shortcutSettings(snapshot)
+            case .scrollSplit: scrollSettings(snapshot)
+            case .linkRoutes: linkSettings(snapshot)
+            case .latent, .sift: EmptyView()
             }
-            Picker("Tool", selection: $library.settingsApp) {
-                ForEach(ManagedApp.allCases.filter(\.supportsSettingsBridge)) { app in Text(app.name).tag(app) }
-            }.pickerStyle(.segmented).disabled(settings.loading || settings.saving || library.isBusy || (app == .linkRoutes && hasUnsavedRoutes))
-            if settings.loading {
-                ProgressView("Loading settings…").frame(maxWidth: .infinity, minHeight: 180)
-            } else if let snapshot = settings.snapshot, snapshot.app == app.rawValue {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        section("Startup", symbol: "power") {
-                            Toggle("Launch \(app.name) when I log in", isOn: boolBinding(snapshot.launchAtLogin, key: "launchAtLogin"))
-                            Text(loginDescription(snapshot.loginStatus)).font(.caption).foregroundStyle(.secondary)
-                            if snapshot.loginStatus.lowercased().contains("approval") {
-                                Button("Open Login Items") { library.openSettings("com.apple.LoginItems-Settings.extension") }
-                            }
-                        }
-                        switch app {
-                        case .dockPeek: dockSettings(snapshot)
-                        case .screenWren:
-                            captureSettings(snapshot)
-                            selectionSettings(snapshot)
-                            shortcutSettings(snapshot)
-                        case .scrollSplit: scrollSettings(snapshot)
-                        case .linkRoutes: linkSettings(snapshot)
-                        case .latent, .sift: EmptyView()
-                        }
-                        permissions
-                    }.padding(.trailing, 3)
-                }.frame(minHeight: 400)
-                .disabled(settings.saving || library.isBusy)
-                if let message = settings.message {
-                    Label(message, systemImage: "checkmark.circle").font(.caption).foregroundStyle(.secondary)
+            general(snapshot)
+            permissions(snapshot)
+        } else if let error = settings.error {
+            Section {
+                Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary)
+                Button("Try Again") { Task { await settings.load(app, library: library) } }
+            }
+        } else {
+            Section {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text("Loading settings…").foregroundStyle(.secondary)
                 }
             }
-            if let error = settings.error {
-                VStack(alignment: .leading, spacing: 10) {
-                    Label(error, systemImage: "exclamationmark.circle").font(.callout).foregroundStyle(.secondary)
-                    if settings.snapshot == nil {
-                        Text("Install or update this tool from All Apps to use its settings here.").font(.caption).foregroundStyle(.secondary)
-                    }
-                    Button("Refresh Settings") { Task { await load() } }.disabled(settings.saving || library.isBusy)
-                }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 12))
-            }
         }
-        .task(id: app) { await load() }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            guard !settings.saving, !library.isBusy, !hasUnsavedRoutes else { return }
-            Task { await load() }
-        }
-    }
-
-    private func load() async {
-        await settings.load(app, library: library)
-        synchronizeDimensions()
-        if app == .linkRoutes, let rules = settings.snapshot?.rules {
-            settings.synchronizeRouteDraft(rules)
-        }
-        scrollSpeed = settings.snapshot?.speedMultiplier ?? 1
     }
 
     private func save(_ values: [String: Any]) {
         let selectedApp = app
-        Task { await settings.save(values, app: selectedApp, library: library); synchronizeDimensions() }
+        Task { await settings.save(values, app: selectedApp, library: library) }
     }
 
-    private func synchronizeDimensions() {
-        if let w = settings.snapshot?.selectionWidth, w > 0 { width = String(w) } else { width = "" }
-        if let h = settings.snapshot?.selectionHeight, h > 0 { height = String(h) } else { height = "" }
+    private func footnote(_ text: String) -> some View {
+        Text(text).frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func boolBinding(_ current: Bool, key: String) -> Binding<Bool> {
-        Binding(get: { current }, set: { save([key: $0]) })
+    /// A control bound to one setting. It shows the new value at once and writes it in turn.
+    private func setting<Value>(_ current: Value, key: String) -> Binding<Value> {
+        Binding(get: { settings.pending[key] as? Value ?? current }, set: { save([key: $0]) })
     }
 
-    private func loginDescription(_ value: String) -> String {
-        switch value {
-        case "enabled": "On"
-        case "notRegistered", "notFound": "Off"
-        case "requiresApproval": "Needs approval in System Settings"
-        case "unknown": "Status unavailable"
-        default: value
+    private func toggle(_ current: Bool, key: String) -> Binding<Bool> { setting(current, key: key) }
+
+    // MARK: Shared
+
+    private func general(_ value: ToolSettingsSnapshot) -> some View {
+        Section("General") {
+            Toggle("Open at login", isOn: toggle(value.launchAtLogin, key: "launchAtLogin"))
+            if value.loginStatus == "requiresApproval" {
+                LabeledContent("Needs approval in System Settings") {
+                    Button("Open Login Items") { library.openSettings("com.apple.LoginItems-Settings.extension") }
+                }
+            }
         }
     }
 
-    private func section<Content: View>(_ title: String, symbol: String, @ViewBuilder content: () -> Content) -> some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 14) {
-                Label(title, systemImage: symbol).font(.headline)
-                content()
-            }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+    private struct Requirement {
+        let key: String
+        let title: String
+        let pane: String
+    }
+
+    private var requirements: [Requirement] {
+        let accessibility = Requirement(key: "accessibility", title: "Accessibility", pane: "com.apple.preference.security?Privacy_Accessibility")
+        let screen = Requirement(key: "screenRecording", title: "Screen Recording", pane: "com.apple.preference.security?Privacy_ScreenCapture")
+        let input = Requirement(key: "inputMonitoring", title: "Input Monitoring", pane: "com.apple.preference.security?Privacy_ListenEvent")
+        switch app {
+        case .dockPeek: return [accessibility, screen]
+        case .screenWren: return [screen]
+        case .scrollSplit: return [accessibility, input]
+        case .linkRoutes, .latent, .sift: return []
         }
     }
+
+    @ViewBuilder
+    private func permissions(_ value: ToolSettingsSnapshot) -> some View {
+        if !requirements.isEmpty {
+            Section {
+                ForEach(requirements, id: \.key) { requirement in
+                    LabeledContent(requirement.title) {
+                        HStack(spacing: 10) {
+                            // Shown only when the running app itself reported it.
+                            switch value.permission(requirement.key) {
+                            case true?: Label("Allowed", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                            case false?: Text("Not allowed").foregroundStyle(.orange)
+                            case nil: EmptyView()
+                            }
+                            Button("Open Settings") { library.openSettings(requirement.pane) }
+                        }
+                    }
+                }
+            } header: {
+                Text("Permissions")
+            } footer: {
+                footnote(app == .scrollSplit && !value.hasLiveScrollPermissions
+                    ? value.scrollPermissionContext : "After changing access, quit and reopen \(app.name).")
+            }
+        }
+    }
+
+    // MARK: DockPeek
+
+    private static let dismissalDelays = [0.2, 0.4, 0.6, 1.0, 1.5, 2.0, 3.0]
 
     private func dockSettings(_ value: ToolSettingsSnapshot) -> some View {
-        section("Dock previews", symbol: "macwindow.on.rectangle") {
-            Toggle("Show window previews when I hover the Dock", isOn: boolBinding(value.previewsEnabled ?? true, key: "previewsEnabled"))
-            Toggle("Include browser and app tabs", isOn: boolBinding(value.showsTabs ?? true, key: "showsTabs"))
-            HStack {
-                Text("Keep previews open after leaving")
-                Spacer()
-                Picker("Dismissal delay", selection: Binding(get: { value.dismissalDelay ?? 0.6 }, set: { save(["dismissalDelay": $0]) })) {
-                    ForEach([0.2, 0.4, 0.6, 1.0, 1.5, 2.0, 3.0], id: \.self) { delay in
-                        Text("\(delay, specifier: "%.1f") seconds").tag(delay)
-                    }
-                    if let current = value.dismissalDelay, ![0.2, 0.4, 0.6, 1.0, 1.5, 2.0, 3.0].contains(current) {
-                        Text("\(current, specifier: "%.2f") seconds").tag(current)
-                    }
-                }.labelsHidden().frame(width: 140)
+        Section("Previews") {
+            Toggle("Show window previews when hovering the Dock", isOn: toggle(value.previewsEnabled ?? true, key: "previewsEnabled"))
+            Toggle("Show browser tabs", isOn: toggle(value.showsTabs ?? true, key: "showsTabs"))
+            Picker("Keep previews open after leaving", selection: setting(value.dismissalDelay ?? 0.6, key: "dismissalDelay")) {
+                ForEach(Self.dismissalDelays, id: \.self) { delay in
+                    Text("\(delay, specifier: "%.1f") seconds").tag(delay)
+                }
+                if let current = value.dismissalDelay, !Self.dismissalDelays.contains(current) {
+                    Text("\(current, specifier: "%.2f") seconds").tag(current)
+                }
             }
-            Button("Restore Preview Defaults") { save(["previewsEnabled": true, "showsTabs": true, "dismissalDelay": 0.6]) }
-                .font(.caption)
         }
     }
+
+    // MARK: ScreenWren
 
     private func captureSettings(_ value: ToolSettingsSnapshot) -> some View {
-        section("Capture", symbol: "viewfinder") {
-            Picker("After capture", selection: Binding(get: { value.captureDestination ?? "clipboard" }, set: { save(["captureDestination": $0]) })) {
-                Text("Copy only").tag("clipboard")
-                Text("Copy and open editor").tag("editor")
+        Section("Capture") {
+            Picker("After capturing", selection: setting(value.captureDestination ?? "clipboard", key: "captureDestination")) {
+                Text("Copy").tag("clipboard")
+                Text("Copy and open the editor").tag("editor")
                 Text("Copy and pin").tag("pin")
-                Text("Save…").tag("save")
-                Text("Review redactions before copying").tag("review")
+                Text("Ask where to save").tag("save")
+                Text("Review redactions, then copy").tag("review")
             }
-            Toggle("Show a quick-action thumbnail for 6 seconds", isOn: boolBinding(value.showsThumbnail ?? false, key: "showsThumbnail"))
-            Toggle("Adjust the selection before capturing", isOn: boolBinding(value.adjustBeforeCapture ?? false, key: "adjustBeforeCapture"))
-            Text("Save asks where to put the image. Review waits for your redaction check before copying.")
-                .font(.caption).foregroundStyle(.secondary)
+            Toggle("Show a thumbnail with quick actions", isOn: toggle(value.showsThumbnail ?? false, key: "showsThumbnail"))
+            Toggle("Adjust the selection before capturing", isOn: toggle(value.adjustBeforeCapture ?? false, key: "adjustBeforeCapture"))
         }
     }
 
+    private static let aspectRatios = [0, 1, 16.0 / 9, 4.0 / 3, 1.5]
+
     private func selectionSettings(_ value: ToolSettingsSnapshot) -> some View {
-        section("Selection & saved sizes", symbol: "crop") {
-            HStack(spacing: 8) {
-                Text("Exact pixels").frame(width: 90, alignment: .leading)
-                TextField("Free", text: $width).frame(width: 76).accessibilityLabel("Selection width in pixels")
-                Text("×").foregroundStyle(.secondary)
-                TextField("Free", text: $height).frame(width: 76).accessibilityLabel("Selection height in pixels")
-                Button("Apply") { applySize() }
-                Button("Free") { save(["selectionWidth": 0, "selectionHeight": 0]) }
-            }.textFieldStyle(.roundedBorder)
-            Picker("Aspect ratio", selection: Binding(get: { value.aspectRatio ?? 0 }, set: { save(["aspectRatio": $0]) })) {
+        Section {
+            LabeledContent("Fixed size") {
+                HStack(spacing: 6) {
+                    TextField("Width", text: $settings.selectionWidth, prompt: Text("Width")).frame(width: 64)
+                        .accessibilityLabel("Selection width in pixels")
+                    Text("×").foregroundStyle(.secondary)
+                    TextField("Height", text: $settings.selectionHeight, prompt: Text("Height")).frame(width: 64)
+                        .accessibilityLabel("Selection height in pixels")
+                    Button("Set") { applySize() }
+                    if (value.selectionWidth ?? 0) > 0 {
+                        Button("Clear") { save(["selectionWidth": 0, "selectionHeight": 0]) }
+                    }
+                }
+                .textFieldStyle(.roundedBorder).labelsHidden().multilineTextAlignment(.trailing)
+            }
+            Picker("Aspect ratio", selection: setting(value.aspectRatio ?? 0, key: "aspectRatio")) {
                 Text("Free").tag(0.0)
-                Text("Square · 1:1").tag(1.0)
+                Text("Square").tag(1.0)
                 Text("16:9").tag(16.0 / 9)
                 Text("4:3").tag(4.0 / 3)
                 Text("3:2").tag(1.5)
-                if let current = value.aspectRatio, ![0, 1, 16.0 / 9, 4.0 / 3, 1.5].contains(current) {
-                    Text("Custom · \(current, specifier: "%.3f")").tag(current)
+                if let current = value.aspectRatio, !Self.aspectRatios.contains(current) {
+                    Text("Custom (\(current, specifier: "%.3f"))").tag(current)
                 }
             }
             ForEach(value.presets ?? []) { preset in
-                HStack {
-                    Text(preset.name)
-                    Spacer()
-                    Text("\(preset.width) × \(preset.height)").font(.caption).foregroundStyle(.secondary)
-                    Button("Use") { save(["selectionWidth": preset.width, "selectionHeight": preset.height]) }
-                    Button("Remove", systemImage: "trash", role: .destructive) {
-                        savePresets((value.presets ?? []).filter { $0.name != preset.name })
-                    }.labelStyle(.iconOnly).help("Remove \(preset.name)")
-                }
-            }
-            HStack {
-                TextField("Name this size", text: $presetName).textFieldStyle(.roundedBorder)
-                Button("Save Size Preset") {
-                    let name = presetName.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !name.isEmpty, name.count <= 60, let w = Int(width), let h = Int(height), (4...16_000).contains(w), (4...16_000).contains(h) else {
-                        settings.error = "Enter a name and both dimensions from 4 to 16,000 pixels."
-                        return
+                LabeledContent {
+                    HStack(spacing: 10) {
+                        Text("\(preset.width) × \(preset.height)").foregroundStyle(.secondary).monospacedDigit()
+                        Button("Use") { save(["selectionWidth": preset.width, "selectionHeight": preset.height]) }
+                        Button("Remove \(preset.name)", systemImage: "minus.circle", role: .destructive) {
+                            editPresets(from: value.presets ?? []) { $0.filter { $0.name != preset.name } }
+                        }.labelStyle(.iconOnly).buttonStyle(.borderless)
                     }
-                    var presets = (value.presets ?? []).filter { $0.name != name }
-                    presets.insert(SizePreset(name: name, width: w, height: h), at: 0)
-                    guard presets.count <= 20 else { settings.error = "You can save up to 20 sizes. Remove one first."; return }
-                    savePresets(presets)
-                    presetName = ""
+                } label: { Text(preset.name) }
+            }
+            LabeledContent("Save this size as") {
+                HStack(spacing: 6) {
+                    TextField("Name", text: $settings.presetName, prompt: Text("Name")).textFieldStyle(.roundedBorder).labelsHidden().frame(width: 150)
+                    Button("Save") { addPreset(from: value.presets ?? []) }
+                        .disabled(settings.presetName.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
-            Text("Dimensions range from 4 to 16,000 pixels and are clipped to the available desktop. A fixed size takes priority over the aspect ratio.")
-                .font(.caption).foregroundStyle(.secondary)
+        } header: {
+            Text("Selection size")
+        } footer: {
+            footnote("A fixed size wins over the aspect ratio.")
         }
     }
 
+    private func dimensions() -> (Int, Int)? {
+        guard let w = Int(settings.selectionWidth), let h = Int(settings.selectionHeight),
+              (4...16_000).contains(w), (4...16_000).contains(h) else { return nil }
+        return (w, h)
+    }
+
     private func applySize() {
-        guard let w = Int(width), let h = Int(height), (4...16_000).contains(w), (4...16_000).contains(h) else {
-            settings.error = "Enter both dimensions from 4 to 16,000 pixels, or choose Free."
+        guard let (w, h) = dimensions() else {
+            library.error = "Enter a width and height from 4 to 16,000 pixels."
             return
         }
         save(["selectionWidth": w, "selectionHeight": h])
     }
 
-    private func savePresets(_ presets: [SizePreset]) {
-        do {
-            let data = try JSONEncoder().encode(presets)
-            save(["presets": try JSONSerialization.jsonObject(with: data)])
-        } catch { settings.error = error.localizedDescription }
+    private func addPreset(from shown: [SizePreset]) {
+        let name = settings.presetName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name.count <= 60, let (w, h) = dimensions() else {
+            library.error = "Enter a name, and a width and height from 4 to 16,000 pixels."
+            return
+        }
+        guard shown.filter({ $0.name != name }).count < 20 else {
+            library.error = "You can save up to 20 sizes. Remove one first."
+            return
+        }
+        editPresets(from: shown) { presets in
+            [SizePreset(name: name, width: w, height: h)] + presets.filter { $0.name != name }
+        }
+        settings.presetName = ""
+    }
+
+    /// Changes the saved sizes starting from whatever is saved when this edit's turn comes,
+    /// so removing two in a row removes both. `shown` is used if the page has moved on.
+    private func editPresets(from shown: [SizePreset], _ change: @escaping ([SizePreset]) -> [SizePreset]) {
+        let selectedApp = app
+        Task {
+            await settings.save(app: selectedApp, library: library) { latest in
+                guard let data = try? JSONEncoder().encode(change(latest?.presets ?? shown)),
+                      let presets = try? JSONSerialization.jsonObject(with: data) else { return nil }
+                return ["presets": presets]
+            }
+        }
     }
 
     private func shortcutSettings(_ value: ToolSettingsSnapshot) -> some View {
-        section("Keyboard shortcuts", symbol: "keyboard") {
+        Section {
             ForEach(value.shortcuts ?? []) { shortcut in
-                HStack {
-                    Text(shortcut.title)
-                    Spacer()
+                LabeledContent(shortcut.title) {
                     ShortcutRecorder(shortcut: shortcut.shortcut, title: shortcut.title) { recorded in
                         let selectedApp = app
                         Task { await settings.updateShortcut(shortcut.command, value: recorded, app: selectedApp, library: library) }
-                    }.frame(width: 145, height: 27)
+                    }.frame(width: 130)
                 }
             }
-            Text("Click a shortcut and press the keys you want. Include Command, Control, or Option. Delete clears it; Escape cancels.")
-                .font(.caption).foregroundStyle(.secondary)
-            Button("Restore Default Shortcuts") { save(["resetShortcuts": true]) }.font(.caption)
+            Button("Restore Defaults") { save(["resetShortcuts": true]) }
+        } header: {
+            Text("Shortcuts")
+        } footer: {
+            footnote("Click a shortcut, then press the new keys. Delete clears it.")
         }
     }
+
+    // MARK: ScrollSplit
 
     private func scrollSettings(_ value: ToolSettingsSnapshot) -> some View {
-        section("Mouse scrolling", symbol: "computermouse") {
-            Toggle("Customize mouse scrolling", isOn: boolBinding(value.enabled ?? false, key: "enabled"))
-            Text("These controls apply to mouse wheel events. Trackpad scrolling keeps its macOS behavior.")
-                .font(.caption).foregroundStyle(.secondary)
-            Toggle("Reverse vertical scrolling", isOn: boolBinding(value.reverseVertical ?? false, key: "reverseVertical"))
-            Toggle("Reverse horizontal scrolling", isOn: boolBinding(value.reverseHorizontal ?? false, key: "reverseHorizontal"))
-            HStack {
-                Text("Scroll speed")
-                Slider(value: $scrollSpeed, in: 0.25...4, step: 0.05, onEditingChanged: { editing in
-                    if !editing { save(["speedMultiplier": scrollSpeed]) }
-                }).accessibilityLabel("Mouse scroll speed")
-                Text("\(scrollSpeed, specifier: "%.2f")×").monospacedDigit().frame(width: 55)
+        Section {
+            Toggle("Change mouse wheel scrolling", isOn: toggle(value.enabled ?? false, key: "enabled"))
+            // ScrollSplit itself reverses vertical scrolling until told otherwise.
+            Toggle("Reverse vertical", isOn: toggle(value.reverseVertical ?? true, key: "reverseVertical"))
+            Toggle("Reverse horizontal", isOn: toggle(value.reverseHorizontal ?? false, key: "reverseHorizontal"))
+            LabeledContent("Speed") {
+                HStack(spacing: 10) {
+                    // No `step`: it draws a tick for every stop. Snap when the drag ends instead.
+                    Slider(value: $settings.scrollSpeed, in: 0.25...4, onEditingChanged: { editing in
+                        guard !editing else { return }
+                        settings.scrollSpeed = (settings.scrollSpeed * 20).rounded() / 20
+                        save(["speedMultiplier": settings.scrollSpeed])
+                    }).frame(width: 200).accessibilityLabel("Mouse wheel speed")
+                    Text("\(settings.scrollSpeed, specifier: "%.2f")×").monospacedDigit().foregroundStyle(.secondary)
+                        .frame(width: 48, alignment: .trailing)
+                }
             }
-            Button("Reset Mouse Scrolling") {
-                scrollSpeed = 1
-                save(["reverseVertical": false, "reverseHorizontal": false, "speedMultiplier": 1])
-            }.font(.caption)
-            if let active = value.liveEventTapActive {
-                Label(active ? "Scroll customization is active" : "Open ScrollSplit to activate scrolling and check permissions",
-                      systemImage: active ? "checkmark.circle.fill" : "info.circle")
-                    .font(.caption).foregroundStyle(.secondary)
+            if value.liveEventTapActive == false {
+                LabeledContent("ScrollSplit isn’t changing scrolling yet") {
+                    Button("Open ScrollSplit") { Task { await library.launch(.scrollSplit) } }
+                }
             }
-            Button("Open ScrollSplit") { Task { await library.launch(.scrollSplit) } }
+        } header: {
+            Text("Mouse wheel")
+        } footer: {
+            footnote("Trackpad scrolling is never changed.")
         }
     }
 
+    // MARK: LinkRoutes
+
+    @ViewBuilder
     private func linkSettings(_ value: ToolSettingsSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 20) {
-            section("Browser routing", symbol: "arrow.triangle.branch") {
-                Label(value.isDefaultBrowser == true ? "LinkRoutes handles links from other apps" : "Set up LinkRoutes to handle links from other apps",
-                      systemImage: value.isDefaultBrowser == true ? "checkmark.circle.fill" : "info.circle")
-                    .foregroundStyle(.secondary)
-                Button("Open LinkRoutes Setup") { Task { await library.launch(.linkRoutes) } }
-                browserPicker("Fallback browser", selection: Binding(
-                    get: { value.defaultBrowserIdentifier ?? "" },
-                    set: { save(["defaultBrowserIdentifier": $0]) }
-                ), browsers: value.availableBrowsers ?? [])
-                Text("Links that do not match a rule open in the fallback browser. Browser selection for macOS is completed in LinkRoutes.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            section("Website rules", symbol: "list.bullet.indent") {
-                Text("The first matching rule wins. Move specific websites above broader rules, then save the list.")
-                    .font(.caption).foregroundStyle(.secondary)
-                if settings.routeRules.isEmpty {
-                    Label("Add a website to start routing your links.", systemImage: "link.badge.plus")
-                        .foregroundStyle(.secondary).padding(.vertical, 8)
-                }
-                ForEach($settings.routeRules) { $rule in
-                    routeRow($rule, browsers: value.availableBrowsers ?? [])
-                    Divider()
-                }
-                HStack {
-                    Button("Add Website", systemImage: "plus") {
-                        settings.routeRules.append(BrowserRouteRule(domain: "", browserIdentifier: value.defaultBrowserIdentifier ?? value.availableBrowsers?.first?.identifier ?? ""))
-                    }
-                    Spacer()
-                    Button("Discard Changes") { settings.discardRouteChanges() }.disabled(!hasUnsavedRoutes)
-                    Button("Save Rules") { saveRoutes() }.buttonStyle(.borderedProminent).disabled(!hasUnsavedRoutes)
-                }
-                if hasUnsavedRoutes {
-                    Text("You have unsaved rules. Save or discard them before switching tools.")
-                        .font(.caption).foregroundStyle(.secondary)
+        let browsers = value.availableBrowsers ?? []
+        Section {
+            if value.isDefaultBrowser != true {
+                LabeledContent("LinkRoutes isn’t your default browser yet") {
+                    Button("Set Up…") { Task { await library.launch(.linkRoutes) } }
                 }
             }
+            browserPicker("Open everything else in", selection: setting(value.defaultBrowserIdentifier ?? "", key: "defaultBrowserIdentifier"), browsers: browsers)
+        } header: {
+            Text("Browser")
+        }
+        Section {
+            ForEach($settings.routeRules) { $rule in routeRow($rule, browsers: browsers) }
+            HStack {
+                Button("Add Rule", systemImage: "plus") {
+                    settings.routeRules.append(BrowserRouteRule(domain: "", browserIdentifier: value.defaultBrowserIdentifier ?? browsers.first?.identifier ?? ""))
+                }
+                Spacer()
+                if settings.hasUnsavedRoutes {
+                    Button("Revert") { settings.discardRouteChanges() }
+                    Button("Save Rules") { saveRoutes() }.buttonStyle(.borderedProminent).keyboardShortcut("s")
+                }
+            }
+        } header: {
+            Text("Rules")
+        } footer: {
+            footnote("The first rule that matches wins.")
         }
     }
 
@@ -311,43 +339,47 @@ struct ToolSettingsView: View {
             if selection.wrappedValue.isEmpty { Text("Choose a browser").tag("") }
             ForEach(browsers) { browser in Text(browser.name).tag(browser.identifier) }
             if !selection.wrappedValue.isEmpty, !browsers.contains(where: { $0.identifier == selection.wrappedValue }) {
-                Text("Unavailable · \(selection.wrappedValue)").tag(selection.wrappedValue)
+                Text("Unavailable (\(selection.wrappedValue))").tag(selection.wrappedValue)
             }
         }
     }
 
+    /// One rule on one line: the site, where it goes, and a menu for the rest.
     private func routeRow(_ rule: Binding<BrowserRouteRule>, browsers: [AvailableBrowser]) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                TextField("example.com", text: rule.domain).textFieldStyle(.roundedBorder)
-                    .accessibilityLabel("Website domain")
-                Button("Move Rule Up", systemImage: "chevron.up") { moveRule(rule.wrappedValue.id, by: -1) }
-                    .labelStyle(.iconOnly).disabled(settings.routeRules.first?.id == rule.wrappedValue.id)
-                Button("Move Rule Down", systemImage: "chevron.down") { moveRule(rule.wrappedValue.id, by: 1) }
-                    .labelStyle(.iconOnly).disabled(settings.routeRules.last?.id == rule.wrappedValue.id)
-                Button("Remove Website", systemImage: "trash", role: .destructive) {
-                    settings.routeRules.removeAll { $0.id == rule.wrappedValue.id }
-                }.labelStyle(.iconOnly)
-            }
-            Toggle("Include subdomains", isOn: rule.includeSubdomains).font(.caption)
-            browserPicker("Open in", selection: Binding(
+        let id = rule.wrappedValue.id
+        let profiles = browsers.first(where: { $0.identifier == rule.wrappedValue.browserIdentifier })?.profiles ?? []
+        return HStack(spacing: 8) {
+            TextField("Website", text: rule.domain, prompt: Text("example.com")).textFieldStyle(.roundedBorder).labelsHidden()
+                .accessibilityLabel("Website")
+            Image(systemName: "arrow.right").font(.caption).foregroundStyle(.tertiary)
+            browserPicker("Browser", selection: Binding(
                 get: { rule.wrappedValue.browserIdentifier },
                 set: { rule.wrappedValue.browserIdentifier = $0; rule.wrappedValue.profileDirectory = nil }
-            ), browsers: browsers)
-            let profiles = browsers.first(where: { $0.identifier == rule.wrappedValue.browserIdentifier })?.profiles ?? []
+            ), browsers: browsers).labelsHidden().frame(width: 150)
             if !profiles.isEmpty || rule.wrappedValue.profileDirectory != nil {
                 Picker("Profile", selection: Binding(
                     get: { rule.wrappedValue.profileDirectory ?? "" },
                     set: { rule.wrappedValue.profileDirectory = $0.isEmpty ? nil : $0 }
                 )) {
-                    Text("Browser default").tag("")
+                    Text("Default profile").tag("")
                     ForEach(profiles) { profile in Text(profile.name).tag(profile.directory) }
                     if let current = rule.wrappedValue.profileDirectory, !profiles.contains(where: { $0.directory == current }) {
-                        Text("Unavailable · \(current)").tag(current)
+                        Text("Unavailable (\(current))").tag(current)
                     }
-                }
+                }.labelsHidden().frame(width: 130)
             }
-        }.padding(.vertical, 4)
+            Menu {
+                Toggle("Include Subdomains", isOn: rule.includeSubdomains)
+                Divider()
+                Button("Move Up") { moveRule(id, by: -1) }.disabled(settings.routeRules.first?.id == id)
+                Button("Move Down") { moveRule(id, by: 1) }.disabled(settings.routeRules.last?.id == id)
+                Divider()
+                Button("Remove", role: .destructive) { settings.routeRules.removeAll { $0.id == id } }
+            } label: {
+                Image(systemName: "ellipsis")
+            }
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().help("Rule options")
+        }
     }
 
     private func moveRule(_ id: String, by offset: Int) {
@@ -357,58 +389,16 @@ struct ToolSettingsView: View {
 
     private func saveRoutes() {
         let selectedApp = app
-        let draft = settings.routeRules
+        let sent = settings.routeRules
         Task {
-            do {
-                let data = try JSONEncoder().encode(draft)
-                let rules = try JSONSerialization.jsonObject(with: data)
-                await settings.save(["rules": rules], app: selectedApp, library: library)
-                if settings.error == nil, app == selectedApp {
-                    settings.acceptSavedRoutes(settings.snapshot?.rules ?? draft)
-                }
-            } catch { settings.error = error.localizedDescription }
-        }
-    }
-
-    private var permissionDescription: String {
-        switch app {
-        case .dockPeek: "DockPeek needs Accessibility and Screen Recording to preview and switch windows."
-        case .screenWren: "ScreenWren needs Screen Recording to capture the screen."
-        case .scrollSplit: "ScrollSplit uses Accessibility and Input Monitoring to adjust mouse scrolling. Grant access to ScrollSplit, then reopen it."
-        case .linkRoutes: "LinkRoutes uses your chosen browser and routing rules. Manage its startup behavior in Login Items."
-        case .latent, .sift: "\(app.name) keeps its settings in the app."
-        }
-    }
-
-    private var permissions: some View {
-        section("macOS permissions", symbol: "lock.shield") {
-            Text(permissionDescription).font(.callout).foregroundStyle(.secondary)
-            if app == .scrollSplit, let snapshot = settings.snapshot {
-                Text(snapshot.scrollPermissionContext).font(.caption).foregroundStyle(.secondary)
-                if snapshot.hasLiveScrollPermissions, let status = snapshot.permissions {
-                    HStack(spacing: 16) {
-                        permissionStatus("Accessibility", granted: status["accessibility"])
-                        permissionStatus("Input Monitoring", granted: status["inputMonitoring"])
-                    }
-                }
-            }
-            HStack {
-                if app == .dockPeek || app == .scrollSplit {
-                    Button("Accessibility") { library.openSettings("com.apple.preference.security?Privacy_Accessibility") }
-                }
-                if app == .dockPeek || app == .screenWren {
-                    Button("Screen Recording") { library.openSettings("com.apple.preference.security?Privacy_ScreenCapture") }
-                }
-                if app == .scrollSplit {
-                    Button("Input Monitoring") { library.openSettings("com.apple.preference.security?Privacy_ListenEvent") }
-                }
-                Button("Login Items") { library.openSettings("com.apple.LoginItems-Settings.extension") }
+            guard let data = try? JSONEncoder().encode(sent),
+                  let rules = try? JSONSerialization.jsonObject(with: data) else { return }
+            let accepted = await settings.save(["rules": rules], app: selectedApp, library: library)
+            // On success the app returns the rules as it stored them.
+            if accepted {
+                let stored = library.settingsApp == selectedApp ? settings.snapshot?.rules : nil
+                settings.routesSaved(stored ?? sent, sent: sent)
             }
         }
-    }
-
-    private func permissionStatus(_ title: String, granted: Bool?) -> some View {
-        Label(granted == nil ? "\(title) · Unknown" : title, systemImage: granted == true ? "checkmark.circle.fill" : "circle")
-            .font(.caption).foregroundStyle(granted == true ? Color.green : Color.secondary)
     }
 }

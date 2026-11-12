@@ -26,6 +26,12 @@ struct ToolSettingsSnapshot: Decodable {
     var eventTapStatus: String?
 
     var hasLiveScrollPermissions: Bool { permissionsSource == "runningApp" }
+    /// Whether the app has a permission, or nil when that is not known. Only an answer from
+    /// the running app counts. One from the helper process Mac Tools starts describes the
+    /// helper, which macOS may attribute to Mac Tools itself.
+    func permission(_ key: String) -> Bool? {
+        permissionsSource == "runningApp" ? permissions?[key] : nil
+    }
     var liveEventTapActive: Bool? { hasLiveScrollPermissions ? permissions?["eventTapActive"] : nil }
     var scrollPermissionContext: String {
         if hasLiveScrollPermissions { return "Reported by the running ScrollSplit app." }
@@ -98,15 +104,31 @@ struct RecordedShortcut: Codable, Equatable {
 
 @MainActor
 final class ToolSettingsModel: ObservableObject {
-    @Published var snapshot: ToolSettingsSnapshot?
-    @Published var loading = false
-    @Published var saving = false
-    @Published var message: String?
+    @Published var snapshot: ToolSettingsSnapshot? { didSet { synchronizeDrafts() } }
+    @Published private(set) var loading = false
+    @Published private(set) var saving = false
+    /// Why settings could not be read. Failed changes are reported through `LibraryModel.error`.
     @Published var error: String?
     @Published var routeRules: [BrowserRouteRule] = []
     @Published private(set) var savedRouteRules: [BrowserRouteRule] = []
+    /// Text and slider drafts live here so they survive the page being rebuilt.
+    @Published var selectionWidth = ""
+    @Published var selectionHeight = ""
+    @Published var presetName = ""
+    @Published var scrollSpeed = 1.0
+    /// Values the user just chose, shown immediately while the app confirms them.
+    @Published private(set) var pending: [String: Any] = [:]
     var hasUnsavedRoutes: Bool { routeRules != savedRouteRules }
+    /// True while a read or write may be holding the app manager, including a read that a
+    /// newer one has superseded. Installs and other actions wait for this to clear.
+    var isUsingManager: Bool { saving || readsInFlight > 0 }
+    /// Test seam: stands in for the installed app's settings command.
+    var writeOverride: (@MainActor (ManagedApp, Data) async throws -> Data)?
     private var requestGeneration = 0
+    private var readsInFlight = 0
+    private var saveTail: Task<Bool, Never>?
+    private var pendingOwner: [String: Int] = [:]
+    private var nextSave = 0
 
     func synchronizeRouteDraft(_ rules: [BrowserRouteRule]) {
         guard !hasUnsavedRoutes else { return }
@@ -118,20 +140,40 @@ final class ToolSettingsModel: ObservableObject {
         savedRouteRules = rules
     }
 
+    /// Records a finished rules save. Edits made while it was in flight are kept as a new draft.
+    func routesSaved(_ saved: [BrowserRouteRule], sent: [BrowserRouteRule]) {
+        if routeRules == sent { routeRules = saved }
+        savedRouteRules = saved
+    }
+
     func discardRouteChanges() { routeRules = savedRouteRules }
 
+    private func synchronizeDrafts() {
+        guard let snapshot else { return }
+        selectionWidth = snapshot.selectionWidth.flatMap { $0 > 0 ? String($0) : nil } ?? ""
+        selectionHeight = snapshot.selectionHeight.flatMap { $0 > 0 ? String($0) : nil } ?? ""
+        scrollSpeed = snapshot.speedMultiplier ?? 1
+        if let rules = snapshot.rules { synchronizeRouteDraft(rules) }
+    }
+
+    /// Reads an app's settings. A newer request supersedes an older one, so moving between
+    /// apps quickly always ends on the app that is showing.
     func load(_ app: ManagedApp, library: LibraryModel) async {
-        guard !saving, !loading, !library.isBusy else { return }
+        while saving {
+            do { try await Task.sleep(nanoseconds: 20_000_000) } catch { return }
+        }
+        // The page may have changed while this waited.
+        guard !library.isBusy, !Task.isCancelled, library.settingsApp == app else { return }
         requestGeneration += 1
         let generation = requestGeneration
         loading = true
-        library.operation = "Reading \(app.name) settings…"
-        snapshot = nil
+        readsInFlight += 1
+        // Keep showing the same app's settings while they refresh; clear another app's.
+        if snapshot?.app != app.rawValue { snapshot = nil }
         error = nil
-        message = nil
         defer {
+            readsInFlight -= 1
             if generation == requestGeneration { loading = false }
-            library.operation = nil
         }
         do {
             let value = try decode(await library.manager.readSettings(app), for: app)
@@ -143,22 +185,65 @@ final class ToolSettingsModel: ObservableObject {
         }
     }
 
-    func save(_ values: [String: Any], app: ManagedApp, library: LibraryModel) async {
-        guard !saving, !library.isBusy else { return }
+    /// Writes one change. Changes are applied strictly in the order they were made.
+    @discardableResult
+    func save(_ values: [String: Any], app: ManagedApp, library: LibraryModel) async -> Bool {
+        await save(app: app, library: library, showing: values) { _ in values }
+    }
+
+    /// Writes a change computed from the app's latest saved settings when its turn comes, so
+    /// two quick edits to the same list build on each other instead of on the same old copy.
+    /// `showing` is displayed at once. `patch` receives the latest snapshot for `app`, or nil
+    /// if another app's page is showing by then, and returns nil to write nothing.
+    /// Returns whether the app accepted the change.
+    @discardableResult
+    func save(app: ManagedApp, library: LibraryModel, showing: [String: Any] = [:],
+              patch: @escaping (ToolSettingsSnapshot?) -> [String: Any]?) async -> Bool {
+        nextSave += 1
+        let id = nextSave
+        for (key, value) in showing {
+            pending[key] = value
+            pendingOwner[key] = id
+        }
+        let previous = saveTail
+        let task = Task { [weak self] () -> Bool in
+            _ = await previous?.value
+            guard let self else { return false }
+            let accepted = await self.write(app: app, library: library, patch: patch)
+            // A later change to the same setting keeps its own value on screen.
+            for key in showing.keys where self.pendingOwner[key] == id {
+                self.pending[key] = nil
+                self.pendingOwner[key] = nil
+            }
+            return accepted
+        }
+        saveTail = task
+        return await task.value
+    }
+
+    private func write(app: ManagedApp, library: LibraryModel, patch: (ToolSettingsSnapshot?) -> [String: Any]?) async -> Bool {
+        // Wait out a read, or an app being opened or updated. The change is never dropped.
+        while loading || library.isBusy {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        guard let values = patch(snapshot?.app == app.rawValue ? snapshot : nil) else { return false }
         requestGeneration += 1
         let generation = requestGeneration
         saving = true
-        library.operation = "Saving \(app.name) settings…"
-        error = nil
-        message = nil
-        defer { saving = false; library.operation = nil }
+        defer { saving = false }
         do {
-            let patch = try JSONSerialization.data(withJSONObject: values, options: [.sortedKeys])
-            let value = try decode(await library.manager.writeSettings(app, patch: patch), for: app)
-            guard generation == requestGeneration, library.settingsApp == app else { return }
-            snapshot = value
-            message = "Settings saved."
-        } catch { self.error = error.localizedDescription }
+            let data = try JSONSerialization.data(withJSONObject: values, options: [.sortedKeys])
+            let result: Data
+            if let writeOverride { result = try await writeOverride(app, data) }
+            else { result = try await library.manager.writeSettings(app, patch: data) }
+            let value = try decode(result, for: app)
+            // The write always lands on `app`. Only show the result if its page is still up.
+            if generation == requestGeneration, library.settingsApp == app { snapshot = value }
+            return true
+        } catch {
+            library.error = error.localizedDescription
+            return false
+        }
     }
 
     func updateShortcut(_ command: String, value: RecordedShortcut?, app: ManagedApp, library: LibraryModel) async {
@@ -169,7 +254,7 @@ final class ToolSettingsModel: ObservableObject {
             var item = shortcuts[0]
             if value == nil { item["shortcut"] = NSNull() }
             await save(["shortcuts": [item]], app: app, library: library)
-        } catch { self.error = error.localizedDescription }
+        } catch { library.error = error.localizedDescription }
     }
 
     private func decode(_ data: Data, for app: ManagedApp) throws -> ToolSettingsSnapshot {
