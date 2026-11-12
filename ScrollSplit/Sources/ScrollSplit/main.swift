@@ -13,6 +13,31 @@ if CommandLine.arguments.contains("--self-check") {
           accumulator.scale(1, factor: 0.25) == 0,
           accumulator.scale(1, factor: 0.25) == 1,
           !WheelClassifier.shouldTransform(isContinuous: true, enabled: true, isOwnEvent: false) else { exit(1) }
+    // A burst glides to exactly the notch total, and a reversal drops only what was owed.
+    var glide = GlideAxis()
+    var emitted: Int64 = 0
+    glide.add(37, at: 0)
+    emitted += glide.step(at: 0.05)
+    glide.add(41, at: 0.05)
+    for frame in 1...30 { emitted += glide.step(at: 0.05 + Double(frame) / 60) }
+    var reversal = GlideAxis()
+    var reversed: Int64 = reversal.step(at: 0)
+    reversal.add(120, at: 0)
+    reversed += reversal.step(at: 0.05)
+    let dropped = reversal.add(-30, at: 0.05)
+    for frame in 1...30 { reversed += reversal.step(at: 0.05 + Double(frame) / 60) }
+    var router = SideButtonRouter()
+    guard emitted == 78, glide.isIdle, reversed + dropped == 90, dropped > 0,
+          !SmoothScroll.shouldSmooth(enabled: true, smoothScrolling: true, isContinuous: false, isOwnEvent: false, flags: .maskCommand),
+          SmoothScroll.shouldSmooth(enabled: true, smoothScrolling: true, isContinuous: false, isOwnEvent: false, flags: .maskShift),
+          !SmoothScroll.shouldSmooth(enabled: true, smoothScrolling: true, isContinuous: true, isOwnEvent: false, flags: []),
+          router.handle(isDown: true, button: 3, enabled: true, isOwnEvent: false) == .send(.back),
+          router.handle(isDown: false, button: 3, enabled: true, isOwnEvent: false) == .swallow,
+          router.handle(isDown: true, button: 2, enabled: true, isOwnEvent: false) == .pass,
+          (try? SettingsPatch(data: Data("{\"mouseAccelerationAvailable\":true}".utf8))) == nil,
+          (try? SettingsPatch(data: Data("{\"smoothScrolling\":true,\"sideButtonsNavigate\":false,\"mouseAccelerationOff\":true}".utf8))) != nil
+    else { exit(1) }
+    print("Pointer acceleration interface: \(PointerAcceleration.isAvailable ? "available" : "unavailable").")
     print("ScrollSplit self-check passed (no event tap or permission prompts).")
     exit(0)
 }

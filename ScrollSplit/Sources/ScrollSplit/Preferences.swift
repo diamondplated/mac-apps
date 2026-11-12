@@ -15,6 +15,9 @@ final class Preferences {
         value.reverseHorizontal = defaults.bool(forKey: "reverseHorizontal")
         let speed = defaults.object(forKey: "speedMultiplier") as? Double ?? 1
         value.speedMultiplier = speed.isFinite && (0.25...4).contains(speed) ? speed : 1
+        value.smoothScrolling = defaults.bool(forKey: "smoothScrolling")
+        value.sideButtonsNavigate = defaults.bool(forKey: "sideButtonsNavigate")
+        value.mouseAccelerationOff = defaults.bool(forKey: "mouseAccelerationOff") && PointerAcceleration.isAvailable
         return value
     }
     func apply(_ patch: SettingsPatch) throws {
@@ -65,13 +68,18 @@ final class Preferences {
         let (permissions, tapStatus) = runtimePermissions()
         return ["schemaVersion": 1, "app": "scrollSplit", "launchAtLogin": status == "enabled", "loginStatus": status,
                 "enabled": s.enabled, "reverseVertical": s.reverseVertical, "reverseHorizontal": s.reverseHorizontal, "speedMultiplier": s.speedMultiplier,
+                "smoothScrolling": s.smoothScrolling, "sideButtonsNavigate": s.sideButtonsNavigate,
+                "mouseAccelerationOff": s.mouseAccelerationOff, "mouseAccelerationAvailable": PointerAcceleration.isAvailable,
                 "permissions": permissions, "eventTapStatus": tapStatus, "permissionsSource": tapStatus == "checked" ? "runningApp" : "currentProcess"]
     }
     static func runCommand(_ arguments: [String]) -> Int32 {
         do {
             guard arguments.count == 2, ["read", "write"].contains(arguments[1]) else { throw SettingsError.invalid("Usage: --mac-tools-settings read|write") }
             let preferences = Preferences()
-            if arguments[1] == "write" { try preferences.apply(SettingsPatch(data: FileHandle.standardInput.readDataToEndOfFile())) }
+            if arguments[1] == "write" {
+                try preferences.apply(SettingsPatch(data: FileHandle.standardInput.readDataToEndOfFile(),
+                                                    mouseAccelerationAvailable: PointerAcceleration.isAvailable))
+            }
             var data = try JSONSerialization.data(withJSONObject: preferences.snapshot, options: [.sortedKeys])
             data.append(10)
             FileHandle.standardOutput.write(data)

@@ -6,16 +6,23 @@ public struct ScrollSettings: Equatable {
     public var reverseVertical = true
     public var reverseHorizontal = false
     public var speedMultiplier = 1.0
+    public var smoothScrolling = false
+    public var sideButtonsNavigate = false
+    public var mouseAccelerationOff = false
     public init() {}
 }
 
 public struct SettingsPatch {
+    public static let booleanKeys: Set<String> = ["enabled", "reverseVertical", "reverseHorizontal", "launchAtLogin",
+                                                  "smoothScrolling", "sideButtonsNavigate", "mouseAccelerationOff"]
     public let values: [String: Any]
-    public init(data: Data) throws {
+    /// `mouseAccelerationAvailable` is false when this Mac cannot change pointer
+    /// acceleration; turning `mouseAccelerationOff` on is then rejected with the rest.
+    public init(data: Data, mouseAccelerationAvailable: Bool = true) throws {
         guard data.count <= 65_536, let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw SettingsError.invalid("Expected a JSON object smaller than 64 KB.")
         }
-        let booleans: Set<String> = ["enabled", "reverseVertical", "reverseHorizontal", "launchAtLogin"]
+        let booleans = Self.booleanKeys
         guard Set(object.keys).isSubset(of: booleans.union(["speedMultiplier"])) else { throw SettingsError.invalid("Unknown or read-only setting.") }
         for (key, value) in object {
             guard let number = value as? NSNumber else { throw SettingsError.invalid("Invalid value for \(key).") }
@@ -26,6 +33,9 @@ public struct SettingsPatch {
                     throw SettingsError.invalid("speedMultiplier must be between 0.25 and 4.")
                 }
             }
+        }
+        if !mouseAccelerationAvailable, object["mouseAccelerationOff"] as? Bool == true {
+            throw SettingsError.invalid("Pointer acceleration cannot be changed on this Mac.")
         }
         values = object
     }
