@@ -16,6 +16,7 @@ struct DockPeekSettingsSnapshot: Encodable {
     let dockClickHidesFrontApp: Bool
     let dockScrollCyclesWindows: Bool
     let dockMiddleClickOpensWindow: Bool
+    let restoresWindowLayouts: Bool
     let permissions: [String: Bool]
     let permissionsSource: String
 }
@@ -29,8 +30,9 @@ struct DockPeekSettingsPatch {
     let dockClickHidesFrontApp: Bool?
     let dockScrollCyclesWindows: Bool?
     let dockMiddleClickOpensWindow: Bool?
+    let restoresWindowLayouts: Bool?
 
-    static let booleanKeys = ["switcherEnabled", "dockClickHidesFrontApp", "dockScrollCyclesWindows", "dockMiddleClickOpensWindow"]
+    static let booleanKeys = ["switcherEnabled", "dockClickHidesFrontApp", "dockScrollCyclesWindows", "dockMiddleClickOpensWindow", "restoresWindowLayouts"]
 
     init(data: Data) throws {
         guard let values = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -54,6 +56,7 @@ struct DockPeekSettingsPatch {
         dockClickHidesFrontApp = try bool("dockClickHidesFrontApp")
         dockScrollCyclesWindows = try bool("dockScrollCyclesWindows")
         dockMiddleClickOpensWindow = try bool("dockMiddleClickOpensWindow")
+        restoresWindowLayouts = try bool("restoresWindowLayouts")
         if let value = values["dismissalDelay"] {
             guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
                   number.doubleValue.isFinite, (0.1...3.0).contains(number.doubleValue) else {
@@ -98,6 +101,8 @@ final class ToolPreferences {
     var dockClickHidesFrontApp: Bool { defaults.object(forKey: "dockClickHidesFrontApp") as? Bool ?? false }
     var dockScrollCyclesWindows: Bool { defaults.object(forKey: "dockScrollCyclesWindows") as? Bool ?? false }
     var dockMiddleClickOpensWindow: Bool { defaults.object(forKey: "dockMiddleClickOpensWindow") as? Bool ?? false }
+    /// Moves windows by itself when displays change, so it starts off. The menu commands work either way.
+    var restoresWindowLayouts: Bool { defaults.object(forKey: "restoresWindowLayouts") as? Bool ?? false }
     var dockClickSettings: DockClickSettings {
         DockClickSettings(
             hidesFrontApp: dockClickHidesFrontApp,
@@ -131,6 +136,7 @@ final class ToolPreferences {
             dockClickHidesFrontApp: dockClickHidesFrontApp,
             dockScrollCyclesWindows: dockScrollCyclesWindows,
             dockMiddleClickOpensWindow: dockMiddleClickOpensWindow,
+            restoresWindowLayouts: restoresWindowLayouts,
             permissions: live ?? permissionState(),
             permissionsSource: live == nil ? "currentProcess" : "runningApp"
         )
@@ -147,6 +153,7 @@ final class ToolPreferences {
         if let value = patch.dockClickHidesFrontApp { defaults.set(value, forKey: "dockClickHidesFrontApp") }
         if let value = patch.dockScrollCyclesWindows { defaults.set(value, forKey: "dockScrollCyclesWindows") }
         if let value = patch.dockMiddleClickOpensWindow { defaults.set(value, forKey: "dockMiddleClickOpensWindow") }
+        if let value = patch.restoresWindowLayouts { defaults.set(value, forKey: "restoresWindowLayouts") }
         defaults.synchronize()
     }
 
