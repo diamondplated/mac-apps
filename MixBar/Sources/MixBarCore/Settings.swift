@@ -117,7 +117,8 @@ public struct SettingsPatch {
             guard let identifier = entry["bundleIdentifier"] as? String, BundleIdentifier.isValid(identifier) else {
                 throw SettingsError.invalid("An appVolumes entry has an invalid bundleIdentifier.")
             }
-            guard seen.insert(identifier).inserted else { throw SettingsError.invalid("appVolumes lists \(identifier) twice.") }
+            // Bundle identifiers are case-insensitive to Launch Services.
+            guard seen.insert(identifier.lowercased()).inserted else { throw SettingsError.invalid("appVolumes lists \(identifier) twice.") }
             guard let volume = (entry["volume"] as? NSNumber).flatMap(JSONValue.number), AppVolume.range.contains(volume) else {
                 throw SettingsError.invalid("volume for \(identifier) must be a number from 0 to 2.")
             }

@@ -18,6 +18,10 @@ final class MixerController {
     private var reconcileWork: DispatchWorkItem?
     private var saveWork: DispatchWorkItem?
     private var failedHandles = Set<TapHandle>()
+    /// Between sleep and wake: no taps, and device changes do not create any.
+    private var asleep = false
+    /// Mac Tools changed settings while our own save was pending; re-read after it.
+    private var reloadAfterSave = false
     var mixerOpen = false { didSet { if mixerOpen { engine.clearFailures(); refresh() } } }
 
     init() {
@@ -36,10 +40,18 @@ final class MixerController {
 
         let workspace = NSWorkspace.shared.notificationCenter
         observers.append(workspace.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.engine.removeAll() }
+            MainActor.assumeIsolated {
+                self?.asleep = true
+                self?.engine.removeAll()
+            }
         })
         observers.append(workspace.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { MainActor.assumeIsolated { self?.rebuildAll() } }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                MainActor.assumeIsolated {
+                    self?.asleep = false
+                    self?.rebuildAll()
+                }
+            }
         })
         let center = DistributedNotificationCenter.default()
         observers.append(center.addObserver(forName: Preferences.statusRequest, object: Preferences.identifier, queue: .main) { [weak self] notification in
@@ -80,7 +92,7 @@ final class MixerController {
 
     /// Settings changed in Mac Tools.
     func reload() {
-        guard saveWork == nil else { return }  // our own pending save is newer
+        guard saveWork == nil else { reloadAfterSave = true; return }  // our own pending save is newer
         settings = preferences.settings
         if settings.remembersVolumes { session.removeAll() }
         refresh()
@@ -100,6 +112,7 @@ final class MixerController {
 
     func refresh() {
         guard audio.tapsAvailable else { updateViewModel(); return }
+        guard !asleep else { return }
         let now = Date()
         runningApps = NSWorkspace.shared.runningApplications.compactMap { app in
             guard !app.isTerminated, let identifier = app.bundleIdentifier else { return nil }
@@ -199,6 +212,10 @@ final class MixerController {
                         self.name(of: identifier) ?? Preferences.installedName(identifier)
                     }
                 } catch { NSLog("MixBar could not save app volumes: \(error.localizedDescription)") }
+                if self.reloadAfterSave {
+                    self.reloadAfterSave = false
+                    self.reload()
+                }
             }
         }
         saveWork = work

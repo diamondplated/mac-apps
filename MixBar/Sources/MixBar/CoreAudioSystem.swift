@@ -307,9 +307,11 @@ final class CoreAudioSystem: AudioService {
             AudioObjectRemovePropertyListenerBlock(object, &address, .main, block)
         }
         chain.listeners.removeAll()
+        // The render state may be freed only once the IO proc is certainly gone.
+        var ioStopped = true
         if let procID = chain.procID {
             AudioDeviceStop(chain.aggregateID, procID)
-            AudioDeviceDestroyIOProcID(chain.aggregateID, procID)
+            ioStopped = AudioDeviceDestroyIOProcID(chain.aggregateID, procID) == noErr
             chain.procID = nil
         }
         if chain.aggregateID != kAudioObjectUnknown {
@@ -322,8 +324,9 @@ final class CoreAudioSystem: AudioService {
         }
         if let state = chain.state {
             chain.state = nil
-            // The IO proc is stopped and destroyed; free the state a moment later regardless.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { mb_render_state_destroy(state) }
+            // Freed a moment after the IO proc is destroyed. If destroying it failed (coreaudiod
+            // restarting), the few bytes are leaked rather than risk a callback reading freed memory.
+            if ioStopped { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { mb_render_state_destroy(state) } }
         }
     }
 

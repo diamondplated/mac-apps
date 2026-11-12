@@ -97,15 +97,21 @@ public final class MixerEngine {
 
     /// A tap stays this long after its app stops playing, so a pause between tracks does not churn it.
     public static let idleGrace: TimeInterval = 10
-    /// A first tap that hears only silence this long while its app plays means capture was refused.
+    /// A tap that hears only silence this long while its app plays is removed (capture may be refused).
     public static let permissionTimeout: TimeInterval = 4
     /// IO that renders nothing this long has stalled.
     public static let stallTimeout: TimeInterval = 2
+    /// A rebuilt tap that has run this long earns another rebuild.
+    public static let stableAfter: TimeInterval = 30
+    /// A tap removed for hearing only silence is tried again after this long.
+    public static let silentRetry: TimeInterval = 30
 
     public let service: AudioService
     public private(set) var live: [String: LiveTap] = [:]
-    /// Specs that failed; not retried until the spec changes or failures are cleared.
+    /// Specs that failed; not retried until the spec changes, failures are cleared, or
+    /// (for a tap removed for silence) its retry time passes.
     public private(set) var failed: [String: TapSpec] = [:]
+    private var retryAt: [String: Date] = [:]
     public private(set) var captureStatus: CaptureStatus
     public var onCaptureStatusChange: ((CaptureStatus) -> Void)?
 
@@ -134,7 +140,10 @@ public final class MixerEngine {
             service.destroyTap(tap.handle)
             live[bundle] = nil
         }
-        for bundle in failed.keys where desired[bundle]?.spec != failed[bundle] { failed[bundle] = nil }
+        for bundle in failed.keys where desired[bundle]?.spec != failed[bundle] || retryAt[bundle].map({ now >= $0 }) == true {
+            failed[bundle] = nil
+        }
+        retryAt = retryAt.filter { failed[$0.key] != nil }
         for (bundle, want) in desired.sorted(by: { $0.key < $1.key }) {
             let playing = snapshot.group(bundle)?.isPlaying ?? false
             if var tap = live[bundle], tap.spec == want.spec {
@@ -168,6 +177,7 @@ public final class MixerEngine {
             let handle = try service.createTap(spec, gain: gain)
             live[spec.bundleIdentifier] = LiveTap(handle: handle, spec: spec, gain: gain, createdAt: now, lastProgressAt: now, lastPlayingAt: now, rebuilds: rebuilds)
             failed[spec.bundleIdentifier] = nil
+            retryAt[spec.bundleIdentifier] = nil
             return true
         } catch TapError.permissionDenied {
             failed[spec.bundleIdentifier] = spec
@@ -189,6 +199,7 @@ public final class MixerEngine {
         live[bundleIdentifier] = nil
         guard tap.rebuilds < 1, create(tap.spec, gain: tap.gain, now: now, rebuilds: tap.rebuilds + 1) else {
             failed[bundleIdentifier] = tap.spec
+            retryAt[bundleIdentifier] = nil
             return
         }
     }
@@ -196,7 +207,7 @@ public final class MixerEngine {
     /// After sleep, a service restart or a device-wide change: start every tap again from scratch.
     public func rebuildAll(_ snapshot: AudioSnapshot, settings: (String) -> AppVolume?, now: Date) {
         removeAll()
-        failed.removeAll()
+        clearFailures()
         reconcile(snapshot, settings: settings, now: now)
     }
 
@@ -207,11 +218,11 @@ public final class MixerEngine {
     }
 
     /// Lets failed specs be tried again, for when the user opens the mixer.
-    public func clearFailures() { failed.removeAll() }
+    public func clearFailures() { failed.removeAll(); retryAt.removeAll() }
 
     /// Reads every live tap's progress. Learns capture permission from the first sound,
-    /// treats a first tap that hears only silence while its app plays as refused capture,
-    /// and treats IO that stopped moving as a failure.
+    /// removes a tap that hears only silence while its app plays, and treats IO that
+    /// stopped moving as a failure.
     public func checkHealth(_ snapshot: AudioSnapshot, now: Date) {
         for bundle in live.keys.sorted() {
             guard var tap = live[bundle] else { continue }
@@ -225,15 +236,21 @@ public final class MixerEngine {
                 tapFailed(bundle, now: now)
                 continue
             }
+            if tap.rebuilds > 0, now.timeIntervalSince(tap.createdAt) >= Self.stableAfter {
+                tap.rebuilds = 0
+                live[bundle] = tap
+            }
+            // A tap that has heard nothing while its app plays may be silencing the app with
+            // nothing to replay (capture refused or revoked). Remove it whatever the learned
+            // status, and try again later. Two silent taps in a row without any sound between
+            // them mean capture is refused.
             let playing = snapshot.group(bundle)?.isPlaying ?? false
-            if captureStatus != .granted, !health.sawSignal, playing, now.timeIntervalSince(tap.createdAt) >= Self.permissionTimeout {
-                setCaptureStatus(.denied)
-                for (other, tap) in live {
-                    service.destroyTap(tap.handle)
-                    failed[other] = tap.spec
-                }
-                live.removeAll()
-                return
+            if !health.sawSignal, playing, now.timeIntervalSince(tap.createdAt) >= Self.permissionTimeout {
+                service.destroyTap(tap.handle)
+                live[bundle] = nil
+                failed[bundle] = tap.spec
+                retryAt[bundle] = now.addingTimeInterval(Self.silentRetry)
+                setCaptureStatus(captureStatus == .granted ? .unknown : .denied)
             }
         }
     }

@@ -277,6 +277,36 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(engine.live.count, 1)
     }
 
+    func testSilentTapIsRemovedEvenWhenCaptureWasOnceGrantedAndRetriedLater() {
+        let audio = FakeAudio()
+        let engine = MixerEngine(service: audio, captureStatus: .granted)
+        engine.reconcile(snapshot(), settings: { _ in self.music(0.5) }, now: t0)
+        let handle = engine.live["com.apple.Music"]!.handle
+        for second in 1...Int(MixerEngine.permissionTimeout) {
+            audio.health[handle] = TapHealth(framesRendered: UInt64(second * 480), sawSignal: false)
+            engine.checkHealth(snapshot(), now: t0 + Double(second))
+        }
+        XCTAssertTrue(audio.alive.isEmpty, "a stale grant never leaves an app silenced")
+        XCTAssertEqual(engine.captureStatus, .unknown, "the grant is no longer trusted")
+        engine.reconcile(snapshot(), settings: { _ in self.music(0.5) }, now: t0 + 10)
+        XCTAssertTrue(audio.alive.isEmpty, "not retried at once")
+        engine.reconcile(snapshot(), settings: { _ in self.music(0.5) }, now: t0 + 4 + MixerEngine.silentRetry)
+        XCTAssertEqual(audio.alive.count, 1, "tried again later")
+    }
+
+    func testRebuildAllowanceReturnsOnceATapIsStable() {
+        let audio = FakeAudio()
+        let engine = MixerEngine(service: audio, captureStatus: .granted)
+        engine.reconcile(snapshot(), settings: { _ in self.music(0.5) }, now: t0)
+        engine.tapFailed("com.apple.Music", now: t0)
+        let rebuilt = engine.live["com.apple.Music"]!.handle
+        audio.health[rebuilt] = TapHealth(framesRendered: 1, sawSignal: true)
+        engine.checkHealth(snapshot(), now: t0 + MixerEngine.stableAfter)
+        XCTAssertEqual(engine.live["com.apple.Music"]?.rebuilds, 0)
+        engine.tapFailed("com.apple.Music", now: t0 + 40)
+        XCTAssertEqual(audio.alive.count, 1, "a failure hours later is rebuilt again")
+    }
+
     func testPermissionErrorFromCreateMeansDenied() {
         let audio = FakeAudio()
         audio.failures = [.permissionDenied]
