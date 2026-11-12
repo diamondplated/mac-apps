@@ -72,7 +72,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         mixer = MixerController()
         mixer.viewModel.openSettings = { [weak self] in MainActor.assumeIsolated { self?.openSettings() } }
         mixer.viewModel.quit = { NSApplication.shared.terminate(nil) }
-        mixer.viewModel.openPrivacySettings = { [weak self] in MainActor.assumeIsolated { self?.openPrivacySettings() } }
+        mixer.viewModel.openPrivacySettings = { [weak self] in
+            MainActor.assumeIsolated {
+                self?.openPrivacySettings()
+                self?.mixer.retryAll()
+            }
+        }
         popover.behavior = .transient
         popover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         popover.delegate = self

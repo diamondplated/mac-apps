@@ -90,6 +90,13 @@ static void map_channels(const AudioBufferList *list, ChannelMap *map) {
 }
 
 void mb_render(MBRenderState *state, const AudioBufferList *input, AudioBufferList *output) {
+    // Every output byte starts silent, so frames and channels the input does not cover
+    // (short or missing input, extra channels) never replay stale data.
+    if (output) {
+        for (UInt32 b = 0; b < output->mNumberBuffers; b++) {
+            if (output->mBuffers[b].mData) memset(output->mBuffers[b].mData, 0, output->mBuffers[b].mDataByteSize);
+        }
+    }
     ChannelMap in, out;
     map_channels(input, &in);
     map_channels(output, &out);

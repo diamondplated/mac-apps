@@ -29,8 +29,8 @@ public enum TapError: Error, Equatable {
 }
 
 /// Whether macOS lets MixBar hear other apps. There is no public way to ask, so it is
-/// learned from what happens: unknown until the first tap, then granted when sound
-/// arrives or denied when it does not.
+/// learned from what happens: granted once any tap has heard sound (and remembered),
+/// denied after a permission error or two silent taps in a row before that, otherwise unknown.
 public enum CaptureStatus: String, Equatable {
     case unknown, granted, denied
 }
@@ -80,6 +80,20 @@ public enum SettingResolver {
     }
 }
 
+/// Proof that macOS let MixBar hear another app, kept across launches in a private
+/// preference (not a bridge key). Set by the first sound through any tap; cleared only
+/// by a permission error.
+public struct CaptureMemory {
+    public static let key = "captureProven"
+    public let defaults: UserDefaults?
+    /// nil keeps nothing, for previews and the self-check.
+    public init(defaults: UserDefaults?) { self.defaults = defaults }
+    public var isProven: Bool { defaults?.bool(forKey: Self.key) ?? false }
+    public func setProven(_ proven: Bool) {
+        if proven { defaults?.set(true, forKey: Self.key) } else { defaults?.removeObject(forKey: Self.key) }
+    }
+}
+
 /// Keeps exactly the taps the settings call for, and fails open: every failure ends in
 /// a rebuilt tap or no tap, never an app muted with nothing replaying it.
 public final class MixerEngine {
@@ -93,32 +107,50 @@ public final class MixerEngine {
         public var lastPlayingAt: Date
         /// How many times this tap was rebuilt after a failure; one is allowed.
         public var rebuilds = 0
+        /// Whether this tap has heard any sound since it was created.
+        public var heardSignal = false
     }
 
     /// A tap stays this long after its app stops playing, so a pause between tracks does not churn it.
     public static let idleGrace: TimeInterval = 10
-    /// A tap that hears only silence this long while its app plays is removed (capture may be refused).
+    /// Before access is proven, a tap that hears only silence this long while its app plays is removed.
     public static let permissionTimeout: TimeInterval = 4
     /// IO that renders nothing this long has stalled.
     public static let stallTimeout: TimeInterval = 2
     /// A rebuilt tap that has run this long earns another rebuild.
     public static let stableAfter: TimeInterval = 30
-    /// A tap removed for hearing only silence is tried again after this long.
+    /// Before access is proven and while not refused, a tap removed for silence is tried again after this long.
     public static let silentRetry: TimeInterval = 30
+    /// A tap that has heard nothing this long while its app plays is shown as "No sound heard yet".
+    public static let quietCaption: TimeInterval = 10
+    /// Silent taps in a row, with no sound between them, that mean capture is refused.
+    public static let silentTapsForDenied = 2
 
     public let service: AudioService
+    public let memory: CaptureMemory
     public private(set) var live: [String: LiveTap] = [:]
-    /// Specs that failed; not retried until the spec changes, failures are cleared, or
-    /// (for a tap removed for silence) its retry time passes.
+    /// Specs that failed; not retried until the spec changes, failures are cleared, the
+    /// user changes the app's setting, or (cautious mode, not refused) a retry time passes.
     public private(set) var failed: [String: TapSpec] = [:]
     private var retryAt: [String: Date] = [:]
+    public private(set) var captureProven: Bool
     public private(set) var captureStatus: CaptureStatus
     public var onCaptureStatusChange: ((CaptureStatus) -> Void)?
+    /// Silent taps since the last sound, before access was proven.
+    private var silentStreak = 0
+    /// While capture is refused, taps are made only when the user asks: for these apps, or for everyone once.
+    private var retryWhileDenied = Set<String>()
+    private var retryEveryoneWhileDenied = false
 
-    public init(service: AudioService, captureStatus: CaptureStatus = .unknown) {
+    public init(service: AudioService, memory: CaptureMemory = CaptureMemory(defaults: nil)) {
         self.service = service
-        self.captureStatus = captureStatus
+        self.memory = memory
+        captureProven = memory.isProven
+        captureStatus = captureProven ? .granted : .unknown
     }
+
+    /// Refused and never proven: MixBar makes no taps on its own.
+    private var refused: Bool { captureStatus == .denied && !captureProven }
 
     // MARK: Reconciling
 
@@ -157,8 +189,13 @@ public final class MixerEngine {
                 live[bundle] = nil
             }
             guard failed[bundle] != want.spec else { continue }
+            if refused {
+                guard retryEveryoneWhileDenied || retryWhileDenied.contains(bundle) else { continue }
+                retryWhileDenied.remove(bundle)
+            }
             create(want.spec, gain: want.gain, now: now)
         }
+        retryEveryoneWhileDenied = false
     }
 
     /// Moves live taps to new gains at once, without creating or removing any, for slider drags.
@@ -181,6 +218,8 @@ public final class MixerEngine {
             return true
         } catch TapError.permissionDenied {
             failed[spec.bundleIdentifier] = spec
+            captureProven = false
+            memory.setProven(false)
             setCaptureStatus(.denied)
             return false
         } catch {
@@ -204,10 +243,12 @@ public final class MixerEngine {
         }
     }
 
-    /// After sleep, a service restart or a device-wide change: start every tap again from scratch.
+    /// After sleep, a service restart or a device-wide change: start every tap again from
+    /// scratch. While capture is refused this makes no new taps.
     public func rebuildAll(_ snapshot: AudioSnapshot, settings: (String) -> AppVolume?, now: Date) {
         removeAll()
-        clearFailures()
+        failed.removeAll()
+        retryAt.removeAll()
         reconcile(snapshot, settings: settings, now: now)
     }
 
@@ -217,17 +258,33 @@ public final class MixerEngine {
         live.removeAll()
     }
 
-    /// Lets failed specs be tried again, for when the user opens the mixer.
-    public func clearFailures() { failed.removeAll(); retryAt.removeAll() }
+    /// The user opened the mixer or pressed Allow…: try every failed app again, once,
+    /// even while capture is refused.
+    public func clearFailures() {
+        failed.removeAll()
+        retryAt.removeAll()
+        retryEveryoneWhileDenied = true
+    }
 
-    /// Reads every live tap's progress. Learns capture permission from the first sound,
-    /// removes a tap that hears only silence while its app plays, and treats IO that
-    /// stopped moving as a failure.
+    /// The user changed this app's setting: try it again, once, even while capture is refused.
+    public func retry(_ bundleIdentifier: String) {
+        failed[bundleIdentifier] = nil
+        retryAt[bundleIdentifier] = nil
+        retryWhileDenied.insert(bundleIdentifier)
+    }
+
+    /// Reads every live tap's progress. The first sound through any tap proves access for
+    /// good. Before that, a tap that hears only silence while its app plays is removed, and
+    /// two in a row with no sound between them mean refused. IO that stopped moving is a failure.
     public func checkHealth(_ snapshot: AudioSnapshot, now: Date) {
         for bundle in live.keys.sorted() {
             guard var tap = live[bundle] else { continue }
             let health = service.health(of: tap.handle)
-            if health.sawSignal, captureStatus != .granted { setCaptureStatus(.granted) }
+            if health.sawSignal {
+                tap.heardSignal = true
+                live[bundle] = tap
+                proveCapture()
+            }
             if health.framesRendered != tap.lastFrames {
                 tap.lastFrames = health.framesRendered
                 tap.lastProgressAt = now
@@ -240,19 +297,34 @@ public final class MixerEngine {
                 tap.rebuilds = 0
                 live[bundle] = tap
             }
-            // A tap that has heard nothing while its app plays may be silencing the app with
-            // nothing to replay (capture refused or revoked). Remove it whatever the learned
-            // status, and try again later. Two silent taps in a row without any sound between
-            // them mean capture is refused.
+            // Proven access is trusted: a quiet call keeps its tap however long it is silent.
+            guard !captureProven else { continue }
             let playing = snapshot.group(bundle)?.isPlaying ?? false
-            if !health.sawSignal, playing, now.timeIntervalSince(tap.createdAt) >= Self.permissionTimeout {
+            if !tap.heardSignal, playing, now.timeIntervalSince(tap.createdAt) >= Self.permissionTimeout {
                 service.destroyTap(tap.handle)
                 live[bundle] = nil
                 failed[bundle] = tap.spec
-                retryAt[bundle] = now.addingTimeInterval(Self.silentRetry)
-                setCaptureStatus(captureStatus == .granted ? .unknown : .denied)
+                silentStreak += 1
+                if silentStreak >= Self.silentTapsForDenied { setCaptureStatus(.denied) }
+                if !refused { retryAt[bundle] = now.addingTimeInterval(Self.silentRetry) }
             }
         }
+    }
+
+    /// The mixer's "No sound heard yet": a live tap whose app has played for a while
+    /// without the tap hearing anything (access switched off later, or a quiet app).
+    public func hearsNothing(_ bundleIdentifier: String, snapshot: AudioSnapshot, now: Date) -> Bool {
+        guard let tap = live[bundleIdentifier], !tap.heardSignal, snapshot.group(bundleIdentifier)?.isPlaying == true else { return false }
+        return now.timeIntervalSince(tap.createdAt) >= Self.quietCaption
+    }
+
+    private func proveCapture() {
+        silentStreak = 0
+        if !captureProven {
+            captureProven = true
+            memory.setProven(true)
+        }
+        setCaptureStatus(.granted)
     }
 
     private func setCaptureStatus(_ status: CaptureStatus) {

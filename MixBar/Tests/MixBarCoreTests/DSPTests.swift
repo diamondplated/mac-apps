@@ -130,6 +130,27 @@ final class DSPTests: XCTestCase {
         XCTAssertTrue(mb_saw_signal(s))
     }
 
+    func testOutputTailIsZeroedForShortAndMissingInput() {
+        let s = state()
+        // Stale data in the output buffer: four stereo frames of 0.7.
+        var stale = [Float](repeating: 0.7, count: 8)
+        var input: [Float] = [0.1, 0.2]  // one stereo frame
+        input.withUnsafeMutableBytes { inBytes in
+            stale.withUnsafeMutableBytes { outBytes in
+                var inList = AudioBufferList(mNumberBuffers: 1, mBuffers: AudioBuffer(mNumberChannels: 2, mDataByteSize: UInt32(inBytes.count), mData: inBytes.baseAddress))
+                var outList = AudioBufferList(mNumberBuffers: 1, mBuffers: AudioBuffer(mNumberChannels: 2, mDataByteSize: UInt32(outBytes.count), mData: outBytes.baseAddress))
+                mb_render(s, &inList, &outList)
+            }
+        }
+        XCTAssertEqual(stale, [0.1, 0.2, 0, 0, 0, 0, 0, 0], "frames past the input are silent")
+        var none = [Float](repeating: -0.4, count: 6)
+        none.withUnsafeMutableBytes { outBytes in
+            var outList = AudioBufferList(mNumberBuffers: 1, mBuffers: AudioBuffer(mNumberChannels: 3, mDataByteSize: UInt32(outBytes.count), mData: outBytes.baseAddress))
+            mb_render(s, nil, &outList)
+        }
+        XCTAssertEqual(none, [0, 0, 0, 0, 0, 0], "no input at all: every output sample silent")
+    }
+
     func testNilBuffersAreHarmless() {
         let s = state()
         mb_render(s, nil, nil)

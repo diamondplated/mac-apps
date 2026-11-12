@@ -11,9 +11,19 @@ public final class MixerViewModel: ObservableObject {
         public var volume: Double
         public var muted: Bool
         public var outputDeviceUID: String?
-        public init(bundleIdentifier: String, name: String, icon: NSImage?, volume: Double, muted: Bool, outputDeviceUID: String?) {
+        /// The app's tap has heard nothing while it played; shown in place of the output name.
+        public var hearsNothing: Bool
+        public init(bundleIdentifier: String, name: String, icon: NSImage?, volume: Double, muted: Bool, outputDeviceUID: String?, hearsNothing: Bool = false) {
             self.bundleIdentifier = bundleIdentifier; self.name = name; self.icon = icon
-            self.volume = volume; self.muted = muted; self.outputDeviceUID = outputDeviceUID
+            self.volume = volume; self.muted = muted; self.outputDeviceUID = outputDeviceUID; self.hearsNothing = hearsNothing
+        }
+
+        public static let quietCaption = "No sound heard yet"
+        /// The secondary caption beside the name: the quiet warning wins over the output name.
+        public func caption(outputs: [OutputDevice]) -> String? {
+            if hearsNothing { return Self.quietCaption }
+            guard let uid = outputDeviceUID else { return nil }
+            return outputs.first { $0.uid == uid }?.name ?? "Disconnected Output"
         }
     }
 
@@ -128,12 +138,12 @@ private struct AppRowView: View {
             .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 6) {
-                    // The chosen output shows beside the name when both fit; otherwise the name wins.
+                    // The caption (quiet warning, else chosen output) shows beside the name when both fit; otherwise the name wins.
                     ViewThatFits(in: .horizontal) {
-                        if let outputName {
+                        if let caption = row.caption(outputs: outputs) {
                             HStack(spacing: 6) {
                                 Text(row.name).font(.body).lineLimit(1).fixedSize()
-                                Text(outputName).font(.subheadline).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+                                Text(caption).font(.subheadline).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
                                     .frame(minWidth: 60, alignment: .leading)
                             }
                         }
@@ -151,7 +161,7 @@ private struct AppRowView: View {
                              range: AppVolume.range, detent: 1)
                     .opacity(row.muted ? 0.45 : 1)
                     .accessibilityLabel("\(row.name) Volume")
-                    .accessibilityValue(row.muted ? "Muted" : VolumeDetent.percent(row.volume))
+                    .accessibilityValue((row.muted ? "Muted" : VolumeDetent.percent(row.volume)) + (row.hearsNothing ? ", \(MixerViewModel.Row.quietCaption)" : ""))
             }
             Button { model.toggleMute(row.bundleIdentifier) } label: {
                 Image(systemName: row.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")

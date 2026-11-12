@@ -28,6 +28,36 @@ final class FakeAudio: AudioService {
 
 final class EngineTests: XCTestCase {
     let t0 = Date(timeIntervalSinceReferenceDate: 1_000_000)
+    private var suiteName = ""
+    private var defaults: UserDefaults!
+
+    override func setUp() {
+        super.setUp()
+        suiteName = "MixBarEngineTests.\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: suiteName)
+    }
+
+    override func tearDown() {
+        defaults.removePersistentDomain(forName: suiteName)
+        super.tearDown()
+    }
+
+    /// Memory in this test's own defaults suite, already holding proof of access.
+    func provenMemory() -> CaptureMemory {
+        let memory = CaptureMemory(defaults: defaults)
+        memory.setProven(true)
+        return memory
+    }
+
+    /// Advances a tap's frames for `seconds` one second at a time, hearing only silence.
+    func runSilent(_ engine: MixerEngine, _ audio: FakeAudio, _ snapshot: AudioSnapshot, from start: Date, seconds: Int) {
+        var frames: UInt64 = 0
+        for second in 1...seconds {
+            frames += 480
+            for tap in engine.live.values { audio.health[tap.handle] = TapHealth(framesRendered: frames, sawSignal: false) }
+            engine.checkHealth(snapshot, now: start + Double(second))
+        }
+    }
     let speakers = OutputDevice(uid: "speakers", name: "MacBook Pro Speakers")
     let headphones = OutputDevice(uid: "usb-headphones", name: "USB Headphones")
 
@@ -222,7 +252,7 @@ final class EngineTests: XCTestCase {
 
     func testStalledIOIsRebuilt() {
         let audio = FakeAudio()
-        let engine = MixerEngine(service: audio, captureStatus: .granted)
+        let engine = MixerEngine(service: audio, memory: provenMemory())
         engine.reconcile(snapshot(), settings: { _ in self.music(0.5) }, now: t0)
         let first = engine.live["com.apple.Music"]!.handle
         audio.health[first] = TapHealth(framesRendered: 512, sawSignal: true)
@@ -277,26 +307,123 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(engine.live.count, 1)
     }
 
-    func testSilentTapIsRemovedEvenWhenCaptureWasOnceGrantedAndRetriedLater() {
+    func testProofOfAccessIsPersistedAndRestored() {
+        let memory = CaptureMemory(defaults: defaults)
+        XCTAssertFalse(memory.isProven)
         let audio = FakeAudio()
-        let engine = MixerEngine(service: audio, captureStatus: .granted)
+        let engine = MixerEngine(service: audio, memory: memory)
         engine.reconcile(snapshot(), settings: { _ in self.music(0.5) }, now: t0)
-        let handle = engine.live["com.apple.Music"]!.handle
-        for second in 1...Int(MixerEngine.permissionTimeout) {
-            audio.health[handle] = TapHealth(framesRendered: UInt64(second * 480), sawSignal: false)
-            engine.checkHealth(snapshot(), now: t0 + Double(second))
-        }
-        XCTAssertTrue(audio.alive.isEmpty, "a stale grant never leaves an app silenced")
-        XCTAssertEqual(engine.captureStatus, .unknown, "the grant is no longer trusted")
+        audio.health[engine.live["com.apple.Music"]!.handle] = TapHealth(framesRendered: 480, sawSignal: true)
+        engine.checkHealth(snapshot(), now: t0 + 1)
+        XCTAssertTrue(engine.captureProven)
+        XCTAssertTrue(defaults.bool(forKey: CaptureMemory.key), "written to the injected suite")
+        let relaunched = MixerEngine(service: FakeAudio(), memory: CaptureMemory(defaults: defaults))
+        XCTAssertTrue(relaunched.captureProven)
+        XCTAssertEqual(relaunched.captureStatus, .granted, "the bridge reports granted while proof is held")
+        XCTAssertEqual(MixerEngine(service: FakeAudio()).captureStatus, .unknown, "no memory, no proof")
+    }
+
+    func testQuietCallKeepsItsTapForMinutesOnceAccessIsProven() {
+        let audio = FakeAudio()
+        let engine = MixerEngine(service: audio, memory: provenMemory())
+        var statuses: [CaptureStatus] = []
+        engine.onCaptureStatusChange = { statuses.append($0) }
+        engine.reconcile(snapshot(), settings: { _ in self.music(1.6, output: "usb-headphones") }, now: t0)
+        runSilent(engine, audio, snapshot(), from: t0, seconds: 300)
+        XCTAssertEqual(audio.alive.count, 1, "a silent call is never cut out")
+        XCTAssertEqual(audio.created.count, 1)
+        XCTAssertEqual(engine.captureStatus, .granted)
+        XCTAssertTrue(statuses.isEmpty, "silence never demotes proven access")
+    }
+
+    func testCautiousModeNeedsTwoSilentTapsAndThenWaitsForTheUser() {
+        let audio = FakeAudio()
+        let engine = MixerEngine(service: audio, memory: CaptureMemory(defaults: defaults))
+        engine.reconcile(snapshot(), settings: { _ in self.music(0.5) }, now: t0)
+        runSilent(engine, audio, snapshot(), from: t0, seconds: Int(MixerEngine.permissionTimeout))
+        XCTAssertTrue(audio.alive.isEmpty, "before proof, a silent tap is removed")
+        XCTAssertEqual(engine.captureStatus, .unknown, "one silent tap is not a refusal")
         engine.reconcile(snapshot(), settings: { _ in self.music(0.5) }, now: t0 + 10)
         XCTAssertTrue(audio.alive.isEmpty, "not retried at once")
-        engine.reconcile(snapshot(), settings: { _ in self.music(0.5) }, now: t0 + 4 + MixerEngine.silentRetry)
-        XCTAssertEqual(audio.alive.count, 1, "tried again later")
+        let retry = t0 + MixerEngine.permissionTimeout + MixerEngine.silentRetry
+        engine.reconcile(snapshot(), settings: { _ in self.music(0.5) }, now: retry)
+        XCTAssertEqual(audio.created.count, 2, "retried once on the timer")
+        runSilent(engine, audio, snapshot(), from: retry, seconds: Int(MixerEngine.permissionTimeout))
+        XCTAssertEqual(engine.captureStatus, .denied, "two silent taps in a row")
+        XCTAssertTrue(audio.alive.isEmpty)
+        for minute in 1...30 { engine.reconcile(snapshot(), settings: { _ in self.music(0.5) }, now: retry + Double(minute * 60)) }
+        XCTAssertEqual(audio.created.count, 2, "refused: no timer retries")
+    }
+
+    func testSoundBetweenSilentTapsIsNotARefusal() {
+        let audio = FakeAudio()
+        let engine = MixerEngine(service: audio, memory: CaptureMemory(defaults: defaults))
+        let two = snapshot(extra: [AppGroup(bundleIdentifier: "com.spotify.client", name: "Spotify", processObjectIDs: [20], isPlaying: true)])
+        engine.reconcile(snapshot(), settings: { AppVolume(bundleIdentifier: $0, name: $0, volume: 0.5) }, now: t0)
+        runSilent(engine, audio, snapshot(), from: t0, seconds: Int(MixerEngine.permissionTimeout))
+        engine.reconcile(two, settings: { AppVolume(bundleIdentifier: $0, name: $0, volume: 0.5) }, now: t0 + 5)
+        let spotify = engine.live["com.spotify.client"]!.handle
+        audio.health[spotify] = TapHealth(framesRendered: 480, sawSignal: true)
+        engine.checkHealth(two, now: t0 + 6)
+        XCTAssertEqual(engine.captureStatus, .granted)
+    }
+
+    func testOpeningTheMixerOrChangingTheSettingRetriesWhileRefused() {
+        let audio = FakeAudio()
+        audio.failures = [.permissionDenied]
+        let engine = MixerEngine(service: audio, memory: CaptureMemory(defaults: defaults))
+        engine.reconcile(snapshot(), settings: { _ in self.music(0.5) }, now: t0)
+        XCTAssertEqual(engine.captureStatus, .denied)
+        engine.reconcile(snapshot(), settings: { _ in self.music(0.4) }, now: t0 + 60)
+        XCTAssertTrue(audio.created.isEmpty, "refused: nothing on its own")
+        engine.retry("com.apple.Music")
+        engine.reconcile(snapshot(), settings: { _ in self.music(0.4) }, now: t0 + 61)
+        XCTAssertEqual(audio.created.count, 1, "the user changed the setting: one try")
+        runSilent(engine, audio, snapshot(), from: t0 + 61, seconds: Int(MixerEngine.permissionTimeout))
+        XCTAssertTrue(audio.alive.isEmpty)
+        engine.reconcile(snapshot(), settings: { _ in self.music(0.4) }, now: t0 + 200)
+        XCTAssertEqual(audio.created.count, 1)
+        engine.clearFailures()
+        engine.reconcile(snapshot(), settings: { _ in self.music(0.4) }, now: t0 + 201)
+        XCTAssertEqual(audio.created.count, 2, "the mixer opened or Allow… was pressed: one try")
+        engine.removeAll()
+        engine.reconcile(snapshot(), settings: { _ in self.music(0.4) }, now: t0 + 202)
+        XCTAssertEqual(audio.created.count, 2, "the retry was used up")
+    }
+
+    func testPermissionErrorClearsTheProof() {
+        let audio = FakeAudio()
+        let memory = provenMemory()
+        let engine = MixerEngine(service: audio, memory: memory)
+        XCTAssertEqual(engine.captureStatus, .granted)
+        audio.failures = [.permissionDenied]
+        engine.reconcile(snapshot(), settings: { _ in self.music(0.5) }, now: t0)
+        XCTAssertFalse(engine.captureProven)
+        XCTAssertFalse(memory.isProven)
+        XCTAssertNil(defaults.object(forKey: CaptureMemory.key))
+        XCTAssertEqual(engine.captureStatus, .denied)
+    }
+
+    func testNoSoundHeardYetCaption() {
+        let audio = FakeAudio()
+        let engine = MixerEngine(service: audio, memory: provenMemory())
+        engine.reconcile(snapshot(), settings: { _ in self.music(0.5) }, now: t0)
+        XCTAssertFalse(engine.hearsNothing("com.apple.Music", snapshot: snapshot(), now: t0 + MixerEngine.quietCaption - 1))
+        XCTAssertTrue(engine.hearsNothing("com.apple.Music", snapshot: snapshot(), now: t0 + MixerEngine.quietCaption))
+        XCTAssertFalse(engine.hearsNothing("com.apple.Music", snapshot: snapshot(playing: false), now: t0 + 60), "not while the app is quiet by choice")
+        XCTAssertFalse(engine.hearsNothing("com.spotify.client", snapshot: snapshot(), now: t0 + 60), "no tap, no caption")
+        audio.health[engine.live["com.apple.Music"]!.handle] = TapHealth(framesRendered: 480, sawSignal: true)
+        engine.checkHealth(snapshot(), now: t0 + 61)
+        XCTAssertFalse(engine.hearsNothing("com.apple.Music", snapshot: snapshot(), now: t0 + 120), "heard once: no caption")
+        var row = MixerViewModel.Row(bundleIdentifier: "a.b", name: "Zoom", icon: nil, volume: 1.5, muted: false, outputDeviceUID: "usb-headphones", hearsNothing: true)
+        XCTAssertEqual(row.caption(outputs: [headphones]), "No sound heard yet", "the warning takes the output name's place")
+        row.hearsNothing = false
+        XCTAssertEqual(row.caption(outputs: [headphones]), "USB Headphones")
     }
 
     func testRebuildAllowanceReturnsOnceATapIsStable() {
         let audio = FakeAudio()
-        let engine = MixerEngine(service: audio, captureStatus: .granted)
+        let engine = MixerEngine(service: audio, memory: provenMemory())
         engine.reconcile(snapshot(), settings: { _ in self.music(0.5) }, now: t0)
         engine.tapFailed("com.apple.Music", now: t0)
         let rebuilt = engine.live["com.apple.Music"]!.handle

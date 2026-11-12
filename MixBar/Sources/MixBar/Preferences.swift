@@ -7,8 +7,6 @@ final class Preferences {
     static let changed = Notification.Name("com.andrew.mactools.settingsChanged")
     static let statusRequest = Notification.Name("com.andrew.mixbar.statusRequest")
     static let statusReply = Notification.Name("com.andrew.mixbar.statusReply")
-    /// The running app's own memory of what it learned about audio capture. Not a bridge key.
-    static let learnedCaptureStatusKey = "learnedAudioCaptureStatus"
     let defaults = UserDefaults.standard
     var store: SettingsStore { SettingsStore(defaults: defaults) }
 

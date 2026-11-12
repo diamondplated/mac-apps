@@ -25,13 +25,10 @@ final class MixerController {
     var mixerOpen = false { didSet { if mixerOpen { engine.clearFailures(); refresh() } } }
 
     init() {
-        let learned = UserDefaults.standard.string(forKey: Preferences.learnedCaptureStatusKey).flatMap(CaptureStatus.init(rawValue:)) ?? .unknown
-        engine = MixerEngine(service: audio, captureStatus: learned)
-        engine.onCaptureStatusChange = { [weak self] status in
-            UserDefaults.standard.set(status.rawValue, forKey: Preferences.learnedCaptureStatusKey)
-            self?.viewModel.captureStatus = status
-        }
-        viewModel.captureStatus = learned
+        // Proof of access is kept in MixBar's own preferences under a private key.
+        engine = MixerEngine(service: audio, memory: CaptureMemory(defaults: .standard))
+        engine.onCaptureStatusChange = { [weak self] status in self?.viewModel.captureStatus = status }
+        viewModel.captureStatus = engine.captureStatus
         viewModel.available = audio.tapsAvailable
         settings = preferences.settings
         audio.onChange = { [weak self] in MainActor.assumeIsolated { self?.refresh() } }
@@ -173,6 +170,12 @@ final class MixerController {
         }
     }
 
+    /// Allow… was pressed: try every app's tap again.
+    func retryAll() {
+        engine.clearFailures()
+        refresh()
+    }
+
     private func name(of bundleIdentifier: String) -> String? {
         snapshot.group(bundleIdentifier)?.name ?? runningApps.first { $0.bundleIdentifier == bundleIdentifier }?.name
     }
@@ -188,6 +191,8 @@ final class MixerController {
             session[bundleIdentifier] = entry.isNeutral ? nil : entry
         }
         // Gain moves at once; creating or removing a tap waits for the drag to settle.
+        // A change by the user is also a reason to try a failed or refused tap again.
+        engine.retry(bundleIdentifier)
         engine.updateGains(settings: effective)
         scheduleReconcile()
         updateViewModel()
@@ -229,9 +234,11 @@ final class MixerController {
             NSRunningApplication(processIdentifier: app.pid)?.activationPolicy == .regular
         }
         let entries = MixerEditing.rows(snapshot: snapshot, liveBundles: Set(engine.live.keys), runningApps: regular, setting: effective)
+        let now = Date()
         viewModel.rows = entries.map { entry in
             MixerViewModel.Row(bundleIdentifier: entry.bundleIdentifier, name: entry.name, icon: icon(for: entry.bundleIdentifier),
-                               volume: entry.setting.volume, muted: entry.setting.muted, outputDeviceUID: entry.setting.outputDeviceUID)
+                               volume: entry.setting.volume, muted: entry.setting.muted, outputDeviceUID: entry.setting.outputDeviceUID,
+                               hearsNothing: engine.hearsNothing(entry.bundleIdentifier, snapshot: snapshot, now: now))
         }
         viewModel.outputs = snapshot.outputs
         viewModel.systemOutput = audio.systemOutput()

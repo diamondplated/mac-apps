@@ -41,7 +41,7 @@ float mb_soft_limit(float sample);
 /// whose mData is NULL are skipped), applies the ramped gain and the limiter, and
 /// writes 32-bit float output. Output channels beyond the input's are silent, except
 /// that mono input feeds every output channel and stereo input folds to a mono output.
-/// Frames the input does not cover are left as the HAL provided them (zeroed).
+/// Every output buffer is zeroed first, so frames and channels the input does not cover are silent.
 void mb_render(MBRenderState *_Nonnull state, const AudioBufferList *_Nullable input, AudioBufferList *_Nullable output);
 
 #endif

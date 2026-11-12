@@ -46,7 +46,10 @@ final class MixerRenderTests: XCTestCase {
         denied.captureStatus = .denied
         let unavailable = MixerViewModel()
         unavailable.available = false
-        let models: [(String, MixerViewModel)] = [("mixer", fiveApps()), ("empty", empty), ("denied", denied), ("unavailable", unavailable)]
+        let quiet = fiveApps()
+        quiet.rows = [.init(bundleIdentifier: "com.apple.FaceTime", name: "FaceTime", icon: icon("/System/Applications/FaceTime.app", fallback: "video"),
+                            volume: 1.6, muted: false, outputDeviceUID: "airpods", hearsNothing: true)] + Array(quiet.rows.prefix(2))
+        let models: [(String, MixerViewModel)] = [("mixer", fiveApps()), ("quiet", quiet), ("empty", empty), ("denied", denied), ("unavailable", unavailable)]
         for (name, model) in models {
             for (mode, appearance) in [("light", NSAppearance.Name.aqua), ("dark", NSAppearance.Name.darkAqua)] {
                 let root = MixerView(model: model).background(Color(nsColor: .windowBackgroundColor))
