@@ -113,8 +113,84 @@ final class MacToolsSettingsTests: XCTestCase {
             let data = try JSONEncoder().encode(bridge.snapshot())
             let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
             XCTAssertEqual(json["permissions"] as? [String: Bool], ["screenRecording": false])
+            XCTAssertEqual(json["permissionsSource"] as? String, "currentProcess")
             XCTAssertEqual(defaults.dictionaryRepresentation() as NSDictionary, before)
             XCTAssertEqual(calls(), 0)
         }
+    }
+
+    @MainActor private func bridge(_ defaults: UserDefaults,
+                                   running: @escaping () -> [String: Bool]?) -> MacToolsSettingsBridge {
+        MacToolsSettingsBridge(defaults: defaults, loginState: { (false, "Off") }, setLoginEnabled: { _ in },
+                               permissionState: { ["screenRecording": false] }, runningAppPermissions: running)
+    }
+
+    /// The manager runs this helper, so macOS can judge the helper's own permission by the
+    /// manager. When the running app answers, its answer is the one that counts.
+    @MainActor func testRunningAppPermissionReplacesTheHelpersOwnAnswer() throws {
+        let name = "ScreenWren.SettingsTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+
+        let live = bridge(defaults) { ["screenRecording": true, "unexpected": true] }.snapshot()
+        XCTAssertEqual(live.permissions, ["screenRecording": true], "Only the known key is passed through")
+        XCTAssertEqual(live.permissionsSource, "runningApp")
+
+        let silent = bridge(defaults) { nil }.snapshot()
+        XCTAssertEqual(silent.permissions, ["screenRecording": false])
+        XCTAssertEqual(silent.permissionsSource, "currentProcess")
+
+        let unusable = bridge(defaults) { ["somethingElse": true] }.snapshot()
+        XCTAssertEqual(unusable.permissionsSource, "currentProcess", "A reply without the key is no answer")
+
+        // The new fields are output only; a patch naming them is still rejected.
+        XCTAssertThrowsError(try bridge(defaults) { nil }.write(Data(#"{"permissionsSource":"runningApp"}"#.utf8)))
+    }
+
+    @MainActor func testOnlyOneOtherCopyFromThisSameBundleIsAsked() {
+        let own = URL(fileURLWithPath: "/Applications/ScreenWren.app")
+        let ask = { (copies: [MacToolsSettingsBridge.RunningCopy]) in
+            MacToolsSettingsBridge.runningCopyToAsk(copies, ownBundleURL: own, ownProcessIdentifier: 10)
+        }
+        XCTAssertNil(ask([]), "Nothing running")
+        XCTAssertEqual(ask([.init(processIdentifier: 20, bundleURL: own)]), 20)
+        XCTAssertEqual(ask([.init(processIdentifier: 20, bundleURL: URL(fileURLWithPath: "/Applications/./ScreenWren.app"))]), 20)
+        XCTAssertNil(ask([.init(processIdentifier: 10, bundleURL: own)]), "The helper never asks itself")
+        XCTAssertNil(ask([.init(processIdentifier: 20, bundleURL: URL(fileURLWithPath: "/tmp/dist/ScreenWren.app"))]),
+                     "A different copy's permission is not this copy's")
+        XCTAssertNil(ask([.init(processIdentifier: 20, bundleURL: nil)]))
+        XCTAssertNil(ask([.init(processIdentifier: 20, bundleURL: own), .init(processIdentifier: 30, bundleURL: own)]),
+                     "Two copies is an ambiguous answer")
+    }
+
+    @MainActor func testStatusRequestRoundTripCarriesTheAnsweringProcess() {
+        let center = DistributedNotificationCenter.default()
+        let observer = MacToolsSettingsBridge.answerStatusRequests(center: center) { ["screenRecording": true] }
+        defer { center.removeObserver(observer) }
+        let own = ProcessInfo.processInfo.processIdentifier
+        XCTAssertEqual(MacToolsSettingsBridge.askRunningApp(processIdentifier: own, timeout: 3, center: center),
+                       ["screenRecording": true])
+        XCTAssertNil(MacToolsSettingsBridge.askRunningApp(processIdentifier: own + 1, timeout: 0.3, center: center),
+                     "A reply from a different process is ignored")
+    }
+
+    @MainActor func testSettingsOpensTheManagerPageThenFallsBack() {
+        var opened: [URL] = []
+        var launched: [URL] = []
+        var alerts = 0
+        let manager = URL(fileURLWithPath: "/Applications/Mac Tools.app")
+        func open(page: Bool, managerInstalled: Bool) -> SettingsOpenOutcome {
+            openScreenWrenSettings(
+                openURL: { opened.append($0); return page }, managerCandidates: [manager],
+                managerExists: { _ in managerInstalled }, launchManager: { launched.append($0) },
+                reportMissingManager: { alerts += 1 })
+        }
+        XCTAssertEqual(open(page: true, managerInstalled: true), .settingsPage)
+        XCTAssertEqual(opened, [URL(string: "mactools://app/screenWren")!])
+        XCTAssertEqual(launched, [])
+        XCTAssertEqual(open(page: false, managerInstalled: true), .manager(manager), "An older manager is launched")
+        XCTAssertEqual(launched, [manager])
+        XCTAssertEqual(open(page: false, managerInstalled: false), .managerMissing)
+        XCTAssertEqual(alerts, 1)
     }
 }

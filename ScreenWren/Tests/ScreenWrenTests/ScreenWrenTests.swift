@@ -528,11 +528,14 @@ final class ScreenWrenLogicTests: XCTestCase {
         let menu = editor.makeMoreMenu()
         let titles = Set(menu.items.map(\.title))
         for expected in [
-            "Redact…", "Blur (Not Secure)…", "Crop…", "Resize…",
+            "Redact…", "Crop…", "Resize…",
             "Rotate Left", "Rotate Right", "Reset Image", "Pin Above Windows",
             "Export PNG / JPEG…",
         ] {
             XCTAssertTrue(titles.contains(expected), "Missing editor action: \(expected)")
+        }
+        for removed in ["Blur (Not Secure)…", "Preview Structured Text…", "Save PNG Directly…"] {
+            XCTAssertFalse(titles.contains(removed), "Removed editor action is back: \(removed)")
         }
         XCTAssertTrue(titles.contains(where: { $0.localizedCaseInsensitiveContains("share") }))
         let redo = try XCTUnwrap(menu.items.first(where: { $0.title == "Redo Image Change" }))
@@ -569,16 +572,35 @@ final class ScreenWrenLogicTests: XCTestCase {
             queue.append(contentsOf: view.subviews)
         }
         let text = views.compactMap { ($0 as? NSTextField)?.stringValue }.joined(separator: "\n")
-        XCTAssertTrue(text.contains("Make ScreenWren ready"))
+        XCTAssertEqual(window.title, "Permissions & Shortcuts")
         XCTAssertTrue(text.contains("Screen & System Audio Recording"))
         XCTAssertTrue(text.contains("Keyboard Shortcuts"))
+        XCTAssertTrue(text.contains("Launch at Login"))
         XCTAssertEqual(views.compactMap { $0 as? ShortcutRecorderField }.count, ShortcutCommand.allCases.count)
         XCTAssertGreaterThan(views.filter { !$0.frame.isEmpty }.count, 20)
-        XCTAssertEqual(root.bounds.size, CGSize(width: 620, height: 740))
+        XCTAssertEqual(root.bounds.width, ReadinessWindowController.contentWidth, accuracy: 1)
         let buttons = views.compactMap { $0 as? NSButton }
-        for title in ["Open Screen Recording Settings", "Check Again", "Show This Copy in Finder", "Quit & Reopen ScreenWren"] {
-            XCTAssertNotNil(buttons.first { $0.title == title && $0.isEnabled })
+        for title in ["Open Screen Recording Settings", "Check Again", "Show in Finder", "Quit & Reopen ScreenWren"] {
+            let button = try XCTUnwrap(buttons.first { $0.title == title && $0.isEnabled }, title)
+            XCTAssertTrue(root.bounds.contains(button.convert(button.bounds, to: root)), "\(title) is clipped")
+            XCTAssertGreaterThanOrEqual(button.bounds.width + 1, button.intrinsicContentSize.width, "\(title) is truncated")
         }
+        // The footer's actions sit at the trailing edge, as macOS dialogs do.
+        let primary = try XCTUnwrap(buttons.first { $0.title == "Quit & Reopen ScreenWren" })
+        XCTAssertGreaterThan(primary.convert(primary.bounds, to: root).maxX, root.bounds.width - 40)
+        // Shortcut fields line up in one column.
+        let recorderEdges = Set(views.compactMap { $0 as? ShortcutRecorderField }.map { Int($0.convert($0.bounds, to: root).maxX) })
+        XCTAssertEqual(recorderEdges.count, 1, "Shortcut fields are ragged: \(recorderEdges)")
+        for field in views.compactMap({ $0 as? NSTextField }) where !field.stringValue.isEmpty && !field.isEditable {
+            XCTAssertGreaterThanOrEqual(field.font?.pointSize ?? 0, 11, "\(field.stringValue) is below 11 pt")
+            XCTAssertTrue(root.bounds.contains(field.convert(field.bounds, to: root)), "\(field.stringValue) is clipped")
+            XCTAssertGreaterThanOrEqual(field.bounds.width + 1, field.intrinsicContentSize.width,
+                                        "\(field.stringValue) is truncated")
+        }
+        // Every card is a semantic layer view: no colour captured in one appearance.
+        let cards = views.compactMap { $0 as? SemanticLayerView }
+        XCTAssertEqual(cards.count, 3)
+        XCTAssertTrue(cards.allSatisfy { $0.cornerRadius == CornerRadius.card })
 
         if let output = ProcessInfo.processInfo.environment["SCREENWREN_READINESS_PREVIEW"] {
             let representation = try XCTUnwrap(root.bitmapImageRepForCachingDisplay(in: root.bounds))
@@ -594,6 +616,14 @@ final class ScreenWrenLogicTests: XCTestCase {
         let delegate = AppDelegate()
         delegate.installMainMenu()
         let mainMenu = try XCTUnwrap(NSApp.mainMenu)
+        let appMenu = try XCTUnwrap(mainMenu.items.first?.submenu)
+        let settings = try XCTUnwrap(appMenu.items.first { $0.title == "Settings…" })
+        XCTAssertEqual(settings.keyEquivalent, ",")
+        XCTAssertEqual(settings.keyEquivalentModifierMask, [.command])
+        XCTAssertEqual(settings.action, #selector(AppDelegate.openSettings))
+        XCTAssertFalse(appMenu.items.contains { $0.title == "Capture Preferences…" || $0.title == "Manage in Mac Tools…" })
+        XCTAssertTrue(appMenu.items.contains { $0.title == readinessMenuTitle },
+                      "Permissions and shortcuts keep their own, differently named item")
         let fileMenu = try XCTUnwrap(mainMenu.items.compactMap(\.submenu).first(where: { $0.title == "File" }))
         let save = try XCTUnwrap(fileMenu.items.first(where: { $0.action == #selector(EditorViewController.saveDocument(_:)) }))
         XCTAssertEqual(save.keyEquivalent, "s")

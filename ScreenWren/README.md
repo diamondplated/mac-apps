@@ -47,7 +47,7 @@ ScreenWren starts quietly in the menu bar. Press **`⌃P`** from any app for cro
 drag an exact region, and release. Press Space first if you want to select a window.
 
 It's already on your clipboard. A successful default capture opens no editor or preview.
-Open **Capture Preferences…** to choose another destination or enable an optional thumbnail.
+Open **Settings…** to choose another destination or enable an optional thumbnail.
 If copying fails, an editor preserves the capture. When newer clipboard content
 prevents copying, the capture stays in Recents; images too large for Recents open in an editor.
 If a capture needs attention, a brief notice explains what happened and offers
@@ -64,7 +64,7 @@ current app. The latest result also stays at the top of the menu-bar menu.
   image on the clipboard.
 
 <p align="center">
-  <img src="Resources/ScreenWrenReadiness.png" width="620" alt="ScreenWren Readiness showing screen-capture permission, configurable global shortcuts, and Launch at Login">
+  <img src="Resources/ScreenWrenReadiness.png" width="560" alt="ScreenWren's Permissions & Shortcuts window showing screen-capture permission, configurable global shortcuts, and Launch at Login">
 </p>
 
 ---
@@ -100,41 +100,31 @@ While the selector is open:
 - **Precision tools.** A pixel loupe, live dimensions, hold-`Space` repositioning, keyboard adjustment, exact pixel sizes, aspect-ratio locking, and saved size presets.
 - **Straight to text.** OCR a region without putting an image on the clipboard at all.
 - **Repeat.** Re-run the last valid region or exact window without reopening the selector.
-- **Timed.** Three-second delay for menus, tooltips, and hover states.
 - **Scrolling capture.** Guided, with conservative seam detection.
-- **Session-only recents.** A visual picker (`⌃⇧P`) for copying, editing, pinning, exporting, removing, and combining captures. Never a hidden screenshot library.
+- **Session-only recents.** A visual picker (`⌃⇧P`) for copying, editing, pinning, exporting, and removing captures. Never a hidden screenshot library.
 
 ### Edit and finish
 
-- **Native markup.** Apple PaperKit and PencilKit.
-- **Visible annotation tools.** Select, Pen, Arrow, Box, Text, Highlight, Step,
-  Crop, and Redact are labeled in the editor. Click Arrow and drag from tail to
-  tip, or click Box and drag its bounds. Shift snaps arrow angles; Select or
-  Escape cancels a pending tool. Shapes remain editable and support Undo/Redo.
-  Pen and Highlight keep drawing across multiple strokes; Select or Escape ends
-  drawing. Copy and export are available immediately after a stroke.
-- **Room to work.** The editor's tools wrap in smaller windows, with operation
-  status kept visible below the image.
+- **Native markup.** Apple PaperKit and PencilKit, in one header row: the native markup
+  toolbar, then Crop, Redact, and Step, then Inspect, Copy Text, Copy Subject, drag-out, More,
+  and **Copy**. Icons carry tooltips and spoken names. Shapes remain editable and support
+  Undo/Redo; pen and marker keep drawing across strokes until Escape.
 - **Keyboard-first annotation.** Arrow, rectangle, highlighter, text, and numbered steps.
 - **Instant Inspect.** Select recognized text directly and act on detected QR/barcodes.
 - **Subject lifting.** Local foreground extraction; when several subjects are found, pick one.
-- **Redaction.** Opaque rectangular redaction — plus a visual blur that is explicitly labeled
-  **not secure**.
+- **Redaction.** Opaque rectangular redaction.
 - **Geometry.** Crop, aspect-preserving resize, 90° rotation, reset.
 - **Pin.** Float a flattened capture with opacity, zoom, and click-through controls. `⌃⌥P` hides or restores all pins. **Unlock All Pins** in the menu restores mouse interaction.
 - **Finish.** Copy, export PNG/JPEG with original or 1× resolution and an encoded-size preview,
   drag out as PNG, or use the native Share menu. Copy and close the editor in one command.
 - **Redaction assistance.** Review suggested email, phone, and literal-text masks; draw additional
   masks on the preview. Suggestions cover whole recognized lines and can miss content.
-- **Structured OCR.** Preview and correct plain text, tab-separated tables, or code with inferred
-  spacing before copying. Available from the capture menu and the editor's More menu.
-- **Combine.** Command-select two or more Recents and create a vertical, side-by-side, or grid
-  composition. The result opens for editing without changing the clipboard.
 
-### Capture preferences
+### Settings
 
-Choose **Capture Preferences…** from the menu-bar menu or the app menu (`⌥⌘,`).
-After capture, choose Copy only (default), Copy and open editor, Copy and pin,
+ScreenWren's settings live in Mac Tools. **Settings…** (`⌘,`) in the menu-bar menu or the app
+menu opens ScreenWren's page there; an older Mac Tools opens to its main window, and without
+Mac Tools installed ScreenWren says so. After capture, choose Copy only (default), Copy and open editor, Copy and pin,
 Save (opens an export window), or Review redactions before copying.
 The optional thumbnail offers Edit, Save, Pin, and PNG drag; it never takes keyboard
 focus and closes after six seconds. Starting another selection dismisses it.
@@ -148,8 +138,8 @@ If copying the approved image fails, an editor preserves the reviewed result,
 including images too large for Recents.
 
 Exact sizes and presets are in physical output pixels. Oversized selections fit to
-the available desktop. Freeze and scrolling capture still use one display; ordinary,
-timed, and text selection can span displays. Display slices are captured sequentially,
+the available desktop. Freeze and scrolling capture still use one display; ordinary
+and text selection can span displays. Display slices are captured sequentially,
 so moving content may differ slightly in time between monitors.
 
 ### Default shortcuts
@@ -167,12 +157,12 @@ so moving content may differ slightly in time between monitors.
 | Copy the edited image | `⇧⌘C` |
 | Copy the edited image and close its editor | `⌘Return` |
 
-Every capture command is also in the menu-bar icon. Open **ScreenWren Readiness…** to change global
+Every capture command is also in the menu-bar icon. Open **Permissions & Shortcuts…** to change global
 shortcuts, see conflicts, restore defaults, and control Launch at Login. Front Window and Freeze
 start unassigned, so they don't claim a global key without your say-so.
 If a shortcut was busy at launch, ScreenWren retries when an app quits, when it
 becomes active, and when you open its menu. The warning stays visible until the
-key becomes available; **Fix Unavailable Shortcuts…** opens Readiness.
+key becomes available; **Fix Unavailable Shortcuts…** opens Permissions & Shortcuts.
 On upgrade, saved custom shortcuts take precedence: conflicting new defaults start
 unassigned until you assign a key or restore defaults.
 
@@ -190,7 +180,7 @@ When an editor canvas is active and you are not typing into a text box, press `A
 for a rectangle, `H` for a yellow highlighter, `T` for text, or `N` for the next numbered step.
 Arrow and rectangle commands wait for a drag so you can place them exactly. Text
 inserts an editable placeholder; double-click it to type. `Esc` returns to selection
-mode. The labeled editor buttons perform the same commands.
+mode. The native markup toolbar and the Step button perform the same commands.
 </details>
 
 ---
@@ -241,16 +231,16 @@ The build script creates a Universal 2 `dist/ScreenWren.app` and a versioned ZIP
 ad-hoc signed by default. A public distribution build must set `SCREENWREN_SIGNING_IDENTITY` to a
 Developer ID Application identity and be notarized.
 
-Launch stays quiet. If your first capture needs permission, **ScreenWren Readiness** explains
-Screen Recording access and shows shortcut status. You can also open it from the menu-bar menu
-or **ScreenWren → Settings…** (⌘,) while an editor is open.
+Launch stays quiet. If your first capture needs permission, **Permissions & Shortcuts** shows
+Screen Recording access and shortcut status. You can also open it from the menu-bar menu
+or the app menu while an editor is open.
 If capture is still blocked after enabling ScreenWren in **System Settings →
 Privacy & Security → Screen & System Audio Recording**, choose **Quit & Reopen ScreenWren** in
-Readiness.
+that window.
 
-If Settings already shows ScreenWren enabled but capture remains blocked, remove
-that old ScreenWren entry and add the running copy again using **Show This Copy in
-Finder** in Readiness. Then choose **Quit & Reopen ScreenWren**. **Check Again**
+If System Settings already shows ScreenWren enabled but capture remains blocked, remove
+that old ScreenWren entry and add the running copy again using **Show in Finder** in
+Permissions & Shortcuts. Then choose **Quit & Reopen ScreenWren**. **Check Again**
 refreshes the displayed status without starting a capture.
 
 Local ad-hoc signing changes the app's identity when its executable changes, so

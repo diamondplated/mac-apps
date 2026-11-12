@@ -5,8 +5,6 @@ import ScreenCaptureKit
 enum CaptureIntent: Equatable, Sendable {
     case image
     case text
-    case structuredText
-    case delayedImage(seconds: TimeInterval)
     case scrolling
 }
 

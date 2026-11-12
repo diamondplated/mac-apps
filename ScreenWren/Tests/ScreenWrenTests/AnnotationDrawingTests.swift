@@ -80,15 +80,9 @@ final class AnnotationDrawingTests: XCTestCase {
         editor.view.layoutSubtreeIfNeeded()
         let canvas = try XCTUnwrap(editor.children.compactMap { $0 as? PaperMarkupViewController }.first)
         let imageView = try XCTUnwrap(canvas.contentView)
-        let header = try XCTUnwrap(editor.view.subviews.first { $0 is NSVisualEffectView })
-        let tools = try XCTUnwrap(header.subviews.first { $0.identifier?.rawValue == "editorQuickTools" } as? NSStackView)
-        let buttons = tools.views.compactMap { $0 as? NSButton }
-        for title in ["Arrow", "Box"] {
-            let button = try XCTUnwrap(buttons.first { $0.title == title })
-            let hit = editor.view.hitTest(button.convert(CGPoint(x: button.bounds.midX, y: button.bounds.midY), to: editor.view))
-            XCTAssertTrue(hit === button || hit?.isDescendant(of: button) == true,
-                          "The visible \(title) button must receive an actual click")
-            button.performClick(nil)
+        // The native toolbar's arrow and rectangle shapes, and the A and R keys, all route here.
+        for (title, command) in [("Arrow", EditorKeyboardCommand.arrow), ("Box", .rectangle)] {
+            editor.performEditorCommand(command)
             let overlay = try XCTUnwrap(editor.view.subviews.compactMap { $0 as? AnnotationDrawingView }.first)
             if title == "Box" {
                 for width: CGFloat in [720, 1440, 1040] {
@@ -123,13 +117,11 @@ final class AnnotationDrawingTests: XCTestCase {
             window.undoManager?.undo()
         }
         let beforeCancel = try await canvas.markup?.dataRepresentation()
-        try XCTUnwrap(buttons.first { $0.title == "Arrow" }).performClick(nil)
-        let select = try XCTUnwrap(buttons.first { $0.title == "Select" })
-        XCTAssertTrue(select.isEnabled)
-        select.performClick(nil)
+        editor.performEditorCommand(.arrow)
+        XCTAssertTrue(editor.view.subviews.contains { $0 is AnnotationDrawingView })
+        editor.performEditorCommand(.escape)
         XCTAssertFalse(editor.view.subviews.contains { $0 is AnnotationDrawingView })
         let afterCancel = try await canvas.markup?.dataRepresentation()
-        XCTAssertEqual(beforeCancel, afterCancel, "Select cancels drawing without adding markup")
-        XCTAssertTrue(buttons.allSatisfy(\.isEnabled))
+        XCTAssertEqual(beforeCancel, afterCancel, "Escape cancels drawing without adding markup")
     }
 }

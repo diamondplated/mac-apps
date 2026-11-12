@@ -48,16 +48,16 @@ final class PenInteractionTests: XCTestCase {
         editor.view.layoutSubtreeIfNeeded()
         let canvas = try XCTUnwrap(editor.children.compactMap { $0 as? PaperMarkupViewController }.first)
         let imageView = try XCTUnwrap(canvas.contentView)
-        let header = try XCTUnwrap(editor.view.subviews.first { $0 is NSVisualEffectView })
-        let tools = try XCTUnwrap(header.subviews.first { $0.identifier?.rawValue == "editorQuickTools" } as? NSStackView)
-        let buttons = tools.views.compactMap { $0 as? NSButton }
-        let finishActions = try XCTUnwrap(header.subviews.first { $0.identifier?.rawValue == "editorFinishActions" } as? NSStackView)
+        let header = try XCTUnwrap(editor.view.subviews.first { $0.identifier?.rawValue == "editorHeader" })
+        let row = try XCTUnwrap(header.subviews.first { $0.identifier?.rawValue == "editorHeaderRow" } as? NSStackView)
+        let finishActions = try XCTUnwrap(row.views.first { $0.identifier?.rawValue == "editorFinishActions" } as? NSStackView)
         let finishButtons = finishActions.views.compactMap { $0 as? NSButton }
-        let copyButton = try XCTUnwrap(finishButtons.first { $0.title == "Copy Edited Image" })
-        for title in ["Pen", "Highlight"] {
-            let button = try XCTUnwrap(buttons.first { $0.title == title })
-            XCTAssertTrue(button.isEnabled, "Drawing tools must remain switchable between strokes")
-            button.performClick(nil)
+        let copyButton = try XCTUnwrap(finishButtons.first { $0.title == "Copy" })
+        // The native toolbar's pen and marker reach the editor through this one entry point.
+        let pen = PKInkingTool(.monoline, color: .systemRed, width: 3)
+        let marker = PKInkingTool(.marker, color: NSColor.systemYellow.withAlphaComponent(0.42), width: 18)
+        for (title, tool) in [("Pen", pen), ("Highlight", marker)] {
+            editor.selectInkingTool(tool)
             let overlay = try XCTUnwrap(editor.view.subviews.compactMap { $0 as? AnnotationDrawingView }.first)
             XCTAssertFalse(canvas.isEditable, "The gesture overlay owns mouse input while the native canvas remains underneath")
             XCTAssertTrue(finishButtons.allSatisfy(\.isEnabled), "Persistent freehand mode must keep finish actions available")
@@ -111,7 +111,7 @@ final class PenInteractionTests: XCTestCase {
         }
         // Start Copy from persistent Pen mode, then cancel synchronously before its
         // MainActor task can run. This exercises the action without writing the clipboard.
-        try XCTUnwrap(buttons.first { $0.title == "Pen" }).performClick(nil)
+        editor.selectInkingTool(pen)
         let clipboardCount = NSPasteboard.general.changeCount
         copyButton.performClick(nil)
         let startedCopy = !copyButton.isEnabled

@@ -80,7 +80,8 @@ Changes should preserve these boundaries:
    clipboard content.
 4. ScreenWren does not persist captures unless the user completes Save, Drag, or a
    chosen Share action.
-5. Secure Redact and visual Blur remain clearly different operations.
+5. Redact always burns in opaque pixels; nothing that only obscures pixels is offered
+   as a way to hide them.
 6. Native Apple APIs and the standard library come before new dependencies.
 7. Accessibility labels, keyboard cancellation, and clear failure states are part
    of the feature, not follow-up polish.

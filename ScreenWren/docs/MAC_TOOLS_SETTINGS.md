@@ -9,9 +9,28 @@ nonzero exit. Input is limited to 64 KiB. The app's Info.plist advertises
 
 Snapshots include `schemaVersion: 1`, `app: "screenWren"`, actual `launchAtLogin`
 and `loginStatus`, `captureDestination`, `showsThumbnail`, `adjustBeforeCapture`,
-`selectionWidth`, `selectionHeight`, `aspectRatio`, `presets`, and `shortcuts`.
-The first two fields and loginStatus are read-only. Settings writes may omit
-unchanged fields; unknown fields and null top-level values are rejected.
+`selectionWidth`, `selectionHeight`, `aspectRatio`, `presets`, `shortcuts`,
+`permissions`, and `permissionsSource`. The first two fields, loginStatus,
+permissions, and permissionsSource are read-only. Settings writes may omit
+unchanged fields; unknown fields (including the read-only ones) and null top-level
+values are rejected.
+
+`permissions` is `{"screenRecording": Bool}`. macOS may judge the helper process
+by the manager that started it, so the helper first asks the running app:
+
+- If exactly one other running process has ScreenWren's bundle identifier and the
+  same resolved bundle path as the helper, the helper posts distributed
+  notification `com.andrew.screenwren.statusRequest` (object: the bundle
+  identifier; userInfo `token`) and waits up to 0.5 s.
+- The running app replies with `com.andrew.screenwren.statusReply` (object: the
+  token; userInfo `pid` and `permissions`). Replies naming any other pid are
+  ignored. This only filters stray replies; it is not authentication, since any
+  local process can post a distributed notification. The value is display-only
+  status and never grants anything.
+- With that reply, `permissions` carries the app's `screenRecording` value and
+  `permissionsSource` is `"runningApp"`. With no single matching copy, no reply, or
+  a reply without `screenRecording`, the helper reports its own check and
+  `permissionsSource` is `"currentProcess"`.
 
 - Capture destination: `clipboard`, `editor`, `pin`, `save`, or `review`.
 - Selection width/height: both 0 for free selection, otherwise 4–16000 each.
@@ -39,5 +58,10 @@ After a successful write, defaults synchronize and the bridge posts distributed
 notification `com.andrew.mactools.settingsChanged`, object
 `io.github.diamondplated.ScreenWren`, with boolean `shortcutsChanged`. The running
 app synchronizes preferences, re-registers shortcuts when changed, refreshes its
-menu/status, and closes cached settings windows so their next opening is fresh.
-Editors and captures remain intact.
+menu/status, and closes a cached Permissions & Shortcuts window so its next opening
+is fresh. Editors and captures remain intact.
+
+ScreenWren has no settings window of its own. **Settings…** opens
+`mactools://app/screenWren`; when no handler opens that link (a manager that
+predates it), ScreenWren launches Mac Tools from `/Applications` or
+`~/Applications`, and with neither present it shows an alert.

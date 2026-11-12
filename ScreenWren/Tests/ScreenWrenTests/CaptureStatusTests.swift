@@ -52,7 +52,7 @@ final class CaptureStatusTests: XCTestCase {
         XCTAssertFalse(window.canBecomeMain)
         presenter.update(ScreenWrenStatus(message: "ScreenWren — Selecting…"))
         XCTAssertNil(presenter.notice)
-        XCTAssertFalse(window.isVisible)
+        try waitUntilHidden(window)
     }
 
     @MainActor func testRecoveryButtonClosesNoticeBeforeDispatchingAction() throws {
@@ -68,8 +68,15 @@ final class CaptureStatusTests: XCTestCase {
         XCTAssertEqual(button.title, "Browse Recents")
         button.performClick(nil)
         XCTAssertEqual(selected, .recents)
-        XCTAssertNil(presenter.notice)
-        XCTAssertFalse(notice.window?.isVisible ?? true)
+        XCTAssertNil(presenter.notice, "The presenter drops the notice at once; the panel then fades")
+        try waitUntilHidden(notice.window)
+    }
+
+    /// The notice fades out, so it leaves the screen a moment after it closes.
+    @MainActor private func waitUntilHidden(_ window: NSWindow?, file: StaticString = #filePath, line: UInt = #line) throws {
+        let deadline = Date().addingTimeInterval(2)
+        while window?.isVisible == true, Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.02)) }
+        XCTAssertFalse(window?.isVisible ?? true, file: file, line: line)
     }
 
     @MainActor func testAttentionPanelExpires() async throws {
@@ -80,6 +87,7 @@ final class CaptureStatusTests: XCTestCase {
         notice.onClose = { closed.fulfill() }
         notice.present(duration: .milliseconds(10))
         await fulfillment(of: [closed], timeout: 2)
-        XCTAssertFalse(notice.window?.isVisible ?? true)
+        for _ in 0..<80 where notice.window?.isVisible == true { try await Task.sleep(for: .milliseconds(25)) }
+        XCTAssertFalse(notice.window?.isVisible ?? true, "The expired notice fades off screen")
     }
 }

@@ -218,26 +218,6 @@ final class WorkflowTests: XCTestCase {
         XCTAssertEqual(output.height, 13)
         XCTAssertLessThan(try pixel(output, 4, 4).alphaComponent, 0.01)
     }
-    func testCombinePreservesImageOrderAndBoundsForEveryLayout() throws {
-        let red = try solid(CGColor(red: 1, green: 0, blue: 0, alpha: 1), width: 20, height: 10)
-        let blue = try solid(CGColor(red: 0, green: 0, blue: 1, alpha: 1), width: 10, height: 20)
-        let vertical = try combinedImages([red, blue], layout: .vertical)
-        XCTAssertEqual(vertical.width, 20)
-        XCTAssertEqual(vertical.height, 46)
-        XCTAssertGreaterThan(try pixel(vertical, 5, 4).redComponent, 0.95)
-        XCTAssertGreaterThan(try pixel(vertical, 5, 30).blueComponent, 0.95)
-        let horizontal = try combinedImages([red, blue], layout: .horizontal)
-        XCTAssertEqual(horizontal.width, 46)
-        XCTAssertEqual(horizontal.height, 20)
-        let grid = try compositionPlan(
-            sizes: [CGSize(width: 20, height: 10), CGSize(width: 10, height: 20), CGSize(width: 20, height: 10)],
-            layout: .grid)
-        XCTAssertEqual(grid.frames[2].origin, CGPoint(x: 0, y: 36))
-        XCTAssertThrowsError(
-            try compositionPlan(
-                sizes: [CGSize(width: 30_000, height: 30_000), CGSize(width: 1, height: 1)], layout: .vertical))
-        XCTAssertThrowsError(try combinedImages([red], layout: .vertical))
-    }
     func testRedactionSuggestionsAndPixelsAreConservative() throws {
         let line = RecognizedLine(
             text: "Contact alice@example.com", bounds: CGRect(x: 0.1, y: 0.7, width: 0.7, height: 0.1))
@@ -252,21 +232,6 @@ final class WorkflowTests: XCTestCase {
         XCTAssertLessThan(try pixel(redacted, 20, 25).redComponent, 0.01)
         XCTAssertGreaterThan(try pixel(redacted, 20, 25).alphaComponent, 0.99)
         XCTAssertGreaterThan(try pixel(redacted, 20, 75).redComponent, 0.99)
-    }
-    func testTableFormattingKeepsMissingCellsAndRowOrder() {
-        let lines = [
-            RecognizedLine(text: "A", bounds: CGRect(x: 0.1, y: 0.8, width: 0.02, height: 0.05)),
-            RecognizedLine(text: "B", bounds: CGRect(x: 0.5, y: 0.8, width: 0.02, height: 0.05)),
-            RecognizedLine(text: "C", bounds: CGRect(x: 0.5, y: 0.6, width: 0.02, height: 0.05)),
-        ]
-        XCTAssertEqual(formattedRecognizedText(lines.reversed(), layout: .table), "A\tB\n\tC")
-    }
-    func testCodeFormattingPreservesIndentationWithoutRewritingText() {
-        let lines = [
-            RecognizedLine(text: "if x:", bounds: CGRect(x: 0.1, y: 0.8, width: 0.1, height: 0.06)),
-            RecognizedLine(text: "run()", bounds: CGRect(x: 0.18, y: 0.72, width: 0.1, height: 0.06)),
-        ]
-        XCTAssertEqual(formattedRecognizedText(lines, layout: .code), "if x:\n    run()")
     }
     @MainActor func testThumbnailNeverBecomesKeyAndClosingCancelsIt() throws {
         _ = NSApplication.shared
@@ -315,8 +280,14 @@ final class WorkflowTests: XCTestCase {
 
     @MainActor func testNewWindowLayoutsUsingSyntheticImages() async throws {
         _ = NSApplication.shared
-        let (preferences, defaults, name) = preferences()
-        defer { defaults.removePersistentDomain(forName: name) }
+        // Previews can be rendered in either appearance: SCREENWREN_PREVIEW_APPEARANCE=light|dark.
+        let previousAppearance = NSApp.appearance
+        defer { NSApp.appearance = previousAppearance }
+        switch ProcessInfo.processInfo.environment["SCREENWREN_PREVIEW_APPEARANCE"] {
+        case "light": NSApp.appearance = NSAppearance(named: .aqua)
+        case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+        default: break
+        }
         let fixture = try renderCGImage(width: 800, height: 360) { context in
             context.setFillColor(CGColor(gray: 1, alpha: 1))
             context.fill(CGRect(x: 0, y: 0, width: 800, height: 360))
@@ -333,16 +304,17 @@ final class WorkflowTests: XCTestCase {
             }
             NSGraphicsContext.restoreGraphicsState()
         }
-        let recent = RecentPickerWindow(onAction: { _, _ in }, onCombine: { _, _ in }, onDelete: { _ in })
+        let recent = RecentPickerWindow(onAction: { _, _ in }, onDelete: { _ in })
         recent.update([SessionCapture(image: fixture), SessionCapture(image: fixture)])
         let controllers: [(String, NSWindowController)] = [
-            ("preferences", WorkflowPreferencesWindow(preferences: preferences)),
             ("export", ImageExportWindow(image: fixture, sourceScale: 2)),
             ("recents", recent),
-            ("text", TextPreviewWindow(image: fixture)),
             ("redaction", RedactionReviewWindow(image: fixture, actionTitle: "Approve & Copy", onApply: { _, _ in })),
             ("pin", PinnedWindowController(image: fixture, sourceScale: 2)),
             ("thumbnail", QuickCaptureWindow(image: fixture, onAction: { _ in })),
+            ("status", CaptureStatusWindow(status: ScreenWrenStatus(
+                message: "ScreenWren — Capture retained in Recents", needsAttention: true,
+                recoveryAction: .recents)) { _ in }),
         ]
         defer { controllers.forEach { $0.1.close() } }
         try await Task.sleep(for: .milliseconds(500))
@@ -359,6 +331,10 @@ final class WorkflowTests: XCTestCase {
                 }
                 if let button = view as? NSButton, !button.isHidden {
                     let rect = button.convert(button.bounds, to: root)
+                    if button.keyEquivalent == "\r" {
+                        XCTAssertGreaterThan(rect.maxX, root.bounds.width - 40,
+                                             "\(name): the default button \(button.title) sits at the trailing edge")
+                    }
                     XCTAssertGreaterThan(rect.width, 0, "\(name): \(button.title)")
                     XCTAssertTrue(
                         root.bounds.insetBy(dx: -2, dy: -2).contains(rect),
@@ -373,7 +349,7 @@ final class WorkflowTests: XCTestCase {
                 root.cacheDisplay(in: root.bounds, to: bitmap)
                 try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(
                     to: folder.appendingPathComponent(name + ".png"))
-                if name == "preferences" {
+                if name == "export" {
                     try pngData(for: fixture).write(to: folder.appendingPathComponent("fixture.png"))
                 }
             }

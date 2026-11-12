@@ -8,6 +8,35 @@ is currently pre-1.0, so minor versions may include incompatible behavior change
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-11
+
+### Changed
+
+- The editor header is one row: the native markup toolbar, Crop, Redact and Step,
+  the Inspect tools, and a single primary **Copy**. Icons carry tooltips and spoken
+  names; the header no longer wraps.
+- **Settings…** (`⌘,`) opens ScreenWren's page in Mac Tools, falling back to
+  launching an older Mac Tools or explaining that it is missing. The permissions
+  window is now **Permissions & Shortcuts…**, shorter and without paragraphs.
+- Thumbnail, status notice, and pin panels use a rounded material background and
+  fade in and out, honouring Reduce Motion.
+- Colours follow light and dark mode changes live; fonts use system text styles;
+  one corner-radius scale throughout. Export, Recents, and Redaction Review share
+  the same window chrome, with actions at the trailing edge.
+- The settings bridge reports the running app's Screen Recording permission, with
+  a new read-only `permissionsSource` field (`runningApp` or `currentProcess`).
+
+### Removed
+
+- The labeled quick-tools row (A, R, H, T and N still work).
+- Blur (Not Secure); Redact is the only pixel-hiding tool.
+- Structured text (Capture Text With Preview…, Preview Structured Text…); Copy
+  Text stays.
+- Combining Recents.
+- Save PNG Directly… (Export still saves PNG or JPEG).
+- Timed capture.
+- The Capture Preferences window; its settings are in Mac Tools.
+
 ## [0.5.2] - 2026-10-27
 
 ### Fixed
