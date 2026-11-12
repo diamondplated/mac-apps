@@ -1,13 +1,13 @@
 import Foundation
 
 public enum ManagedApp: String, CaseIterable, Identifiable, Sendable {
-    case dockPeek, screenWren, scrollSplit, linkRoutes, stayLit, latent, sift
+    case dockPeek, screenWren, scrollSplit, linkRoutes, stayLit, mixBar, rightHere, latent, sift
 
-    /// Menu bar utilities run in the background and are configured from Mac Tools.
-    /// Apps are ordinary windowed apps that keep their settings to themselves.
+    /// Utilities work in the background (the menu bar, the Dock, Finder) and are configured
+    /// from Mac Tools. Apps are ordinary windowed apps that keep their settings to themselves.
     public enum Kind: String, CaseIterable, Sendable {
         case utility, app
-        public var title: String { self == .utility ? "Menu Bar" : "Apps" }
+        public var title: String { self == .utility ? "Utilities" : "Apps" }
     }
 
     public var id: String { rawValue }
@@ -18,6 +18,8 @@ public enum ManagedApp: String, CaseIterable, Identifiable, Sendable {
         case .scrollSplit: "ScrollSplit"
         case .linkRoutes: "LinkRoutes"
         case .stayLit: "StayLit"
+        case .mixBar: "MixBar"
+        case .rightHere: "RightHere"
         case .latent: "Latent"
         case .sift: "Sift"
         }
@@ -29,13 +31,15 @@ public enum ManagedApp: String, CaseIterable, Identifiable, Sendable {
         case .scrollSplit: "com.andrew.scrollsplit"
         case .linkRoutes: "com.andrew.linkroutes"
         case .stayLit: "com.andrew.staylit"
+        case .mixBar: "com.andrew.mixbar"
+        case .rightHere: "com.andrew.righthere"
         case .latent: "com.diamondplated.latent"
         case .sift: "io.github.diamondplated.sift"
         }
     }
     public var kind: Kind {
         switch self {
-        case .dockPeek, .screenWren, .scrollSplit, .linkRoutes, .stayLit: .utility
+        case .dockPeek, .screenWren, .scrollSplit, .linkRoutes, .stayLit, .mixBar, .rightHere: .utility
         case .latent, .sift: .app
         }
     }
@@ -49,6 +53,8 @@ public enum ManagedApp: String, CaseIterable, Identifiable, Sendable {
         case .scrollSplit: "Fix the mouse and keyboard: scrolling, buttons, pointer feel, and a few key overrides."
         case .linkRoutes: "Open links and files in the right app, with rules for sites, apps, and folders."
         case .stayLit: "Keep your Mac awake when it matters, and control an external display from the keyboard."
+        case .mixBar: "Give every app its own volume, and send one app to different speakers."
+        case .rightHere: "Add New File, Open Terminal Here, and Copy Path to Finder’s right-click menu."
         case .latent: "Browse photo folders fast, cull with the keyboard, group bursts, and enhance on device."
         case .sift: "Drop in a CSV, Parquet, JSON, or Excel file and explore it, or press Space on one in Finder."
         }
@@ -60,6 +66,8 @@ public enum ManagedApp: String, CaseIterable, Identifiable, Sendable {
         case .scrollSplit: "Open ScrollSplit to turn it on and grant the access it asks for. Trackpads and smooth-scrolling mice are left alone."
         case .linkRoutes: "Open LinkRoutes to make it your default browser, then add a rule for each site that belongs somewhere else."
         case .stayLit: "Use StayLit’s menu bar menu to keep your Mac awake now, for a while, or while an app runs. Turn on the display keys here if you use an external monitor."
+        case .mixBar: "Click MixBar in the menu bar to see the apps playing sound, then drag a slider. macOS asks once for permission to control app audio. Apps left at normal volume are never touched."
+        case .rightHere: "Open RightHere once and switch on its Finder extension in System Settings. Then right-click in any Finder window."
         case .latent: "Open a folder of photos, or choose Latent in Finder’s Open With menu. Enhancement models are optional; Latent works without them and picks them up from its Application Support folder."
         case .sift: "Drop a data file or folder on Sift’s window or Dock icon, or choose Sift in Finder’s Open With menu. Sift reads files where they are and never uploads them."
         }
@@ -71,6 +79,8 @@ public enum ManagedApp: String, CaseIterable, Identifiable, Sendable {
         case .scrollSplit: "computermouse"
         case .linkRoutes: "arrow.triangle.branch"
         case .stayLit: "cup.and.saucer"
+        case .mixBar: "slider.horizontal.3"
+        case .rightHere: "contextualmenu.and.cursorarrow"
         case .latent: "photo.on.rectangle.angled"
         case .sift: "tablecells"
         }
@@ -78,7 +88,7 @@ public enum ManagedApp: String, CaseIterable, Identifiable, Sendable {
     public var minimumOSMajor: Int {
         switch self {
         case .screenWren: 26
-        case .dockPeek, .scrollSplit, .linkRoutes, .stayLit, .latent, .sift: 14
+        case .dockPeek, .scrollSplit, .linkRoutes, .stayLit, .mixBar, .rightHere, .latent, .sift: 14
         }
     }
     /// Latent's image pipeline stores pixels as Float16, which Swift does not offer on

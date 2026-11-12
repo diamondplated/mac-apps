@@ -39,7 +39,9 @@ struct ToolSettingsSnapshot: Decodable {
     var capsLockTapIsEscape: Bool?
     /// False when this Mac cannot remap Caps Lock. Read-only.
     var capsLockRemapAvailable: Bool?
-    var hasKeyboardOverrides: Bool { holdToQuit != nil || capsLockIsHyper != nil }
+    /// ⌘X then ⌘V moves files in Finder. Absent before ScrollSplit 1.4.
+    var cutAndPasteFilesInFinder: Bool?
+    var hasKeyboardOverrides: Bool { holdToQuit != nil || capsLockIsHyper != nil || cutAndPasteFilesInFinder != nil }
     var hasMouseFixes: Bool { smoothScrolling != nil || sideButtonsNavigate != nil || mouseAccelerationOff != nil }
     var permissions: [String: Bool]?
     var permissionsSource: String?
@@ -83,6 +85,24 @@ struct ToolSettingsSnapshot: Decodable {
     /// Why the Mac is being kept awake right now, in StayLit's own words. Read-only.
     var awakeReason: String?
     var externalDisplays: [ExternalDisplay]?
+    // MixBar.
+    var remembersVolumes: Bool?
+    var appVolumes: [AppVolume]?
+    /// False when this macOS cannot change one app's volume. Read-only.
+    var audioControlAvailable: Bool?
+    /// `unknown`, `granted` or `denied`, as the running MixBar last saw it. Read-only.
+    var audioCaptureStatus: String?
+    // RightHere.
+    var showsNewFile: Bool?
+    var showsOpenTerminal: Bool?
+    var showsCopyPath: Bool?
+    var newFileExtensions: [String]?
+    var terminalBundleIdentifier: String?
+    var availableTerminals: [TerminalApp]?
+    /// Whether Finder has RightHere's extension switched on. Read-only.
+    var extensionEnabled: Bool?
+    /// False for an app that never stays running, which has nothing to open at login.
+    var canOpenAtLogin: Bool { loginStatus != "notApplicable" }
     // LinkRoutes file rules. Absent from older LinkRoutes builds.
     var fileRules: [FileRouteRule]?
     /// File types LinkRoutes is currently the default app for. Read-only.
@@ -94,6 +114,68 @@ struct ExternalDisplay: Decodable, Equatable, Identifiable {
     /// Whether StayLit can change this display's brightness and volume.
     let controllable: Bool
     var id: String { name }
+}
+
+/// One app's saved volume in MixBar.
+struct AppVolume: Decodable, Equatable, Identifiable {
+    let bundleIdentifier: String
+    var name: String?
+    /// 1 is the app's normal volume; MixBar allows 0 to 2.
+    var volume: Double
+    var muted: Bool
+    /// A specific output device, or nil for the system default.
+    var outputDeviceUID: String?
+    var id: String { bundleIdentifier }
+
+    var displayName: String {
+        if let name, !name.isEmpty { return name }
+        return SourceApps.name(for: bundleIdentifier)
+    }
+    /// "65%", "Muted", and whether it plays somewhere other than the default output.
+    var summary: String {
+        let level = muted ? "Muted" : "\(Int((volume * 100).rounded()))%"
+        return outputDeviceUID == nil ? level : level + ", own output"
+    }
+    /// The entry as MixBar expects it back. The name is MixBar's to fill in.
+    var patch: [String: Any] {
+        ["bundleIdentifier": bundleIdentifier, "volume": volume, "muted": muted, "outputDeviceUID": outputDeviceUID ?? NSNull()]
+    }
+}
+
+struct TerminalApp: Decodable, Equatable, Identifiable {
+    let bundleIdentifier: String
+    let name: String
+    var id: String { bundleIdentifier }
+}
+
+/// The file types in RightHere's New File menu.
+enum NewFileTypes {
+    static let limit = 8
+
+    /// A typed extension as RightHere stores it, or nil if it is not one: 1 to 10 letters
+    /// and digits, lowercase, without the dot.
+    static func cleaned(_ text: String) -> String? {
+        var ext = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        while ext.hasPrefix(".") || ext.hasPrefix("*") { ext.removeFirst() }
+        let allowed = Set("abcdefghijklmnopqrstuvwxyz0123456789")
+        return (1...10).contains(ext.count) && ext.allSatisfy(allowed.contains) ? ext : nil
+    }
+
+    /// The list with one more type, or why it cannot be added.
+    static func adding(_ text: String, to current: [String]) -> Result<[String], AppManagerError> {
+        guard let ext = cleaned(text) else { return .failure(.message("Enter a file extension of up to 10 letters and digits, like txt.")) }
+        guard !current.contains(ext) else { return .failure(.message("New File already offers .\(ext).")) }
+        guard current.count < limit else { return .failure(.message("New File can offer up to \(limit) types. Remove one first.")) }
+        return .success(current + [ext])
+    }
+
+    static func title(for ext: String) -> String {
+        switch ext {
+        case "txt": "Text File"
+        case "md": "Markdown File"
+        default: ext.uppercased() + " File"
+        }
+    }
 }
 
 /// "Files of this type, in this folder, open with this app."
@@ -203,6 +285,7 @@ final class ToolSettingsModel: ObservableObject {
     @Published var selectionHeight = ""
     @Published var presetName = ""
     @Published var scrollSpeed = 1.0
+    @Published var newFileExtension = ""
     /// Values the user just chose, shown immediately while the app confirms them.
     @Published private(set) var pending: [String: Any] = [:]
     var hasUnsavedRoutes: Bool { routeRules != savedRouteRules }
