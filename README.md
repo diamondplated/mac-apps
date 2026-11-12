@@ -65,9 +65,10 @@ in the Library to install its newer tool versions.
 
 ## Tool settings
 
-Select a menu bar tool in the sidebar. Its page shows its settings, which use the
-tool's existing preferences and apply to the running tool as soon as you change
-them. Three things wait for a button: LinkRoutes rules (edit the list, then save
+Select a menu bar tool in the sidebar, or choose **Settings…** in the tool's own
+menu bar menu, which opens the same page. The page shows the tool's settings,
+which use its existing preferences and apply to the running tool as soon as you
+change them. Three things wait for a button: LinkRoutes rules (edit the list, then save
 it), and ScreenWren's fixed size and saved sizes.
 
 - **DockPeek:** launch at login, enable previews, include tabs, and preview
@@ -76,18 +77,20 @@ it), and ScreenWren's fixed size and saved sizes.
   selection adjustment, exact dimensions, aspect ratio, saved size presets,
   and all seven keyboard shortcuts, including clearing and restoring defaults.
 - **ScrollSplit:** startup, enable state, vertical/horizontal direction, mouse-wheel
-  speed, and current permission/runtime status. Open its native settings to enable
-  scrolling and approve any required macOS access.
+  speed, and current permission/runtime status. Turning it on for the first time
+  happens in ScrollSplit's menu bar menu (**Turn On**), because macOS must ask the
+  app itself for access.
 - **LinkRoutes:** startup, fallback browser, ordered domain rules, subdomain
   matching, and supported browser profiles. Making it the default link handler is
-  an explicit action in its native settings.
+  an explicit action in LinkRoutes' menu bar menu (**Make Default Browser…**).
 - **macOS permissions:** each page lists the access its tool needs, with a direct
   link to the right System Settings pane. macOS owns approval. A permission shows
-  a status only when the running tool itself reports it, which ScrollSplit does
-  today; the others show the link alone.
+  a status only when the running tool itself reports it, so a tool that is not
+  running, or an older version of one, shows the link alone.
 
 Tools must be installed from a current Mac Tools build to expose centralized
-settings. Their existing menus and preferences continue to work.
+settings. ScrollSplit and LinkRoutes have no settings window of their own; their
+page here is their settings.
 
 ## Build and install from source
 
