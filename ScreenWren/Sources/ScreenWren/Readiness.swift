@@ -415,7 +415,7 @@ final class ShortcutRecorderField: NSTextField {
         isBordered = true
         drawsBackground = true
         alignment = .center
-        font = .monospacedSystemFont(ofSize: 12, weight: .semibold)
+        font = .monospacedSystemFont(ofSize: NSFont.preferredFont(forTextStyle: .callout).pointSize, weight: .medium)
         focusRingType = .exterior
         toolTip = "Click, then type a shortcut. Delete clears it; Escape cancels."
         setAccessibilityRole(.textField)
@@ -517,19 +517,21 @@ final class ReadinessWindowController: NSWindowController, NSWindowDelegate {
         self.accessRequest = accessRequest
         self.settingsOpener = settingsOpener
         let window = NSWindow(
-            contentRect: CGRect(x: 0, y: 0, width: 620, height: 740),
+            contentRect: CGRect(x: 0, y: 0, width: Self.contentWidth, height: 600),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
-        window.title = "ScreenWren Readiness"
+        window.title = "Permissions & Shortcuts"
         window.isReleasedWhenClosed = false
         window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
-        window.center()
         super.init(window: window)
         window.delegate = self
-        window.contentViewController = makeContentController()
-        window.setContentSize(NSSize(width: 620, height: 740))
+        let controller = makeContentController()
+        window.contentViewController = controller
+        controller.view.layoutSubtreeIfNeeded()
+        window.setContentSize(NSSize(width: Self.contentWidth, height: controller.view.fittingSize.height))
+        window.center()
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(refresh),
@@ -681,193 +683,96 @@ final class ReadinessWindowController: NSWindowController, NSWindowDelegate {
         secondaryButton.title = allowed ? "Done" : "Not Now"
     }
 
+    static let contentWidth: CGFloat = 560
+
     private func makeContentController() -> NSViewController {
         let controller = NSViewController()
         let content = NSView()
         controller.view = content
 
-        let icon = NSImageView(image: NSImage(systemSymbolName: "viewfinder.circle.fill", accessibilityDescription: "ScreenWren") ?? NSImage())
-        icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 38, weight: .semibold)
-        icon.contentTintColor = .controlAccentColor
-        icon.translatesAutoresizingMaskIntoConstraints = false
-
-        let title = label("Make ScreenWren ready", size: 26, weight: .bold)
-        let subtitle = label(
-            "ScreenWren needs one macOS permission. Global shortcuts are optional because the menu always works.",
-            size: 13,
-            color: .secondaryLabelColor
-        )
-        subtitle.maximumNumberOfLines = 2
-        let heading = NSStackView(views: [title, subtitle])
-        heading.orientation = .vertical
-        heading.alignment = .leading
-        heading.spacing = 5
-
-        let hero = NSStackView(views: [icon, heading])
-        hero.orientation = .horizontal
-        hero.alignment = .centerY
-        hero.spacing = 14
-        icon.widthAnchor.constraint(equalToConstant: 46).isActive = true
-        icon.heightAnchor.constraint(equalToConstant: 46).isActive = true
-
         permissionIcon.translatesAutoresizingMaskIntoConstraints = false
-        permissionIcon.widthAnchor.constraint(equalToConstant: 20).isActive = true
-        permissionIcon.heightAnchor.constraint(equalToConstant: 20).isActive = true
-        permissionStatus.font = .systemFont(ofSize: 12, weight: .semibold)
-        let permissionTop = NSStackView(views: [permissionIcon, permissionStatus])
-        permissionTop.orientation = .horizontal
-        permissionTop.alignment = .centerY
-        permissionTop.spacing = 7
-
+        permissionIcon.symbolConfiguration = NSImage.SymbolConfiguration(textStyle: .body)
+        permissionStatus.font = font(.callout, weight: .semibold)
+        let permissionStatusRow = NSStackView(views: [permissionIcon, permissionStatus])
+        permissionStatusRow.spacing = 4
         permissionButton.target = self
         permissionButton.action = #selector(requestOrOpenPermission)
         permissionButton.bezelStyle = .rounded
-        let permissionBody = label(
-            "Enable ScreenWren in System Settings, then Quit & Reopen below. If it is already enabled but capture is blocked, remove the old ScreenWren entry and add this copy again. ScreenWren captures still images only; it does not record audio.",
-            size: 12,
-            color: .secondaryLabelColor
-        )
-        permissionBody.maximumNumberOfLines = 5
-        let revealButton = NSButton(title: "Show This Copy in Finder", target: self, action: #selector(revealCurrentCopy))
+        let permissionNote = label("Enable this copy, then quit and reopen. Still images only, never audio.",
+                                   style: .callout, color: .secondaryLabelColor)
+        let revealButton = NSButton(title: "Show in Finder", target: self, action: #selector(revealCurrentCopy))
+        revealButton.toolTip = "Show this copy of ScreenWren, the one System Settings must allow"
         let checkButton = NSButton(title: "Check Again", target: self, action: #selector(refresh))
-        let permissionActions = NSStackView(views: [revealButton, checkButton, permissionButton])
-        permissionActions.orientation = .horizontal
+        let permissionSpacer = NSView()
+        permissionSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let permissionActions = NSStackView(views: [revealButton, checkButton, permissionSpacer, permissionButton])
+        permissionActions.distribution = .fill
         permissionActions.spacing = 8
-        let permissionTitle = label("Screen & System Audio Recording", size: 13, weight: .semibold)
-        let permissionContent = NSView()
-        [permissionTitle, permissionTop, permissionBody, permissionActions].forEach {
-            $0.translatesAutoresizingMaskIntoConstraints = false
-            permissionContent.addSubview($0)
-        }
-        NSLayoutConstraint.activate([
-            permissionTitle.topAnchor.constraint(equalTo: permissionContent.topAnchor),
-            permissionTitle.leadingAnchor.constraint(equalTo: permissionContent.leadingAnchor),
-            permissionTop.centerYAnchor.constraint(equalTo: permissionTitle.centerYAnchor),
-            permissionTop.leadingAnchor.constraint(equalTo: permissionTitle.trailingAnchor, constant: 10),
-            permissionTop.trailingAnchor.constraint(lessThanOrEqualTo: permissionContent.trailingAnchor),
-            permissionBody.topAnchor.constraint(equalTo: permissionTitle.bottomAnchor, constant: 9),
-            permissionBody.leadingAnchor.constraint(equalTo: permissionContent.leadingAnchor),
-            permissionBody.trailingAnchor.constraint(equalTo: permissionContent.trailingAnchor),
-            permissionActions.topAnchor.constraint(equalTo: permissionBody.bottomAnchor, constant: 9),
-            permissionActions.leadingAnchor.constraint(equalTo: permissionContent.leadingAnchor),
-            permissionActions.trailingAnchor.constraint(lessThanOrEqualTo: permissionContent.trailingAnchor),
-            permissionActions.bottomAnchor.constraint(equalTo: permissionContent.bottomAnchor),
-        ])
-        let permissionCard = card(permissionContent)
+        let permissionCard = card(
+            header: label("Screen & System Audio Recording", style: .headline),
+            accessory: permissionStatusRow,
+            body: [permissionNote, permissionActions])
 
-        let shortcutTitle = label("Keyboard Shortcuts", size: 13, weight: .semibold)
         let shortcutRows = NSStackView()
         shortcutRows.identifier = NSUserInterfaceItemIdentifier("ShortcutRows")
         shortcutRows.orientation = .vertical
         shortcutRows.spacing = 6
         let restoreButton = NSButton(title: "Restore Defaults", target: self, action: #selector(restoreShortcuts))
-        restoreButton.bezelStyle = .inline
-        let shortcutScroll = NSScrollView()
-        shortcutScroll.hasVerticalScroller = true
-        shortcutScroll.drawsBackground = false
-        shortcutScroll.documentView = shortcutRows
-        shortcutRows.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            shortcutRows.leadingAnchor.constraint(equalTo: shortcutScroll.contentView.leadingAnchor),
-            shortcutRows.trailingAnchor.constraint(equalTo: shortcutScroll.contentView.trailingAnchor),
-            shortcutRows.topAnchor.constraint(equalTo: shortcutScroll.contentView.topAnchor),
-            shortcutScroll.heightAnchor.constraint(equalToConstant: 152),
-        ])
-        let shortcutContent = NSView()
-        [shortcutTitle, shortcutSummary, shortcutScroll, restoreButton].forEach {
-            $0.translatesAutoresizingMaskIntoConstraints = false
-            shortcutContent.addSubview($0)
-        }
-        NSLayoutConstraint.activate([
-            shortcutTitle.topAnchor.constraint(equalTo: shortcutContent.topAnchor),
-            shortcutTitle.leadingAnchor.constraint(equalTo: shortcutContent.leadingAnchor),
-            shortcutSummary.centerYAnchor.constraint(equalTo: shortcutTitle.centerYAnchor),
-            shortcutSummary.leadingAnchor.constraint(equalTo: shortcutTitle.trailingAnchor, constant: 10),
-            shortcutSummary.trailingAnchor.constraint(lessThanOrEqualTo: shortcutContent.trailingAnchor),
-            shortcutScroll.topAnchor.constraint(equalTo: shortcutTitle.bottomAnchor, constant: 8),
-            shortcutScroll.leadingAnchor.constraint(equalTo: shortcutContent.leadingAnchor),
-            shortcutScroll.trailingAnchor.constraint(equalTo: shortcutContent.trailingAnchor),
-            restoreButton.topAnchor.constraint(equalTo: shortcutScroll.bottomAnchor, constant: 8),
-            restoreButton.trailingAnchor.constraint(equalTo: shortcutContent.trailingAnchor),
-            restoreButton.bottomAnchor.constraint(equalTo: shortcutContent.bottomAnchor),
-        ])
-        let shortcutCard = card(shortcutContent)
+        shortcutSummary.font = font(.callout)
+        shortcutSummary.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let restoreRow = NSStackView(views: [shortcutSummary, restoreButton])
+        restoreRow.distribution = .fill
+        let shortcutCard = card(
+            header: label("Keyboard Shortcuts", style: .headline),
+            accessory: nil,
+            body: [shortcutRows, restoreRow])
 
         launchSwitch.target = self
         launchSwitch.action = #selector(toggleLaunchAtLogin)
-        launchStatus.font = .systemFont(ofSize: 12, weight: .medium)
+        launchSwitch.controlSize = .small
+        launchStatus.font = font(.callout)
         launchStatus.textColor = .secondaryLabelColor
         let launchTrailing = NSStackView(views: [launchStatus, launchSwitch])
-        launchTrailing.orientation = .horizontal
-        launchTrailing.alignment = .centerY
-        launchTrailing.spacing = 9
-        let launchTitle = label("Launch at Login", size: 13, weight: .semibold)
-        let launchBody = label("Start quietly in the menu bar so Control-P is ready when you are.", size: 12, color: .secondaryLabelColor)
-        launchBody.maximumNumberOfLines = 2
-        let launchContent = NSView()
-        [launchTitle, launchTrailing, launchBody].forEach {
-            $0.translatesAutoresizingMaskIntoConstraints = false
-            launchContent.addSubview($0)
-        }
-        NSLayoutConstraint.activate([
-            launchTitle.topAnchor.constraint(equalTo: launchContent.topAnchor),
-            launchTitle.leadingAnchor.constraint(equalTo: launchContent.leadingAnchor),
-            launchTrailing.centerYAnchor.constraint(equalTo: launchTitle.centerYAnchor),
-            launchTrailing.leadingAnchor.constraint(greaterThanOrEqualTo: launchTitle.trailingAnchor, constant: 10),
-            launchTrailing.trailingAnchor.constraint(equalTo: launchContent.trailingAnchor),
-            launchBody.topAnchor.constraint(equalTo: launchTitle.bottomAnchor, constant: 8),
-            launchBody.leadingAnchor.constraint(equalTo: launchContent.leadingAnchor),
-            launchBody.trailingAnchor.constraint(equalTo: launchContent.trailingAnchor),
-            launchBody.bottomAnchor.constraint(equalTo: launchContent.bottomAnchor),
-        ])
-        let launchCard = card(launchContent)
+        launchTrailing.spacing = 8
+        let launchCard = card(header: label("Launch at Login", style: .headline), accessory: launchTrailing, body: [])
 
-        let privacy = label(
-            "ScreenWren does not upload captures. Images are placed on the system clipboard, and session recents stay only in memory until ScreenWren quits.",
-            size: 11,
-            color: .tertiaryLabelColor
-        )
-        privacy.maximumNumberOfLines = 3
+        let privacy = label("Captures never leave this Mac. Recents clear when ScreenWren quits.",
+                            style: .callout, color: .secondaryLabelColor)
 
-        messageLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        messageLabel.font = font(.callout)
         messageLabel.textColor = .secondaryLabelColor
         messageLabel.lineBreakMode = .byTruncatingTail
         messageLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         messageLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
         secondaryButton.title = "Not Now"
         secondaryButton.target = self
         secondaryButton.action = #selector(dismissWindow)
+        secondaryButton.keyEquivalent = "\u{1b}"
         primaryButton.target = self
         primaryButton.action = #selector(primaryAction)
         primaryButton.keyEquivalent = "\r"
-        primaryButton.bezelColor = .controlAccentColor
-        let footerSpacer = NSView()
-        footerSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        footerSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        let footerButtons = NSStackView(views: [messageLabel, footerSpacer, secondaryButton, primaryButton])
-        footerButtons.orientation = .horizontal
-        footerButtons.alignment = .centerY
-        footerButtons.spacing = 10
+        let footer = NSStackView(views: [messageLabel, secondaryButton, primaryButton])
+        footer.distribution = .fill
+        footer.spacing = 8
 
-        let stack = NSStackView(views: [hero, permissionCard, shortcutCard, launchCard, privacy, footerButtons])
+        let stack = NSStackView(views: [permissionCard, shortcutCard, launchCard, privacy, footer])
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 14
+        stack.spacing = 12
+        stack.setCustomSpacing(20, after: privacy)
         stack.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(stack)
-
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 24),
-            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 28),
-            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -28),
-            stack.bottomAnchor.constraint(lessThanOrEqualTo: content.bottomAnchor, constant: -22),
+            content.widthAnchor.constraint(equalToConstant: Self.contentWidth),
+            stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 20),
+            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
+            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
+            stack.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -20),
             permissionCard.widthAnchor.constraint(equalTo: stack.widthAnchor),
             shortcutCard.widthAnchor.constraint(equalTo: stack.widthAnchor),
             launchCard.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            privacy.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            footerButtons.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            permissionButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 150),
+            footer.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            shortcutRows.widthAnchor.constraint(equalTo: restoreRow.widthAnchor),
         ])
 
         rebuildShortcutRows(in: shortcutRows)
@@ -884,7 +789,7 @@ final class ReadinessWindowController: NSWindowController, NSWindowDelegate {
     private func rebuildShortcutRows(in rows: NSStackView) {
         rows.arrangedSubviews.forEach { rows.removeArrangedSubview($0); $0.removeFromSuperview() }
         for command in ShortcutCommand.allCases {
-            let name = label(command.title, size: 12, weight: .medium)
+            let name = label(command.title, style: .body)
             let recorder = ShortcutRecorderField(shortcut: shortcutManager.shortcut(for: command))
             recorder.setAccessibilityLabel("\(command.title) shortcut")
             recorder.onRecord = { [weak self] shortcut in
@@ -896,10 +801,11 @@ final class ReadinessWindowController: NSWindowController, NSWindowDelegate {
             }
             recorder.translatesAutoresizingMaskIntoConstraints = false
             recorder.widthAnchor.constraint(equalToConstant: 112).isActive = true
-            recorder.heightAnchor.constraint(equalToConstant: 24).isActive = true
+            recorder.heightAnchor.constraint(equalToConstant: 22).isActive = true
 
             let row = NSStackView(views: [name, recorder])
             row.orientation = .horizontal
+            row.distribution = .fill
             row.alignment = .centerY
             row.spacing = 10
             name.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -909,36 +815,50 @@ final class ReadinessWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    private func card(_ content: NSView) -> NSView {
-        let container = NSView()
-        container.wantsLayer = true
-        container.layer?.cornerRadius = 12
-        container.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.72).cgColor
-        container.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.55).cgColor
-        container.layer?.borderWidth = 1
+    /// A grouped card: a header row (title and optional trailing accessory) over its body rows.
+    /// The fill and border resolve in `updateLayer`, so they follow light and dark mode live.
+    private func card(header: NSView, accessory: NSView?, body: [NSView]) -> NSView {
+        let container = SemanticLayerView(
+            fill: .quaternarySystemFill, border: .separatorColor, borderWidth: 1, cornerRadius: CornerRadius.card)
         container.setAccessibilityElement(true)
         container.setAccessibilityRole(.group)
-        content.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(content)
+        var headerViews = [header]
+        if let accessory {
+            let spacer = NSView()
+            spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            headerViews += [spacer, accessory]
+        }
+        let headerRow = NSStackView(views: headerViews)
+        headerRow.distribution = .fill
+        headerRow.spacing = 8
+        let column = NSStackView(views: [headerRow] + body)
+        column.orientation = .vertical
+        column.alignment = .leading
+        column.spacing = 10
+        column.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(column)
         NSLayoutConstraint.activate([
-            content.topAnchor.constraint(equalTo: container.topAnchor, constant: 14),
-            content.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
-            content.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
-            content.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -14),
+            column.topAnchor.constraint(equalTo: container.topAnchor, constant: 14),
+            column.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            column.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+            column.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -14),
+            headerRow.widthAnchor.constraint(equalTo: column.widthAnchor),
         ])
+        for view in body where view is NSStackView {
+            view.widthAnchor.constraint(equalTo: column.widthAnchor).isActive = true
+        }
         return container
     }
 
-    private func label(
-        _ text: String,
-        size: CGFloat,
-        weight: NSFont.Weight = .regular,
-        color: NSColor = .labelColor
-    ) -> NSTextField {
+    private func font(_ style: NSFont.TextStyle, weight: NSFont.Weight = .regular) -> NSFont {
+        .systemFont(ofSize: NSFont.preferredFont(forTextStyle: style).pointSize, weight: weight)
+    }
+
+    private func label(_ text: String, style: NSFont.TextStyle, color: NSColor = .labelColor) -> NSTextField {
         let field = NSTextField(labelWithString: text)
-        field.font = .systemFont(ofSize: size, weight: weight)
+        field.font = .preferredFont(forTextStyle: style)
         field.textColor = color
-        field.lineBreakMode = .byWordWrapping
+        field.lineBreakMode = .byTruncatingTail
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return field
     }

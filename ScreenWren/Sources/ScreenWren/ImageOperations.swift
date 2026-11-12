@@ -1,6 +1,5 @@
 import AppKit
 import CoreGraphics
-import CoreImage
 
 enum ImageOperationsError: Error, Equatable, LocalizedError {
     case invalidDimensions
@@ -81,28 +80,6 @@ func redactedCGImage(_ image: CGImage, in rectangle: CGRect) throws -> CGImage {
         context.setFillColor(CGColor(gray: 0, alpha: 1))
         context.fill(drawingRectangle)
     }
-}
-
-/// A visual obscuring effect only. Blur is reversible enough that it must not be presented as redaction.
-func blurredNonsecureCGImage(
-    _ image: CGImage,
-    in rectangle: CGRect,
-    radius: CGFloat = 18
-) throws -> CGImage {
-    guard radius > 0 else { return try copiedCGImage(image) }
-    let rectangle = try image.validPixelRectangle(rectangle)
-    let filterRectangle = image.bottomLeftRectangle(fromTopLeft: rectangle)
-    let original = CIImage(cgImage: image)
-    let blurredPatch = original
-        .clampedToExtent()
-        .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: radius])
-        .cropped(to: filterRectangle)
-    let result = blurredPatch.composited(over: original)
-    guard let rendered = CIContext(options: [.cacheIntermediates: false])
-        .createCGImage(result, from: original.extent) else {
-        throw ImageOperationsError.couldNotRender
-    }
-    return rendered
 }
 
 func croppedCGImage(_ image: CGImage, to rectangle: CGRect) throws -> CGImage {
@@ -466,21 +443,7 @@ func runImageOperationsSelfCheck() throws {
     }
     let redacted = try redactedCGImage(white, in: CGRect(x: 2, y: 2, width: 4, height: 4))
     let redactedPixels = try grayscaleRows(of: redacted, width: 8)
-    let checkerboard = try renderCGImage(width: 8, height: 8) { context in
-        for row in 0..<8 {
-            for column in 0..<8 where (row + column).isMultiple(of: 2) {
-                context.setFillColor(CGColor(gray: 1, alpha: 1))
-                context.fill(CGRect(x: column, y: row, width: 1, height: 1))
-            }
-        }
-    }
-    let blurred = try blurredNonsecureCGImage(checkerboard, in: CGRect(x: 0, y: 0, width: 8, height: 4), radius: 2)
-    let checkerboardPixels = try grayscaleRows(of: checkerboard, width: 8)
-    let blurredPixels = try grayscaleRows(of: blurred, width: 8)
     precondition(redactedPixels.filter { $0 == 0 }.count == 16)
-    precondition(blurred.width == 8)
-    precondition(zip(checkerboardPixels.prefix(32), blurredPixels.prefix(32)).contains { abs(Int($0) - Int($1)) > 8 })
-    precondition(zip(checkerboardPixels.suffix(32), blurredPixels.suffix(32)).allSatisfy { abs(Int($0) - Int($1)) <= 1 })
 
     let topRedacted = try redactedCGImage(white, in: CGRect(x: 2, y: 0, width: 4, height: 2))
     let topRedactedPixels = try grayscaleRows(of: topRedacted, width: 8)

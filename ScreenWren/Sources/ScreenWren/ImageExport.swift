@@ -70,7 +70,7 @@ final class ImageExportWindow: NSWindowController, NSWindowDelegate {
     private let format = NSPopUpButton()
     private let resolution = NSPopUpButton()
     private let quality = NSSlider(value: 85, minValue: 10, maxValue: 100, target: nil, action: nil)
-    private let status = NSTextField(wrappingLabelWithString: "Preparing export…")
+    private let status = NSTextField(labelWithString: "Preparing export…")
     private let saveButton = NSButton(title: "Save…", target: nil, action: nil)
     private var encoded: Data?
     private var task: Task<Void, Never>?
@@ -83,7 +83,7 @@ final class ImageExportWindow: NSWindowController, NSWindowDelegate {
         let window = NSWindow(
             contentRect: CGRect(x: 0, y: 0, width: 540, height: 440), styleMask: [.titled, .closable],
             backing: .buffered, defer: false)
-        window.title = "Export Capture"
+        window.title = "Export Image"
         window.isReleasedWhenClosed = false
         super.init(window: window)
         window.delegate = self
@@ -114,23 +114,35 @@ final class ImageExportWindow: NSWindowController, NSWindowDelegate {
         saveButton.keyEquivalent = "\r"
         let controls = NSStackView(views: [format, resolution])
         controls.spacing = 14
-        let qualityRow = NSStackView(views: [NSTextField(labelWithString: "JPEG quality"), quality])
+        let qualityRow = NSStackView(views: [NSTextField(labelWithString: "JPEG Quality"), quality])
         qualityRow.spacing = 12
-        status.font = .systemFont(ofSize: 12)
+        status.font = .preferredFont(forTextStyle: .callout)
         status.textColor = .secondaryLabelColor
-        let content = NSStackView(views: [preview, controls, qualityRow, status, saveButton])
+        status.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        status.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let cancelButton = NSButton(title: "Cancel", target: window, action: #selector(NSWindow.performClose(_:)))
+        cancelButton.keyEquivalent = "\u{1b}"
+        let footer = NSStackView(views: [status, cancelButton, saveButton])
+        footer.distribution = .fill
+        footer.spacing = 8
+        let content = NSStackView(views: [preview, controls, qualityRow, footer])
         content.orientation = .vertical
         content.alignment = .leading
-        content.spacing = 14
+        content.spacing = 12
+        content.setCustomSpacing(20, after: qualityRow)
         content.translatesAutoresizingMaskIntoConstraints = false
         window.contentView?.addSubview(content)
         NSLayoutConstraint.activate([
-            content.leadingAnchor.constraint(equalTo: window.contentView!.leadingAnchor, constant: 24),
-            content.trailingAnchor.constraint(equalTo: window.contentView!.trailingAnchor, constant: -24),
+            content.leadingAnchor.constraint(equalTo: window.contentView!.leadingAnchor, constant: 20),
+            content.trailingAnchor.constraint(equalTo: window.contentView!.trailingAnchor, constant: -20),
             content.topAnchor.constraint(equalTo: window.contentView!.topAnchor, constant: 20),
+            content.bottomAnchor.constraint(equalTo: window.contentView!.bottomAnchor, constant: -20),
             preview.widthAnchor.constraint(equalTo: content.widthAnchor),
+            footer.widthAnchor.constraint(equalTo: content.widthAnchor),
             quality.widthAnchor.constraint(equalToConstant: 280),
         ])
+        window.contentView?.layoutSubtreeIfNeeded()
+        window.setContentSize(CGSize(width: 540, height: content.fittingSize.height + 40))
         window.center()
         updatePreview()
     }
@@ -202,70 +214,5 @@ final class ImageExportWindow: NSWindowController, NSWindowDelegate {
         task = nil
         encoded = nil
         onClose?()
-    }
-}
-
-enum CompositionLayout: String, CaseIterable, Sendable {
-    case vertical, horizontal, grid
-    var title: String {
-        switch self {
-        case .vertical: "Vertical"
-        case .horizontal: "Side by Side"
-        case .grid: "Grid"
-        }
-    }
-}
-struct CompositionPlan {
-    let size: CGSize
-    let frames: [CGRect]  // Top-left coordinates, preserving original image pixels.
-}
-func compositionPlan(sizes: [CGSize], layout: CompositionLayout, gap: CGFloat = 16) throws -> CompositionPlan {
-    guard (2...5).contains(sizes.count), gap >= 0, gap <= 100,
-        sizes.allSatisfy({
-            $0.width.isFinite && $0.height.isFinite && $0.width > 0 && $0.height > 0 && $0.width <= 30_000
-                && $0.height <= 30_000
-        })
-    else { throw ImageOperationsError.invalidDimensions }
-    var frames: [CGRect] = []
-    switch layout {
-    case .vertical:
-        var y: CGFloat = 0
-        for size in sizes {
-            frames.append(CGRect(x: 0, y: y, width: size.width, height: size.height))
-            y += size.height + gap
-        }
-    case .horizontal:
-        var x: CGFloat = 0
-        for size in sizes {
-            frames.append(CGRect(x: x, y: 0, width: size.width, height: size.height))
-            x += size.width + gap
-        }
-    case .grid:
-        let cellWidth = sizes.map(\.width).max()!
-        let cellHeight = sizes.map(\.height).max()!
-        for (index, size) in sizes.enumerated() {
-            frames.append(
-                CGRect(
-                    x: CGFloat(index % 2) * (cellWidth + gap), y: CGFloat(index / 2) * (cellHeight + gap),
-                    width: size.width, height: size.height))
-        }
-    }
-    let size = CGSize(width: frames.map(\.maxX).max()!, height: frames.map(\.maxY).max()!)
-    guard size.width <= 30_000, size.height <= 30_000, size.width * size.height <= 64_000_000 else {
-        throw ImageOperationsError.outputTooLarge
-    }
-    return CompositionPlan(size: size, frames: frames)
-}
-func combinedImages(_ images: [CGImage], layout: CompositionLayout) throws -> CGImage {
-    let plan = try compositionPlan(sizes: images.map { CGSize(width: $0.width, height: $0.height) }, layout: layout)
-    return try renderCGImage(width: Int(plan.size.width), height: Int(plan.size.height)) { context in
-        context.setFillColor(CGColor(gray: 1, alpha: 1))
-        context.fill(CGRect(origin: .zero, size: plan.size))
-        for (index, image) in images.enumerated() {
-            let frame = plan.frames[index]
-            context.draw(
-                image,
-                in: CGRect(x: frame.minX, y: plan.size.height - frame.maxY, width: frame.width, height: frame.height))
-        }
     }
 }

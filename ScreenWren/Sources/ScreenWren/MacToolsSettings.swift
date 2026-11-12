@@ -2,11 +2,49 @@ import AppKit
 import Carbon
 import CoreGraphics
 
+enum SettingsOpenOutcome: Equatable {
+    case settingsPage
+    case manager(URL)
+    case managerMissing
+}
+
+/// ScreenWren keeps no settings window of its own: its settings are a page in Mac Tools.
+/// A manager that predates the page link can't open it, so it is launched instead, and a
+/// missing manager is explained.
+@MainActor @discardableResult
+func openScreenWrenSettings(
+    openURL: (URL) -> Bool = { NSWorkspace.shared.open($0) },
+    managerCandidates: [URL] = [
+        URL(fileURLWithPath: "/Applications/Mac Tools.app"),
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Mac Tools.app"),
+    ],
+    managerExists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) },
+    launchManager: (URL) -> Void = { NSWorkspace.shared.openApplication(at: $0, configuration: .init()) },
+    reportMissingManager: () -> Void = {
+        let alert = NSAlert()
+        alert.messageText = "Install Mac Tools to manage ScreenWren"
+        alert.informativeText = "Place Mac Tools in Applications, then open it to change ScreenWren settings."
+        alert.runModal()
+    }
+) -> SettingsOpenOutcome {
+    if openURL(MacToolsSettingsBridge.settingsPageURL) { return .settingsPage }
+    if let manager = managerCandidates.first(where: managerExists) {
+        launchManager(manager)
+        return .manager(manager)
+    }
+    reportMissingManager()
+    return .managerMissing
+}
+
 /// Native preference access for the suite manager. No capture or application UI is started.
 @MainActor
 struct MacToolsSettingsBridge {
     static let notification = Notification.Name("com.andrew.mactools.settingsChanged")
     static let bundleIdentifier = "io.github.diamondplated.ScreenWren"
+    /// ScreenWren's page in the Mac Tools manager. Managers older than this link can't open it.
+    static let settingsPageURL = URL(string: "mactools://app/screenWren")!
+    static let statusRequest = Notification.Name("com.andrew.screenwren.statusRequest")
+    static let statusReply = Notification.Name("com.andrew.screenwren.statusReply")
 
     struct Failure: LocalizedError {
         let message: String
@@ -41,6 +79,9 @@ struct MacToolsSettingsBridge {
         let presets: [SelectionPreset]
         let shortcuts: [ShortcutValue]
         let permissions: [String: Bool]
+        /// `runningApp` when the running ScreenWren answered; `currentProcess` when this helper
+        /// answered for itself, which macOS may attribute to the manager that started it.
+        let permissionsSource: String
     }
 
     struct Patch: Decodable {
@@ -61,15 +102,69 @@ struct MacToolsSettingsBridge {
     let setLoginEnabled: (Bool) throws -> Void
     let notify: (Bool) -> Void
     let permissionState: () -> [String: Bool]
+    let runningAppPermissions: () -> [String: Bool]?
 
     init(defaults: UserDefaults, loginState: @escaping () -> (enabled: Bool, status: String),
          setLoginEnabled: @escaping (Bool) throws -> Void, notify: @escaping (Bool) -> Void = { _ in },
-         permissionState: @escaping () -> [String: Bool] = { ["screenRecording": CGPreflightScreenCaptureAccess()] }) {
+         permissionState: @escaping () -> [String: Bool] = { ["screenRecording": CGPreflightScreenCaptureAccess()] },
+         runningAppPermissions: @escaping () -> [String: Bool]? = { nil }) {
         self.defaults = defaults
         self.loginState = loginState
         self.setLoginEnabled = setLoginEnabled
         self.notify = notify
         self.permissionState = permissionState
+        self.runningAppPermissions = runningAppPermissions
+    }
+
+    struct RunningCopy {
+        let processIdentifier: pid_t
+        let bundleURL: URL?
+    }
+
+    /// The running copy to ask: exactly one other process started from this same bundle.
+    /// None, or several (an ambiguous answer), leaves the helper reporting for itself.
+    static func runningCopyToAsk(_ copies: [RunningCopy], ownBundleURL: URL, ownProcessIdentifier: pid_t) -> pid_t? {
+        let own = ownBundleURL.resolvingSymlinksInPath().standardizedFileURL
+        let matches = copies.filter {
+            $0.processIdentifier != ownProcessIdentifier
+                && $0.bundleURL?.resolvingSymlinksInPath().standardizedFileURL == own
+        }
+        return matches.count == 1 ? matches[0].processIdentifier : nil
+    }
+
+    private final class ReplyBox: @unchecked Sendable { var permissions: [String: Bool]? }
+
+    /// Asks the running app for its permission state and waits briefly for the reply.
+    static func askRunningApp(processIdentifier: pid_t, timeout: TimeInterval = 0.5,
+                              center: DistributedNotificationCenter = .default()) -> [String: Bool]? {
+        let token = UUID().uuidString
+        let reply = ReplyBox()
+        let observer = center.addObserver(forName: statusReply, object: token, queue: nil) { notification in
+            guard let info = notification.userInfo,
+                  (info["pid"] as? NSNumber)?.int32Value == processIdentifier,
+                  let permissions = info["permissions"] as? [String: Bool] else { return }
+            reply.permissions = permissions
+        }
+        defer { center.removeObserver(observer) }
+        center.postNotificationName(statusRequest, object: bundleIdentifier, userInfo: ["token": token],
+                                    deliverImmediately: true)
+        let deadline = Date().addingTimeInterval(timeout)
+        while reply.permissions == nil, Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        return reply.permissions
+    }
+
+    /// Installed by the running app so the manager's helper can report its real permission state.
+    static func answerStatusRequests(center: DistributedNotificationCenter = .default(),
+                                     permissions: @escaping @Sendable () -> [String: Bool]) -> NSObjectProtocol {
+        center.addObserver(forName: statusRequest, object: bundleIdentifier, queue: .main) { notification in
+            guard let token = notification.userInfo?["token"] as? String else { return }
+            center.postNotificationName(statusReply, object: token, userInfo: [
+                "pid": NSNumber(value: ProcessInfo.processInfo.processIdentifier),
+                "permissions": permissions(),
+            ], deliverImmediately: true)
+        }
     }
 
     static func isInstalledBundle(_ url: URL, homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) -> Bool {
@@ -93,6 +188,14 @@ struct MacToolsSettingsBridge {
         }, notify: { shortcutsChanged in
             DistributedNotificationCenter.default().postNotificationName(
                 notification, object: bundleIdentifier, userInfo: ["shortcutsChanged": shortcutsChanged], deliverImmediately: true)
+        }, runningAppPermissions: {
+            let copies = NSWorkspace.shared.runningApplications
+                .filter { $0.bundleIdentifier == bundleIdentifier && !$0.isTerminated }
+                .map { RunningCopy(processIdentifier: $0.processIdentifier, bundleURL: $0.bundleURL) }
+            guard let processIdentifier = runningCopyToAsk(
+                copies, ownBundleURL: Bundle.main.bundleURL,
+                ownProcessIdentifier: ProcessInfo.processInfo.processIdentifier) else { return nil }
+            return askRunningApp(processIdentifier: processIdentifier)
         })
     }
 
@@ -101,6 +204,7 @@ struct MacToolsSettingsBridge {
         let preferences = WorkflowPreferences(defaults: defaults)
         let shortcuts = ShortcutStore(defaults: defaults, preserveConfiguredDefaults: false)
         let login = loginState()
+        let live = runningAppPermissions()?["screenRecording"].map { ["screenRecording": $0] }
         return Snapshot(schemaVersion: 1, app: "screenWren", launchAtLogin: login.enabled,
                         loginStatus: login.status, captureDestination: preferences.destination,
                         showsThumbnail: preferences.showsThumbnail, adjustBeforeCapture: preferences.adjustBeforeCapture,
@@ -109,7 +213,8 @@ struct MacToolsSettingsBridge {
                         aspectRatio: preferences.aspectRatio.map(Double.init) ?? 0, presets: preferences.presets,
                         shortcuts: ShortcutCommand.allCases.map {
             ShortcutValue(command: $0, title: $0.title, shortcut: shortcuts.shortcut(for: $0))
-        }, permissions: permissionState())
+        }, permissions: live ?? permissionState(),
+           permissionsSource: live == nil ? "currentProcess" : "runningApp")
     }
 
     private func validateKeys(_ object: [String: Any], allowed: Set<String>, required: Set<String> = []) throws {

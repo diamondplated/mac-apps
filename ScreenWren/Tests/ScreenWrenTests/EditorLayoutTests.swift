@@ -31,7 +31,18 @@ final class EditorLayoutTests: XCTestCase {
     }
 
     @MainActor
-    func testEditorKeepsToolsActionsAndStatusVisibleWhenResizing() throws {
+    private func headerParts(_ editor: EditorViewController) throws
+        -> (header: NSView, row: NSStackView, groups: [String: NSStackView])
+    {
+        let header = try XCTUnwrap(editor.view.subviews.first { $0.identifier?.rawValue == "editorHeader" })
+        let row = try XCTUnwrap(header.subviews.first { $0.identifier?.rawValue == "editorHeaderRow" } as? NSStackView)
+        var groups: [String: NSStackView] = [:]
+        for case let group as NSStackView in row.views { groups[group.identifier?.rawValue ?? ""] = group }
+        return (header, row, groups)
+    }
+
+    @MainActor
+    func testEditorHeaderIsOneRowThatKeepsEveryControlVisibleWhenResizing() throws {
         _ = NSApplication.shared
         let image = try renderCGImage(width: 80, height: 60) { context in
             context.setFillColor(CGColor(gray: 1, alpha: 1))
@@ -46,46 +57,55 @@ final class EditorLayoutTests: XCTestCase {
         window.contentViewController = editor
         defer { window.close() }
         let root = editor.view
-        let header = try XCTUnwrap(root.subviews.first { $0 is NSVisualEffectView })
-        let actions = try XCTUnwrap(header.subviews.first { $0.identifier?.rawValue == "editorFinishActions" } as? NSStackView)
-        let quickTools = try XCTUnwrap(header.subviews.first { $0.identifier?.rawValue == "editorQuickTools" } as? NSStackView)
-        let toolbar = try XCTUnwrap(header.subviews.first { !($0 is NSStackView) })
+        let (header, row, groups) = try headerParts(editor)
+        XCTAssertNil(header.subviews.first { $0.identifier?.rawValue == "editorQuickTools" },
+                     "The labeled quick-tools row is gone")
+        let imageTools = try XCTUnwrap(groups["editorImageTools"])
+        let inspectTools = try XCTUnwrap(groups["editorInspectTools"])
+        let actions = try XCTUnwrap(groups["editorFinishActions"])
+        let toolbar = try XCTUnwrap(row.views.first { !($0 is NSStackView) && !($0 is NSBox) })
         let statusBar = try XCTUnwrap(root.subviews.compactMap { $0 as? NSStackView }.first)
         let label = try XCTUnwrap(statusBar.views.compactMap { $0 as? NSTextField }.first)
 
-        // Returning to each size exercises both directions across the breakpoint.
-        for width: CGFloat in [720, 1040, 1440, 720, 1440] {
+        // Returning to each size exercises both directions.
+        for width: CGFloat in [720, 1040, 1440, 720] {
             window.setContentSize(CGSize(width: width, height: 720))
             root.needsLayout = true
             root.layoutSubtreeIfNeeded()
             XCTAssertEqual(root.bounds.width, width, accuracy: 1)
+            XCTAssertEqual(header.frame.height, 52, accuracy: 1, "The header never wraps to a second row")
             XCTAssertTrue(root.bounds.contains(header.frame))
-            XCTAssertTrue(header.bounds.contains(toolbar.frame))
-            XCTAssertTrue(header.bounds.contains(actions.frame))
-            XCTAssertTrue(header.bounds.contains(quickTools.frame))
-            XCTAssertFalse(toolbar.frame.intersects(actions.frame), "Tools overlap actions at \(width) points")
-            XCTAssertFalse(toolbar.frame.intersects(quickTools.frame))
-            XCTAssertFalse(actions.frame.intersects(quickTools.frame))
-            if width == 720 { XCTAssertEqual(header.frame.height, 132, accuracy: 1) }
-            if width == 1440 { XCTAssertEqual(header.frame.height, 92, accuracy: 1) }
-            for button in (actions.views + quickTools.views).compactMap({ $0 as? NSButton }) {
+            let parts: [NSView] = [toolbar, imageTools, inspectTools, actions]
+            for (index, part) in parts.enumerated() {
+                let frame = part.convert(part.bounds, to: header)
+                XCTAssertTrue(header.bounds.contains(frame), "Part \(index) leaves the header at \(width) points")
+                for other in parts[(index + 1)...] {
+                    XCTAssertFalse(frame.intersects(other.convert(other.bounds, to: header)),
+                                   "Header parts overlap at \(width) points")
+                }
+            }
+            for button in (imageTools.views + inspectTools.views + actions.views).compactMap({ $0 as? NSButton }) {
                 XCTAssertFalse(button.isHidden)
-                XCTAssertGreaterThanOrEqual(button.bounds.width + 1, button.intrinsicContentSize.width)
                 XCTAssertTrue(header.bounds.contains(button.convert(button.bounds, to: header)))
+                XCTAssertFalse(button.toolTip?.isEmpty ?? true, "Every header control has a tooltip")
+                XCTAssertFalse(button.accessibilityLabel()?.isEmpty ?? true, "Every header control has a spoken name")
             }
             XCTAssertTrue(root.bounds.contains(statusBar.frame))
             XCTAssertGreaterThan(label.bounds.width, 600)
             XCTAssertEqual(label.stringValue, status)
             XCTAssertEqual(label.toolTip, status)
         }
-        let inspect = try XCTUnwrap(actions.views.compactMap { $0 as? NSButton }.first { $0.title == "Inspect" })
-        XCTAssertEqual(inspect.accessibilityLabel(), "Inspect image")
+        let titled = (imageTools.views + inspectTools.views + actions.views)
+            .compactMap { $0 as? NSButton }.filter { !$0.title.isEmpty }
+        XCTAssertEqual(titled.map(\.title), ["Copy"], "Copy is the header's one labeled, primary action")
+        let inspect = try XCTUnwrap(inspectTools.views.compactMap { $0 as? NSButton }
+            .first { $0.accessibilityLabel() == "Inspect image" })
         XCTAssertEqual(inspect.keyEquivalent, "i")
         XCTAssertEqual(inspect.keyEquivalentModifierMask, [.command, .shift])
     }
 
     @MainActor
-    func testVisibleQuickToolsInsertMarkupAndSwitchDrawingModes() async throws {
+    func testHeaderImageToolsAndToolKeysInsertMarkupAndSwitchDrawingModes() async throws {
         _ = NSApplication.shared
         let image = try renderCGImage(width: 800, height: 600) { context in
             context.setFillColor(CGColor(gray: 1, alpha: 1))
@@ -98,28 +118,28 @@ final class EditorLayoutTests: XCTestCase {
         window.contentViewController = editor
         defer { window.close() }
         editor.view.layoutSubtreeIfNeeded()
-        let header = try XCTUnwrap(editor.view.subviews.first { $0 is NSVisualEffectView })
-        let quickTools = try XCTUnwrap(header.subviews.first { $0.identifier?.rawValue == "editorQuickTools" } as? NSStackView)
-        let buttons = quickTools.views.compactMap { $0 as? NSButton }
-        XCTAssertEqual(buttons.map(\.title), ["Select", "Pen", "Arrow", "Box", "Text", "Highlight", "Step", "Crop", "Redact"])
+        let imageTools = try XCTUnwrap(try headerParts(editor).groups["editorImageTools"])
+        let buttons = imageTools.views.compactMap { $0 as? NSButton }
+        XCTAssertEqual(buttons.map { $0.accessibilityLabel() ?? "" }, ["Crop", "Redact", "Step"])
         let markup = try XCTUnwrap(editor.children.compactMap { $0 as? PaperMarkupViewController }.first)
         let statusBar = try XCTUnwrap(editor.view.subviews.compactMap { $0 as? NSStackView }.first)
         let status = try XCTUnwrap(statusBar.views.compactMap { $0 as? NSTextField }.first)
-        for title in ["Text", "Step"] {
-            let button = try XCTUnwrap(buttons.first { $0.title == title })
-            let previousMarkup = try await markup.markup?.dataRepresentation()
-            button.performClick(nil)
-            let updatedMarkup = try await markup.markup?.dataRepresentation()
-            XCTAssertNotEqual(updatedMarkup, previousMarkup, "\(title) must change the editable markup")
-            XCTAssertTrue(status.stringValue.localizedCaseInsensitiveContains("inserted"), "\(title): \(status.stringValue)")
-        }
-        try XCTUnwrap(buttons.first { $0.title == "Highlight" }).performClick(nil)
-        XCTAssertEqual(markup.indirectPointerTouchMode, .drawing)
+
+        var previousMarkup = try await markup.markup?.dataRepresentation()
+        try XCTUnwrap(buttons.first { $0.accessibilityLabel() == "Step" }).performClick(nil)
+        var updatedMarkup = try await markup.markup?.dataRepresentation()
+        XCTAssertNotEqual(updatedMarkup, previousMarkup, "Step must change the editable markup")
+        XCTAssertTrue(status.stringValue.localizedCaseInsensitiveContains("inserted"), status.stringValue)
+
+        previousMarkup = updatedMarkup
+        editor.performEditorCommand(.text)
+        updatedMarkup = try await markup.markup?.dataRepresentation()
+        XCTAssertNotEqual(updatedMarkup, previousMarkup, "T must still insert a text box")
+
+        editor.performEditorCommand(.highlighter)
         XCTAssertEqual((markup.drawingTool as? PKInkingTool)?.inkType, .marker)
-        try XCTUnwrap(buttons.first { $0.title == "Pen" }).performClick(nil)
-        XCTAssertEqual((markup.drawingTool as? PKInkingTool)?.inkType, .monoline)
-        try XCTUnwrap(buttons.first { $0.title == "Select" }).performClick(nil)
+        editor.performEditorCommand(.escape)
+        editor.performEditorCommand(.escape)
         XCTAssertEqual(markup.indirectPointerTouchMode, .selection)
-        XCTAssertTrue(buttons.allSatisfy { $0.toolTip?.isEmpty == false })
     }
 }

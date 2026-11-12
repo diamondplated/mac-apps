@@ -18,8 +18,7 @@ enum EditorError: Error {
     case couldNotRender
 }
 
-enum EditorKeyboardCommand: Int, Equatable {
-    case pen
+enum EditorKeyboardCommand: Equatable {
     case arrow
     case rectangle
     case highlighter
@@ -61,6 +60,15 @@ func normalizedRect(from start: CGPoint, to end: CGPoint) -> CGRect {
         width: abs(end.x - start.x),
         height: abs(end.y - start.y)
     )
+}
+
+/// The selector's one-line hint. Shift-release adjustment is documented rather than shown.
+func selectionHint(prompt: String, allowsWindows: Bool, windowMode: Bool, adjusting: Bool) -> String {
+    if adjusting { return "Arrows move · Option-arrows resize · Return captures" }
+    guard allowsWindows else { return "\(prompt) · Esc to cancel" }
+    return windowMode
+        ? "Click a window · Space for region · Esc to cancel"
+        : "\(prompt) · Space for windows · Esc to cancel"
 }
 
 func loupePixel(
@@ -261,9 +269,16 @@ func runSelfCheck() {
         let editor = EditorViewController(image: fixture, initialStatus: "QA") { _ in }
         editor.loadViewIfNeeded()
         let menuTitles = Set(editor.makeMoreMenu().items.map(\.title))
-        for expected in ["Review Suggested Redactions…", "Preview Structured Text…", "Redact…", "Blur (Not Secure)…", "Crop…", "Resize…", "Rotate Left", "Rotate Right", "Pin Above Windows", "Export PNG / JPEG…", "Save PNG Directly…"] {
+        for expected in ["Review Suggested Redactions…", "Redact…", "Crop…", "Resize…", "Rotate Left", "Rotate Right", "Pin Above Windows", "Export PNG / JPEG…"] {
             precondition(menuTitles.contains(expected), "Missing editor command: \(expected)")
         }
+        for removed in ["Preview Structured Text…", "Blur (Not Secure)…", "Save PNG Directly…"] {
+            precondition(!menuTitles.contains(removed), "Removed editor command is back: \(removed)")
+        }
+        let appMenu = NSApp.mainMenu?.items.first?.submenu
+        let settings = appMenu?.items.first { $0.title == "Settings…" }
+        precondition(settings?.keyEquivalent == "," && settings?.keyEquivalentModifierMask == [.command])
+        precondition(appMenu?.items.contains { $0.title == "Capture Preferences…" } == false)
         precondition(menuTitles.contains(where: { $0.localizedCaseInsensitiveContains("share") }))
         let shareProvider = makePNGItemProvider(filename: "ScreenWren QA.png") { Data([0x89, 0x50, 0x4e, 0x47]) }
         precondition(shareProvider.registeredTypeIdentifiers.contains(UTType.png.identifier))
@@ -278,6 +293,9 @@ func runSelfCheck() {
     print("ScreenWren self-check passed")
 }
 
+/// The Readiness window is the permission and first-run surface; settings live in Mac Tools.
+let readinessMenuTitle = "Permissions & Shortcuts…"
+
 struct ScreenWrenStatus {
     let message: String
     var symbolName = "viewfinder"
@@ -289,7 +307,6 @@ struct ScreenWrenStatus {
 struct CaptureMenuState {
     var canRepeat = false
     var repeatTitle = "Repeat Last Capture"
-    var hasTimedCapture = false
     var isScrolling = false
     var isStitching = false
     var isCapturingScrollingSegment = false
@@ -337,7 +354,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var shortcutManager: ShortcutManager!
     private let launchAtLogin = LaunchAtLoginController()
     private var readinessWindow: ReadinessWindowController?
-    private var workflowWindow: WorkflowPreferencesWindow?
+    private var statusRequestObserver: NSObjectProtocol?
     private let menu = NSMenu()
     private(set) var latestStatus = ScreenWrenStatus(message: "ScreenWren — ready")
     private lazy var captureStatusPresenter = CaptureStatusPresenter { [weak self] action in
@@ -394,6 +411,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         DistributedNotificationCenter.default().addObserver(
             self, selector: #selector(macToolsSettingsChanged),
             name: MacToolsSettingsBridge.notification, object: MacToolsSettingsBridge.bundleIdentifier)
+        // The manager's settings helper asks this process, which macOS attributes correctly.
+        statusRequestObserver = MacToolsSettingsBridge.answerStatusRequests {
+            ["screenRecording": CGPreflightScreenCaptureAccess()]
+        }
 
         captureCoordinator.onStateChange = { [weak self] in self?.rebuildMenu() }
         captureCoordinator.onStatus = { [weak self] status in self?.showStatus(status) }
@@ -491,14 +512,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         captureCoordinator.beginFreezeCapture()
     }
 
-    @objc private func timedCapture() {
-        captureCoordinator.beginTimedCapture()
-    }
-
-    @objc private func cancelTimedCapture() {
-        captureCoordinator.cancelTimedCapture()
-    }
-
     @objc private func startScrollingCapture() {
         captureCoordinator.beginScrollingCapture()
     }
@@ -528,40 +541,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if notification.userInfo?["shortcutsChanged"] as? Bool == true {
             shortcutManager?.registerAll()
         }
-        // Settings windows contain cached controls. Recreate on their next opening;
+        // Readiness contains cached controls. Recreate it on its next opening;
         // capture and editor windows are left intact.
-        workflowWindow?.close()
-        workflowWindow = nil
         readinessWindow?.close()
         readinessWindow = nil
         rebuildMenu()
         refreshStatusItem()
     }
 
-    @objc private func openMacTools() {
-        let candidates = [URL(fileURLWithPath: "/Applications/Mac Tools.app"),
-                          FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Mac Tools.app")]
-        if let manager = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) {
-            NSWorkspace.shared.openApplication(at: manager, configuration: .init())
-        } else {
-            let alert = NSAlert()
-            alert.messageText = "Install Mac Tools to manage ScreenWren"
-            alert.informativeText = "Place Mac Tools in Applications, then open it to change ScreenWren settings."
-            alert.runModal()
-        }
-    }
-
-    @objc private func openWorkflowPreferences() {
-        if workflowWindow == nil { workflowWindow = WorkflowPreferencesWindow() }
-        workflowWindow?.showWindow(nil)
-        workflowWindow?.window?.makeKeyAndOrderFront(nil)
-        NSApp.activate()
+    /// Settings live in Mac Tools. Open ScreenWren's page there; a manager too old for that
+    /// link just opens, and a missing one gets an explanation.
+    @objc func openSettings() {
+        openScreenWrenSettings()
     }
 
     @objc private func showRecentPicker() { captureCoordinator.showRecentPicker() }
     @objc private func togglePins() { captureCoordinator.togglePins() }
     @objc private func unlockPins() { captureCoordinator.unlockPins() }
-    @objc private func structuredTextCapture() { captureCoordinator.beginStructuredTextCapture() }
 
     @objc private func openReadiness() {
         showReadiness()
@@ -596,7 +592,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 "\($0.title) (\(manager.shortcut(for: $0)?.displayName ?? "unassigned"))"
             }.joined(separator: ", ")
             menu.addItem(captureStatusMenuItem(for: ScreenWrenStatus(
-                message: "Unavailable shortcuts: \(descriptions). Use the menu or open Readiness to choose another key.")))
+                message: "Unavailable shortcuts: \(descriptions)")))
             menu.addItem(item("Fix Unavailable Shortcuts…", action: #selector(openReadiness)))
         }
         menu.addItem(.separator())
@@ -617,18 +613,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let textItem = item("Copy Text from Region…", action: #selector(captureText), shortcut: .copyText)
         textItem.isEnabled = !state.isScrolling
         menu.addItem(textItem)
-        let structuredText = item("Capture Text With Preview…", action: #selector(structuredTextCapture))
-        structuredText.isEnabled = !state.isScrolling
-        menu.addItem(structuredText)
         let repeatItem = item(state.repeatTitle, action: #selector(repeatCapture), shortcut: .repeatCapture)
         repeatItem.isEnabled = state.canRepeat && !state.isScrolling
         menu.addItem(repeatItem)
-        let timedItem = item("Timed Capture (3 Seconds)…", action: #selector(timedCapture))
-        timedItem.isEnabled = !state.isScrolling
-        menu.addItem(timedItem)
-        if state.hasTimedCapture {
-            menu.addItem(item("Cancel Timed Capture", action: #selector(cancelTimedCapture)))
-        }
 
         menu.addItem(.separator())
         if state.isScrolling {
@@ -678,9 +665,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let editorsItem = item("Show Open Editors (\(state.editorCount))", action: #selector(showEditors))
         editorsItem.isEnabled = state.editorCount > 0
         menu.addItem(editorsItem)
-        menu.addItem(item("Manage in Mac Tools…", action: #selector(openMacTools)))
-        menu.addItem(item("Capture Preferences…", action: #selector(openWorkflowPreferences)))
-        menu.addItem(item("ScreenWren Readiness…", action: #selector(openReadiness)))
+        menu.addItem(item("Settings…", action: #selector(openSettings), key: ",", modifiers: [.command]))
+        menu.addItem(item(readinessMenuTitle, action: #selector(openReadiness)))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit ScreenWren", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
     }
@@ -729,13 +715,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let applicationItem = NSMenuItem()
         mainMenu.addItem(applicationItem)
         let applicationMenu = NSMenu()
-        let settingsItem = NSMenuItem(title: "Settings…", action: #selector(openReadiness), keyEquivalent: ",")
+        let settingsItem = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         applicationMenu.addItem(settingsItem)
-        let capturePreferences = NSMenuItem(title: "Capture Preferences…", action: #selector(openWorkflowPreferences), keyEquivalent: ",")
-        capturePreferences.keyEquivalentModifierMask = [.command, .option]
-        capturePreferences.target = self
-        applicationMenu.addItem(capturePreferences)
+        let readiness = NSMenuItem(title: readinessMenuTitle, action: #selector(openReadiness), keyEquivalent: "")
+        readiness.target = self
+        applicationMenu.addItem(readiness)
+        applicationMenu.addItem(.separator())
         let recentPicker = NSMenuItem(title: "Browse Recent Captures…", action: #selector(showRecentPicker), keyEquivalent: "")
         recentPicker.target = self; applicationMenu.addItem(recentPicker)
         applicationMenu.addItem(.separator())
@@ -859,14 +845,12 @@ final class CaptureCoordinator: NSObject {
     private var generation: UInt64 = 0
     private var lastTarget: RepeatTarget?
     private var recents: [RecentCapture] = []
-    private var timedTask: Task<Void, Never>?
     private var scrollingSession: ScrollingSession?
     private var isStitching = false
     private var pendingScrollingGeneration: UInt64?
     private var recentPicker: RecentPickerWindow?
     private var quickCapture: QuickCaptureWindow?
     private var auxiliaryWindows: [NSWindowController] = []
-    private var combinationTask: Task<Void, Never>?
     private var pinsAreHidden = false
     private let preferences: WorkflowPreferences
     private let pasteboard: NSPasteboard
@@ -903,7 +887,6 @@ final class CaptureCoordinator: NSObject {
                 return true
             } ?? false,
             repeatTitle: lastTarget?.menuTitle ?? "Repeat Last Capture",
-            hasTimedCapture: timedTask != nil,
             isScrolling: scrollingSession != nil,
             isStitching: isStitching,
             isCapturingScrollingSegment: pendingScrollingGeneration != nil,
@@ -933,25 +916,12 @@ final class CaptureCoordinator: NSObject {
         cancelSelection()
     }
 
-    func beginStructuredTextCapture() {
-        guard scrollingSession == nil else { return }
-        beginSelection(intent: .structuredText)
-    }
-
     func beginTextCapture() {
         guard scrollingSession == nil else {
             announce("Finish or cancel scrolling capture first", beep: true)
             return
         }
         beginSelection(intent: .text)
-    }
-
-    func beginTimedCapture() {
-        guard scrollingSession == nil else {
-            announce("Finish or cancel scrolling capture first", beep: true)
-            return
-        }
-        beginSelection(intent: .delayedImage(seconds: 3))
     }
 
     func beginScrollingCapture() {
@@ -1087,16 +1057,11 @@ final class CaptureCoordinator: NSObject {
         let clipboardChangeCount = pasteboard.changeCount
         let prompt: String
         switch intent {
-        case .image: prompt = "Drag to capture a region"
-        case .text, .structuredText: prompt = "Drag around text"
-        case .delayedImage: prompt = "Select where the menu or tooltip will appear"
-        case .scrolling: prompt = "Drag the scrolling viewport"
+        case .image: prompt = "Drag to capture"
+        case .text: prompt = "Drag around text"
+        case .scrolling: prompt = "Drag the scrolling area"
         }
-        let allowsWindowSnap: Bool
-        switch intent {
-        case .image, .text, .structuredText: allowsWindowSnap = true
-        case .delayedImage, .scrolling: allowsWindowSnap = false
-        }
+        let allowsWindowSnap = intent != .scrolling
 
         let controller = SelectionWindowController(
             screen: screen,
@@ -1116,16 +1081,7 @@ final class CaptureCoordinator: NSObject {
                 return
             }
             switch intent {
-            case let .delayedImage(seconds):
-                focusRestoration.restore()
-                self.armTimedCapture(
-                    target: target,
-                    seconds: seconds,
-                    generation: captureGeneration,
-                    clipboardGeneration: clipboardGeneration,
-                    clipboardChangeCount: clipboardChangeCount
-                )
-            case .text, .structuredText:
+            case .text:
                 focusRestoration.restore()
                 Task { @MainActor in
                     await Task.yield()
@@ -1166,7 +1122,7 @@ final class CaptureCoordinator: NSObject {
         quickCapture?.close()
         selectionWindow = controller
         selectionFocusRestoration = focusRestoration
-        announce(allowsWindowSnap ? "Drag to select — Space for windows, Esc to cancel" : "\(prompt) — Esc to cancel")
+        announce(allowsWindowSnap ? "Drag to select — Space for windows" : prompt)
         controller.show()
 
         guard intent != .scrolling else { return }
@@ -1260,46 +1216,6 @@ final class CaptureCoordinator: NSObject {
         }
     }
 
-    private func armTimedCapture(
-        target: SelectionTarget,
-        seconds: TimeInterval,
-        generation: UInt64,
-        clipboardGeneration: UInt64,
-        clipboardChangeCount: Int
-    ) {
-        timedTask?.cancel()
-        let wholeSeconds = max(1, Int(seconds.rounded()))
-        timedTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.onStateChange?()
-            for remaining in stride(from: wholeSeconds, through: 1, by: -1) {
-                guard !Task.isCancelled, isCurrentCapture(generation, currentGeneration: self.generation) else { return }
-                self.announce("Timed capture in \(remaining)", badge: "\(remaining)")
-                try? await Task.sleep(for: .seconds(1))
-            }
-            guard !Task.isCancelled, isCurrentCapture(generation, currentGeneration: self.generation) else { return }
-            self.timedTask = nil
-            self.onStateChange?()
-            await self.capture(
-                target: target,
-                intent: .image,
-                generation: generation,
-                clipboardGeneration: clipboardGeneration,
-                clipboardChangeCount: clipboardChangeCount,
-                rememberTarget: true
-            )
-        }
-    }
-
-    func cancelTimedCapture() {
-        guard timedTask != nil else { return }
-        generation &+= 1
-        timedTask?.cancel()
-        timedTask = nil
-        onStateChange?()
-        announce("Timed capture cancelled")
-    }
-
     func capture(
         target: SelectionTarget,
         intent: CaptureIntent,
@@ -1336,9 +1252,7 @@ final class CaptureCoordinator: NSObject {
                 }
                 announce("Text copied — \(text.count) characters", symbol: "text.viewfinder")
 
-            case .structuredText:
-                showTextPreview(image)
-            case .image, .delayedImage:
+            case .image:
                 finishImageCapture(image, scale: target.pixelScale, destination: destination,
                     clipboardGeneration: clipboardGeneration, clipboardChangeCount: clipboardChangeCount)
                 if rememberTarget { lastTarget = RepeatTarget(target) }
@@ -1393,7 +1307,7 @@ final class CaptureCoordinator: NSObject {
             cancelScrollingCapture(message: "Display changed — scrolling capture cancelled")
             return
         }
-        let captureGeneration = supersedePendingCapture(cancelTimed: false)
+        let captureGeneration = supersedePendingCapture()
         pendingScrollingGeneration = captureGeneration
         onStateChange?()
         announce("Capturing scrolling segment…", symbol: "rectangle.stack")
@@ -1451,7 +1365,7 @@ final class CaptureCoordinator: NSObject {
             announce("Add at least two scrolling segments", beep: true)
             return
         }
-        let captureGeneration = supersedePendingCapture(cancelTimed: false)
+        let captureGeneration = supersedePendingCapture()
         isStitching = true
         onStateChange?()
         announce("Stitching \(session.images.count) segments…", symbol: "rectangle.stack")
@@ -1510,7 +1424,6 @@ final class CaptureCoordinator: NSObject {
     }
 
     func clearRecents() {
-        combinationTask?.cancel()
         recents.removeAll()
         recentPicker?.update(recents)
         quickCapture?.close()
@@ -1538,14 +1451,9 @@ final class CaptureCoordinator: NSObject {
         return true
     }
 
-    func supersedePendingCapture(cancelTimed: Bool = true) -> UInt64 {
+    func supersedePendingCapture() -> UInt64 {
         generation &+= 1
         pendingScrollingGeneration = nil
-        combinationTask?.cancel()
-        if cancelTimed {
-            timedTask?.cancel()
-            timedTask = nil
-        }
         onStateChange?()
         return generation
     }
@@ -1587,7 +1495,6 @@ final class CaptureCoordinator: NSObject {
         activeSelection?.cancel()
         if case .region = lastTarget { lastTarget = nil }
         if case .desktop = lastTarget { lastTarget = nil }
-        if timedTask != nil { cancelTimedCapture() }
         if scrollingSession != nil {
             if isStitching {
                 scrollingSession = nil
@@ -1699,7 +1606,6 @@ final class CaptureCoordinator: NSObject {
     }
 
     private func showExport(_ image: CGImage, scale: CGFloat) { presentAuxiliary(ImageExportWindow(image: image, sourceScale: scale)) }
-    private func showTextPreview(_ image: CGImage) { presentAuxiliary(TextPreviewWindow(image: image)) }
     private func showRedactionReview(_ image: CGImage, scale: CGFloat) {
         let review = RedactionReviewWindow(image: image, actionTitle: "Approve & Copy") { [weak self] image, ticket in
             guard let self, let ticket else { return }
@@ -1731,7 +1637,6 @@ final class CaptureCoordinator: NSObject {
             guard let controller else { return }; self?.auxiliaryWindows.removeAll { $0 === controller }
         }
         if let export = controller as? ImageExportWindow { export.onClose = close }
-        if let text = controller as? TextPreviewWindow { text.onClose = close }
         if let review = controller as? RedactionReviewWindow { review.onClose = close }
         controller.showWindow(nil); controller.window?.makeKeyAndOrderFront(nil); NSApp.activate()
     }
@@ -1742,30 +1647,14 @@ final class CaptureCoordinator: NSObject {
             recentPicker = RecentPickerWindow(onAction: { [weak self] action, id in
                 guard let self, let record = self.recents.first(where: { $0.id == id }) else { return }
                 self.actOnImage(action, image: record.image, scale: record.scale)
-            }, onCombine: { [weak self] ids, layout in self?.combineRecents(ids, layout: layout) }, onDelete: { [weak self] ids in
+            }, onDelete: { [weak self] ids in
                 guard let self else { return }
-                self.combinationTask?.cancel()
                 self.recents.removeAll { ids.contains($0.id) }
                 self.recentPicker?.update(self.recents)
                 self.onStateChange?()
             })
-            recentPicker?.onClose = { [weak self] in self?.combinationTask?.cancel() }
         }
         recentPicker?.update(recents); recentPicker?.showWindow(nil); recentPicker?.window?.makeKeyAndOrderFront(nil); NSApp.activate()
-    }
-
-    private func combineRecents(_ ids: [UUID], layout: CompositionLayout) {
-        combinationTask?.cancel()
-        let selected = recents.filter { ids.contains($0.id) }.sorted { $0.date < $1.date }
-        guard selected.count >= 2 else { return }
-        let batch = SendableImageBatch(images: selected.map(\.image))
-        combinationTask = Task { @MainActor [weak self] in
-            do {
-                let result = try await Task.detached(priority: .userInitiated) { SendableImage(image: try combinedImages(batch.images, layout: layout)) }.value
-                try Task.checkCancellation(); guard let self else { return }
-                self.openEditor(image: result.image, copied: false)
-            } catch is CancellationError {} catch { self?.reportCaptureError(error) }
-        }
     }
 
     func togglePins() {
@@ -2154,8 +2043,9 @@ final class SelectionView: NSView {
             if bounds.contains(activePoint) { drawLoupe(at: activePoint) }
         }
 
-        let modeHint = allowsWindows ? (windowMode ? "Window snap on  •  Space for region only" : "Region only  •  Space for window snap") : "Region selection"
-        drawPill(awaitingConfirmation ? "Arrows move · Option–arrows resize · Return captures · Esc cancels" : "\(prompt) · \(modeHint) · Shift-release to adjust · Esc cancels", centerX: bounds.midX, y: bounds.maxY - 58)
+        drawPill(selectionHint(prompt: prompt, allowsWindows: allowsWindows, windowMode: windowMode,
+                               adjusting: awaitingConfirmation),
+                 centerX: bounds.midX, y: bounds.maxY - 58)
     }
 
     private func updateHighlightedWindow(at point: CGPoint) {
@@ -2217,7 +2107,7 @@ final class SelectionView: NSView {
         let crosshairPoint = loupeCrosshairPoint(pixel: pixel, sample: sample, frame: frame)
 
         NSGraphicsContext.saveGraphicsState()
-        let clip = NSBezierPath(roundedRect: frame, xRadius: 10, yRadius: 10)
+        let clip = NSBezierPath(roundedRect: frame, xRadius: CornerRadius.card, yRadius: CornerRadius.card)
         clip.addClip()
         NSGraphicsContext.current?.imageInterpolation = .none
         NSImage(cgImage: crop, size: frame.size).draw(
@@ -2231,7 +2121,8 @@ final class SelectionView: NSView {
         NSGraphicsContext.restoreGraphicsState()
 
         NSColor.black.withAlphaComponent(0.7).setStroke()
-        let border = NSBezierPath(roundedRect: frame.insetBy(dx: 0.5, dy: 0.5), xRadius: 10, yRadius: 10)
+        let border = NSBezierPath(roundedRect: frame.insetBy(dx: 0.5, dy: 0.5),
+                                  xRadius: CornerRadius.card, yRadius: CornerRadius.card)
         border.lineWidth = 2
         border.stroke()
         NSColor.controlAccentColor.setStroke()
@@ -2247,18 +2138,21 @@ final class SelectionView: NSView {
     private func drawPill(_ text: String, centerX: CGFloat, y: CGFloat) {
         let label = text as NSString
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium),
+            .font: NSFont.monospacedDigitSystemFont(
+                ofSize: NSFont.preferredFont(forTextStyle: .callout).pointSize, weight: .medium),
             .foregroundColor: NSColor.white,
         ]
         let textSize = label.size(withAttributes: attributes)
-        let pillSize = NSSize(width: textSize.width + 16, height: textSize.height + 8)
+        let pillSize = NSSize(width: textSize.width + 20, height: textSize.height + 10)
         let origin = CGPoint(
             x: min(max(centerX - pillSize.width / 2, bounds.minX + 8), bounds.maxX - pillSize.width - 8),
             y: min(max(y, bounds.minY + 8), bounds.maxY - pillSize.height - 8)
         )
+        // Drawn over arbitrary screen content, so it stays dark in both appearances.
         NSColor.black.withAlphaComponent(0.78).setFill()
-        NSBezierPath(roundedRect: CGRect(origin: origin, size: pillSize), xRadius: 7, yRadius: 7).fill()
-        label.draw(at: CGPoint(x: origin.x + 8, y: origin.y + 4), withAttributes: attributes)
+        NSBezierPath(roundedRect: CGRect(origin: origin, size: pillSize),
+                     xRadius: CornerRadius.control, yRadius: CornerRadius.control).fill()
+        label.draw(at: CGPoint(x: origin.x + 10, y: origin.y + 5), withAttributes: attributes)
     }
 }
 
@@ -2365,7 +2259,7 @@ final class ImageRegionSelectionView: NSView {
 
         let label = prompt as NSString
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
+            .font: NSFont.preferredFont(forTextStyle: .headline),
             .foregroundColor: NSColor.white,
         ]
         let textSize = label.size(withAttributes: attributes)
@@ -2376,7 +2270,7 @@ final class ImageRegionSelectionView: NSView {
             height: textSize.height + 12
         )
         NSColor.black.withAlphaComponent(0.82).setFill()
-        NSBezierPath(roundedRect: pill, xRadius: 8, yRadius: 8).fill()
+        NSBezierPath(roundedRect: pill, xRadius: CornerRadius.control, yRadius: CornerRadius.control).fill()
         label.draw(at: CGPoint(x: pill.minX + 10, y: pill.minY + 6), withAttributes: attributes)
     }
 }
@@ -2433,13 +2327,11 @@ final class EditorViewController: NSViewController, @preconcurrency PaperMarkupV
 
     private enum RegionOperation {
         case redact
-        case blur
         case crop
 
         var prompt: String {
             switch self {
-            case .redact: "Drag to securely redact — Esc cancels"
-            case .blur: "Drag to blur (not secure) — Esc cancels"
+            case .redact: "Drag to redact — Esc cancels"
             case .crop: "Drag the area to keep — Esc cancels"
             }
         }
@@ -2447,12 +2339,11 @@ final class EditorViewController: NSViewController, @preconcurrency PaperMarkupV
 
     private let sourceScale: CGFloat
     private var exportWindow: ImageExportWindow?
-    private var textWindow: TextPreviewWindow?
     private var redactionWindow: RedactionReviewWindow?
     private let originalImage: CGImage
     private var workingImage: CGImage
     private var imageBounds: CGRect
-    private let imageView: NSImageView
+    private let imageView: CaptureImageView
     private let markupController: PaperMarkupViewController
     private let toolbarController: MarkupToolbarViewController
     private var nativeToolbarAdapter: NativeMarkupToolbarAdapter?
@@ -2475,12 +2366,6 @@ final class EditorViewController: NSViewController, @preconcurrency PaperMarkupV
     private var inspectPresentation = InstantInspectPresentation.inactive
     private var editorKeyMonitor: Any?
     private var nextStepNumber = 1
-    private var actionRow: NSStackView?
-    private var quickSelectButton: NSButton?
-    private var headerHeight: NSLayoutConstraint?
-    private var singleRowConstraints: [NSLayoutConstraint] = []
-    private var wrappedRowConstraints: [NSLayoutConstraint] = []
-    private var usesWrappedToolbar = true
 
     init(image: CGImage, initialStatus: String, sourceScale: CGFloat = 1, onPin: @escaping (CGImage) -> Void) {
         self.sourceScale = sourceScale
@@ -2488,10 +2373,12 @@ final class EditorViewController: NSViewController, @preconcurrency PaperMarkupV
         workingImage = image
         let bounds = CGRect(x: 0, y: 0, width: image.width, height: image.height)
         imageBounds = bounds
-        imageView = NSImageView(frame: bounds)
+        imageView = CaptureImageView(frame: bounds)
         markupController = PaperMarkupViewController(markup: PaperMarkup(bounds: bounds), supportedFeatureSet: .latest)
         toolbarController = MarkupToolbarViewController(supportedFeatureSet: .latest)
-        inspectButton = NSButton(title: "Inspect", target: nil, action: nil)
+        inspectButton = NSButton(
+            image: NSImage(systemSymbolName: "text.viewfinder", accessibilityDescription: "Inspect image") ?? NSImage(),
+            target: nil, action: nil)
         statusLabel = NSTextField(labelWithString: initialStatus)
         self.onPin = onPin
         super.init(nibName: nil, bundle: nil)
@@ -2509,9 +2396,7 @@ final class EditorViewController: NSViewController, @preconcurrency PaperMarkupV
         imageView.image = NSImage(cgImage: image, size: bounds.size)
         imageView.imageScaling = .scaleProportionallyUpOrDown
         imageView.imageAlignment = .alignCenter
-        imageView.wantsLayer = true
-        imageView.layer?.borderColor = NSColor.separatorColor.cgColor
-        imageView.layer?.borderWidth = 1
+        imageView.applyBorder()
         imageView.setAccessibilityElement(true)
         imageView.setAccessibilityRole(.image)
         imageView.setAccessibilityLabel("Captured image, \(image.width) by \(image.height) pixels")
@@ -2526,13 +2411,7 @@ final class EditorViewController: NSViewController, @preconcurrency PaperMarkupV
             guard self?.viewIfLoaded?.window?.isVisible == true else { return }
             self?.performEditorCommand(.escape)
         }
-        adapter.onInkingTool = { [weak self] tool in
-            guard let self, let window = self.viewIfLoaded?.window, window.isVisible,
-                  self.actionTask == nil, !self.hasBlockingCanvasOverlay,
-                  window.attachedSheet == nil else { return }
-            self.markupController.drawingTool = tool
-            self.beginAnnotationDrawing(tool.inkType == .marker ? .highlighter : .pen, inkingTool: tool)
-        }
+        adapter.onInkingTool = { [weak self] tool in self?.selectInkingTool(tool) }
         adapter.onPrepareNativeCommand = { [weak self] in
             guard let self, let window = self.viewIfLoaded?.window, window.isVisible,
                   self.actionTask == nil, !self.hasBlockingCanvasOverlay,
@@ -2550,71 +2429,96 @@ final class EditorViewController: NSViewController, @preconcurrency PaperMarkupV
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func loadView() {
-        view = NSView()
-        view.wantsLayer = true
-        view.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        view = SemanticLayerView(fill: .windowBackgroundColor)
 
         let topBar = NSVisualEffectView()
         topBar.material = .headerView
         topBar.blendingMode = .withinWindow
         topBar.state = .active
+        topBar.identifier = NSUserInterfaceItemIdentifier("editorHeader")
         topBar.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(topBar)
 
         addChild(toolbarController)
         toolbarController.view.translatesAutoresizingMaskIntoConstraints = false
-        topBar.addSubview(toolbarController.view)
+
+        // PaperKit's toolbar draws, shapes and types. These three have no native equivalent.
+        let cropButton = headerButton("Crop", symbol: "crop", help: "Crop — drag the area to keep",
+                                      action: #selector(beginCrop))
+        let redactButton = headerButton("Redact", symbol: "rectangle.inset.filled",
+                                        help: "Redact — drag to cover pixels in solid black",
+                                        action: #selector(beginRedact))
+        let stepButton = headerButton("Step", symbol: "1.circle", help: "Insert the next numbered step (N)",
+                                      action: #selector(insertNumberedStepFromHeader))
+        let imageTools = headerGroup([cropButton, redactButton, stepButton], identifier: "editorImageTools")
 
         inspectButton.target = self
         inspectButton.action = #selector(toggleInspectMode(_:))
-        inspectButton.setButtonType(.toggle)
-        inspectButton.image = NSImage(systemSymbolName: "viewfinder", accessibilityDescription: nil)
-        inspectButton.imagePosition = .imageLeading
+        inspectButton.setButtonType(.pushOnPushOff)
+        inspectButton.title = ""
+        inspectButton.bezelStyle = .toolbar
+        inspectButton.imagePosition = .imageOnly
         inspectButton.keyEquivalent = "i"
         inspectButton.keyEquivalentModifierMask = [.command, .shift]
-        inspectButton.toolTip = "Select text, subjects, and codes in the image (⇧⌘I)"
+        inspectButton.toolTip = "Inspect — select text, subjects and codes (⇧⌘I)"
         inspectButton.setAccessibilityLabel("Inspect image")
-
-        let textButton = NSButton(title: "Copy Text", target: self, action: #selector(copyText(_:)))
-        textButton.image = NSImage(systemSymbolName: "text.viewfinder", accessibilityDescription: nil)
-        textButton.imagePosition = .imageLeading
+        let textButton = headerButton("Copy Text", symbol: "doc.plaintext", help: "Copy recognized text (⇧⌘T)",
+                                      action: #selector(copyText(_:)))
         textButton.keyEquivalent = "t"
         textButton.keyEquivalentModifierMask = [.command, .shift]
-        textButton.toolTip = "Copy recognized text (⇧⌘T)"
-
-        let subjectButton = NSButton(title: "Copy Subject", target: self, action: #selector(copySubject(_:)))
-        subjectButton.image = NSImage(systemSymbolName: "person.crop.rectangle", accessibilityDescription: nil)
-        subjectButton.imagePosition = .imageLeading
+        let subjectButton = headerButton("Copy Subject", symbol: "person.crop.rectangle",
+                                         help: "Copy the subject on a transparent background (⇧⌘L)",
+                                         action: #selector(copySubject(_:)))
         subjectButton.keyEquivalent = "l"
         subjectButton.keyEquivalentModifierMask = [.command, .shift]
-        subjectButton.toolTip = "Copy a transparent subject cutout (⇧⌘L)"
-
-        let separator = NSBox()
-        separator.boxType = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = false
-
-        let copyButton = NSButton(title: "Copy Edited Image", target: self, action: #selector(copyUpdated))
-        copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: nil)
-        copyButton.imagePosition = .imageLeading
-        copyButton.bezelColor = .controlAccentColor
-        copyButton.keyEquivalent = "c"
-        copyButton.keyEquivalentModifierMask = [.command, .shift]
-        copyButton.toolTip = "Copy the image with your markup (⇧⌘C)"
-
-        let moreButton = NSButton(image: NSImage(systemSymbolName: "ellipsis.circle", accessibilityDescription: "More image actions") ?? NSImage(), target: self, action: #selector(showMoreMenu(_:)))
-        moreButton.bezelStyle = .texturedRounded
-        moreButton.toolTip = "Redact, adjust, pin, save, share, or drag"
-        moreButton.setAccessibilityLabel("More image actions")
+        let inspectTools = headerGroup([inspectButton, textButton, subjectButton], identifier: "editorInspectTools")
 
         let dragIcon = NSImage(systemSymbolName: "arrow.up.doc", accessibilityDescription: "Drag edited image as PNG") ?? NSImage()
         let dragView = PNGPromiseDragView(image: dragIcon) { [weak self] in
             self?.makeExportProvider() ?? makePNGFilePromiseProvider { throw EditorError.couldNotRender }
         }
         dragExportView = dragView
-        dragView.toolTip = "Drag the edited image as a PNG"
+        dragView.toolTip = "Drag the edited image out as a PNG"
+        dragView.contentTintColor = .secondaryLabelColor
         dragView.translatesAutoresizingMaskIntoConstraints = false
 
-        statusLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        let moreButton = headerButton("More Image Actions", symbol: "ellipsis.circle",
+                                      help: "Redact, adjust, pin, export or share",
+                                      action: #selector(showMoreMenu(_:)))
+
+        // The one primary action.
+        let copyButton = NSButton(title: "Copy", target: self, action: #selector(copyUpdated))
+        copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: nil)
+        copyButton.imagePosition = .imageLeading
+        copyButton.bezelStyle = .push
+        copyButton.bezelColor = .controlAccentColor
+        copyButton.contentTintColor = .white
+        copyButton.keyEquivalent = "c"
+        copyButton.keyEquivalentModifierMask = [.command, .shift]
+        copyButton.toolTip = "Copy the image with your markup (⇧⌘C)"
+        copyButton.setAccessibilityLabel("Copy edited image")
+        let finish = headerGroup([dragView, moreButton, copyButton], identifier: "editorFinishActions")
+        finish.setCustomSpacing(8, after: moreButton)
+
+        let divider = NSBox()
+        divider.boxType = .separator
+        divider.translatesAutoresizingMaskIntoConstraints = false
+        let header = NSStackView()
+        header.orientation = .horizontal
+        header.alignment = .centerY
+        header.spacing = 12
+        header.identifier = NSUserInterfaceItemIdentifier("editorHeaderRow")
+        header.translatesAutoresizingMaskIntoConstraints = false
+        header.addView(toolbarController.view, in: .leading)
+        header.addView(imageTools, in: .leading)
+        header.addView(inspectTools, in: .trailing)
+        header.addView(divider, in: .trailing)
+        header.addView(finish, in: .trailing)
+        // Every control stays: the row sets the window's minimum width instead of dropping one.
+        for view in header.views { header.setVisibilityPriority(.mustHold, for: view) }
+        topBar.addSubview(header)
+
+        statusLabel.font = .preferredFont(forTextStyle: .callout)
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.lineBreakMode = .byTruncatingTail
         statusLabel.toolTip = statusLabel.stringValue
@@ -2624,57 +2528,8 @@ final class EditorViewController: NSViewController, @preconcurrency PaperMarkupV
         progressIndicator.controlSize = .small
         progressIndicator.isDisplayedWhenStopped = false
 
-        actionButtons = [inspectButton, textButton, subjectButton, copyButton, moreButton]
-        let actions = NSStackView(views: [inspectButton, textButton, subjectButton, separator, copyButton, dragView, moreButton])
-        actions.orientation = .horizontal
-        actions.alignment = .centerY
-        actions.spacing = 8
-        actions.setCustomSpacing(14, after: subjectButton)
-        actions.translatesAutoresizingMaskIntoConstraints = false
-        topBar.addSubview(actions)
-        actions.identifier = NSUserInterfaceItemIdentifier("editorFinishActions")
-        actionRow = actions
-
-        let quickTools: [(String, String, EditorKeyboardCommand, String)] = [
-            ("Select", "cursorarrow", .escape, "Select and move annotations (Esc)"),
-            ("Pen", "pencil.tip", .pen, "Draw freehand on the image"),
-            ("Arrow", "arrow.up.right", .arrow, "Drag from the arrow's tail to its tip (A)"),
-            ("Box", "rectangle", .rectangle, "Drag to draw a rectangle (R)"),
-            ("Text", "textformat", .text, "Insert a text box; double-click its text to edit (T)"),
-            ("Highlight", "highlighter", .highlighter, "Drag to highlight in yellow (H)"),
-            ("Step", "1.circle", .numberedStep, "Insert the next numbered step (N)"),
-        ]
-        var quickButtons = quickTools.map { title, symbol, command, help in
-            let button = NSButton(title: title, target: self, action: #selector(chooseQuickTool(_:)))
-            button.tag = command.rawValue
-            button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-            button.imagePosition = .imageLeading
-            button.toolTip = help
-            button.setAccessibilityLabel(title)
-            return button
-        }
-        quickSelectButton = quickButtons.first { $0.tag == EditorKeyboardCommand.escape.rawValue }
-        let cropButton = NSButton(title: "Crop", target: self, action: #selector(beginCrop))
-        cropButton.image = NSImage(systemSymbolName: "crop", accessibilityDescription: nil)
-        cropButton.toolTip = "Drag the area to keep; Escape cancels"
-        let redactButton = NSButton(title: "Redact", target: self, action: #selector(beginRedact))
-        redactButton.image = NSImage(systemSymbolName: "rectangle.fill", accessibilityDescription: nil)
-        redactButton.toolTip = "Drag to permanently cover sensitive pixels; Escape cancels"
-        quickButtons.append(contentsOf: [cropButton, redactButton])
-        for button in quickButtons {
-            button.controlSize = .small
-            button.font = .systemFont(ofSize: 12, weight: .medium)
-            button.bezelStyle = .rounded
-            button.imagePosition = .imageLeading
-        }
-        actionButtons.append(contentsOf: quickButtons)
-        let quickRow = NSStackView(views: quickButtons)
-        quickRow.identifier = NSUserInterfaceItemIdentifier("editorQuickTools")
-        quickRow.orientation = .horizontal
-        quickRow.alignment = .centerY
-        quickRow.spacing = 4
-        quickRow.translatesAutoresizingMaskIntoConstraints = false
-        topBar.addSubview(quickRow)
+        actionButtons = [cropButton, redactButton, stepButton, inspectButton, textButton, subjectButton,
+                         moreButton, copyButton]
 
         // Give operation prompts and failures a stable home, even at the minimum width.
         let statusBar = NSStackView(views: [progressIndicator, statusLabel])
@@ -2683,23 +2538,6 @@ final class EditorViewController: NSViewController, @preconcurrency PaperMarkupV
         statusBar.spacing = 8
         statusBar.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(statusBar)
-
-        let height = topBar.heightAnchor.constraint(equalToConstant: 132)
-        headerHeight = height
-        let sharedRowSeparation = toolbarController.view.trailingAnchor.constraint(
-            lessThanOrEqualTo: actions.leadingAnchor, constant: -12)
-        // Allow the window to resize past the breakpoint before the next layout pass. Keep it
-        // below the window's own size priorities: macOS 27's wider markup toolbar otherwise pins
-        // a one-row header's minimum above the window minimum, so the editor never wraps.
-        sharedRowSeparation.priority = .defaultLow
-        singleRowConstraints = [
-            sharedRowSeparation,
-            actions.centerYAnchor.constraint(equalTo: topBar.topAnchor, constant: 64),
-        ]
-        wrappedRowConstraints = [
-            actions.centerYAnchor.constraint(equalTo: topBar.topAnchor, constant: 110),
-        ]
-        NSLayoutConstraint.activate(wrappedRowConstraints)
 
         addChild(markupController)
         markupController.view.translatesAutoresizingMaskIntoConstraints = false
@@ -2716,23 +2554,15 @@ final class EditorViewController: NSViewController, @preconcurrency PaperMarkupV
             topBar.topAnchor.constraint(equalTo: view.topAnchor),
             topBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             topBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            height,
+            topBar.heightAnchor.constraint(equalToConstant: 52),
 
-            toolbarController.view.leadingAnchor.constraint(equalTo: topBar.leadingAnchor, constant: 8),
-            toolbarController.view.topAnchor.constraint(equalTo: topBar.topAnchor, constant: 42),
+            header.leadingAnchor.constraint(equalTo: topBar.leadingAnchor, constant: 8),
+            header.trailingAnchor.constraint(equalTo: topBar.trailingAnchor, constant: -12),
+            header.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
             toolbarController.view.heightAnchor.constraint(equalToConstant: 44),
-            toolbarController.view.trailingAnchor.constraint(lessThanOrEqualTo: topBar.trailingAnchor, constant: -8),
-
-            quickRow.leadingAnchor.constraint(equalTo: topBar.leadingAnchor, constant: 12),
-            quickRow.trailingAnchor.constraint(lessThanOrEqualTo: topBar.trailingAnchor, constant: -12),
-            quickRow.centerYAnchor.constraint(equalTo: topBar.topAnchor, constant: 20),
-
-            actions.trailingAnchor.constraint(equalTo: topBar.trailingAnchor, constant: -12),
-            actions.leadingAnchor.constraint(greaterThanOrEqualTo: topBar.leadingAnchor, constant: 12),
-            separator.widthAnchor.constraint(equalToConstant: 1),
-            separator.heightAnchor.constraint(equalToConstant: 22),
-            dragView.widthAnchor.constraint(equalToConstant: 28),
-            dragView.heightAnchor.constraint(equalToConstant: 28),
+            divider.heightAnchor.constraint(equalToConstant: 20),
+            dragView.widthAnchor.constraint(equalToConstant: 24),
+            dragView.heightAnchor.constraint(equalToConstant: 24),
 
             markupController.view.topAnchor.constraint(equalTo: topBar.bottomAnchor),
             markupController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -2758,16 +2588,35 @@ final class EditorViewController: NSViewController, @preconcurrency PaperMarkupV
         ])
     }
 
-    override func viewWillLayout() {
-        super.viewWillLayout()
-        guard let actionRow, let headerHeight else { return }
-        let requiredWidth = toolbarController.view.fittingSize.width + actionRow.fittingSize.width + 32
-        let shouldWrap = view.bounds.width < requiredWidth
-        guard shouldWrap != usesWrappedToolbar else { return }
-        usesWrappedToolbar = shouldWrap
-        NSLayoutConstraint.deactivate(shouldWrap ? singleRowConstraints : wrappedRowConstraints)
-        NSLayoutConstraint.activate(shouldWrap ? wrappedRowConstraints : singleRowConstraints)
-        headerHeight.constant = shouldWrap ? 132 : 92
+    /// An icon-only header control. The name is its accessibility label; the help is its tooltip.
+    private func headerButton(_ name: String, symbol: String, help: String, action: Selector) -> NSButton {
+        let button = NSButton(image: NSImage(systemSymbolName: symbol, accessibilityDescription: name) ?? NSImage(),
+                              target: self, action: action)
+        button.title = ""
+        button.bezelStyle = .toolbar
+        button.imagePosition = .imageOnly
+        button.toolTip = help
+        button.setAccessibilityLabel(name)
+        return button
+    }
+
+    private func headerGroup(_ views: [NSView], identifier: String) -> NSStackView {
+        let group = NSStackView(views: views)
+        group.orientation = .horizontal
+        group.alignment = .centerY
+        group.spacing = 2
+        group.identifier = NSUserInterfaceItemIdentifier(identifier)
+        return group
+    }
+
+    @objc private func insertNumberedStepFromHeader() { performEditorCommand(.numberedStep) }
+
+    /// The native toolbar's pen, marker and other inking tools draw through the gesture overlay.
+    func selectInkingTool(_ tool: PKInkingTool) {
+        guard let window = viewIfLoaded?.window, window.isVisible, actionTask == nil,
+              !hasBlockingCanvasOverlay, window.attachedSheet == nil else { return }
+        markupController.drawingTool = tool
+        beginAnnotationDrawing(tool.inkType == .marker ? .highlighter : .pen, inkingTool: tool)
     }
 
     override func viewDidAppear() {
@@ -2838,12 +2687,8 @@ final class EditorViewController: NSViewController, @preconcurrency PaperMarkupV
         return nil
     }
 
-    @objc private func chooseQuickTool(_ sender: NSButton) {
-        guard let command = EditorKeyboardCommand(rawValue: sender.tag) else { return }
-        performEditorCommand(command)
-    }
-
-    private func performEditorCommand(_ command: EditorKeyboardCommand) {
+    /// The single-key editor commands (A, R, H, T, N, Esc), also reached from the native toolbar.
+    func performEditorCommand(_ command: EditorKeyboardCommand) {
         if command == .escape, actionTask == nil, let overlay = regionOverlay {
             dismissCanvasOverlay(overlay)
             report("Selection mode — pending annotation or region action cancelled")
@@ -2851,11 +2696,6 @@ final class EditorViewController: NSViewController, @preconcurrency PaperMarkupV
         }
         guard actionTask == nil, !hasBlockingCanvasOverlay, view.window?.attachedSheet == nil else { return }
         switch command {
-        case .pen:
-            let tool = PKInkingTool(.monoline, color: .systemRed, width: 3)
-            markupController.drawingTool = tool
-            synchronizeNativeToolbar { toolbarController.selectedDrawingTool = tool }
-            beginAnnotationDrawing(.pen, inkingTool: tool)
         case .arrow:
             beginAnnotationDrawing(.arrow)
         case .rectangle:
@@ -2999,9 +2839,7 @@ final class EditorViewController: NSViewController, @preconcurrency PaperMarkupV
         menu.addItem(redo)
         menu.addItem(.separator())
         menu.addItem(editorMenuItem("Review Suggested Redactions…", action: #selector(reviewRedactions)))
-        menu.addItem(editorMenuItem("Preview Structured Text…", action: #selector(previewStructuredText)))
         menu.addItem(editorMenuItem("Redact…", action: #selector(beginRedact)))
-        menu.addItem(editorMenuItem("Blur (Not Secure)…", action: #selector(beginBlur)))
         menu.addItem(.separator())
         menu.addItem(editorMenuItem("Crop…", action: #selector(beginCrop)))
         menu.addItem(editorMenuItem("Resize…", action: #selector(resizeImage)))
@@ -3011,7 +2849,6 @@ final class EditorViewController: NSViewController, @preconcurrency PaperMarkupV
         menu.addItem(.separator())
         menu.addItem(editorMenuItem("Pin Above Windows", action: #selector(pinImage)))
         menu.addItem(editorMenuItem("Export PNG / JPEG…", action: #selector(exportImage), key: "s"))
-        menu.addItem(editorMenuItem("Save PNG Directly…", action: #selector(savePNG)))
         let shareProvider = makeShareProvider()
         let picker = NSSharingServicePicker(items: [shareProvider])
         sharingPicker = picker
@@ -3091,7 +2928,6 @@ final class EditorViewController: NSViewController, @preconcurrency PaperMarkupV
     }
 
     @objc private func beginRedact() { beginRegionOperation(.redact) }
-    @objc private func beginBlur() { beginRegionOperation(.blur) }
     @objc private func beginCrop() { beginRegionOperation(.crop) }
 
     private func beginAnnotationDrawing(_ tool: AnnotationDrawingTool, inkingTool: PKInkingTool? = nil) {
@@ -3142,7 +2978,6 @@ final class EditorViewController: NSViewController, @preconcurrency PaperMarkupV
             synchronizeNativeToolbar { toolbarController.selectedIndirectPointerTouchMode = .drawing }
         }
         actionButtons.forEach { $0.isEnabled = tool.isFreehand }
-        quickSelectButton?.isEnabled = true
         dragExportView?.isHidden = true
         installCanvasOverlay(overlay)
         view.window?.makeFirstResponder(overlay)
@@ -3172,7 +3007,6 @@ final class EditorViewController: NSViewController, @preconcurrency PaperMarkupV
         regionOverlay = overlay
         refreshEditorInteraction()
         actionButtons.forEach { $0.isEnabled = false }
-        quickSelectButton?.isEnabled = true
         dragExportView?.isHidden = true
         installCanvasOverlay(overlay)
         view.window?.makeFirstResponder(overlay)
@@ -3226,10 +3060,6 @@ final class EditorViewController: NSViewController, @preconcurrency PaperMarkupV
         case .redact:
             performDestructiveImageAction(message: "Redacting and flattening…", status: "Redacted and flattened") {
                 try redactedCGImage($0, in: rectangle)
-            }
-        case .blur:
-            performDestructiveImageAction(message: "Blurring and flattening…", status: "Blurred and flattened — not secure") {
-                try blurredNonsecureCGImage($0, in: rectangle)
             }
         case .crop:
             if rectangle.standardized == imageBounds.integral {
@@ -3324,14 +3154,6 @@ final class EditorViewController: NSViewController, @preconcurrency PaperMarkupV
             self.report("Export preview opened")
         }
     }
-    @objc private func previewStructuredText() {
-        withFlattenedImage("Preparing text preview…") { [weak self] image in
-            guard let self else { return }; self.textWindow?.close()
-            let window = TextPreviewWindow(image: image); self.textWindow = window
-            window.onClose = { [weak self] in self?.textWindow = nil }; window.showWindow(nil); window.window?.makeKeyAndOrderFront(nil)
-            self.report("Text preview opened")
-        }
-    }
     @objc private func reviewRedactions() {
         guard let previous = currentSnapshot() else { return }
         withFlattenedImage("Preparing redaction review…") { [weak self] image in
@@ -3351,35 +3173,6 @@ final class EditorViewController: NSViewController, @preconcurrency PaperMarkupV
             guard let self else { return }
             do { let image = try await self.renderEditedImage(); try Task.checkCancellation(); completion(image) }
             catch is CancellationError {} catch { self.report(error.localizedDescription, beep: true) }
-        }
-    }
-
-    @objc private func savePNG() {
-        guard actionTask == nil, !hasBlockingCanvasOverlay, let window = view.window else { return }
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.png]
-        panel.canCreateDirectories = true
-        panel.nameFieldStringValue = timestampedPNGFilename()
-        panel.beginSheetModal(for: window) { [weak self] response in
-            guard response == .OK, let self, let url = panel.url else { return }
-            self.beginImageAction("Rendering PNG…")
-            self.actionTask = Task { @MainActor [weak self] in
-                defer { self?.finishImageAction() }
-                guard let self else { return }
-                do {
-                    let image = try await self.renderEditedImage()
-                    try Task.checkCancellation()
-                    let payload = SendableImage(image: image)
-                    try await Task.detached(priority: .userInitiated) {
-                        try Task.checkCancellation()
-                        try pngData(for: payload.image).write(to: url, options: .atomic)
-                    }.value
-                    self.report("Saved \(url.lastPathComponent)")
-                } catch is CancellationError {
-                } catch {
-                    self.report("Couldn’t save PNG", beep: true)
-                }
-            }
         }
     }
 
@@ -3565,7 +3358,7 @@ final class EditorViewController: NSViewController, @preconcurrency PaperMarkupV
     }
 
     func cancelPendingAction() {
-        exportWindow?.close(); textWindow?.close(); redactionWindow?.close()
+        exportWindow?.close(); redactionWindow?.close()
         removeEditorKeyMonitor()
         actionTask?.cancel()
         actionTask = nil

@@ -1,24 +1,9 @@
 import AppKit
 import Vision
 
-struct RecognizedWord: Sendable, Equatable {
-    let text: String
-    let bounds: CGRect
-}
 struct RecognizedLine: Sendable, Equatable {
     let text: String
     let bounds: CGRect
-    var words: [RecognizedWord] = []
-}
-enum TextCopyLayout: String, CaseIterable {
-    case plain, table, code
-    var title: String {
-        switch self {
-        case .plain: "Plain Text"
-        case .table: "Table (tab separated)"
-        case .code: "Code / Preserve Spacing"
-        }
-    }
 }
 func recognizeLines(in image: CGImage) throws -> [RecognizedLine] {
     let request = VNRecognizeTextRequest()
@@ -28,116 +13,8 @@ func recognizeLines(in image: CGImage) throws -> [RecognizedLine] {
     try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
     return (request.results ?? []).compactMap { observation in
         guard let candidate = observation.topCandidates(1).first else { return nil }
-        let text = candidate.string
-        let words = text.rangesOfWords.compactMap { range -> RecognizedWord? in
-            guard let box = try? candidate.boundingBox(for: range) else { return nil }
-            return RecognizedWord(text: String(text[range]), bounds: box.boundingBox)
-        }
-        return RecognizedLine(text: text, bounds: observation.boundingBox, words: words)
+        return RecognizedLine(text: candidate.string, bounds: observation.boundingBox)
     }
-}
-extension String {
-    fileprivate var rangesOfWords: [Range<String.Index>] {
-        var ranges: [Range<String.Index>] = []
-        var start: String.Index?
-        for index in indices {
-            if self[index].isWhitespace {
-                if let first = start {
-                    ranges.append(first..<index)
-                    start = nil
-                }
-            } else if start == nil {
-                start = index
-            }
-        }
-        if let start { ranges.append(start..<endIndex) }
-        return ranges
-    }
-}
-func groupedTextRows(_ lines: [RecognizedLine]) -> [[RecognizedLine]] {
-    var rows: [[RecognizedLine]] = []
-    for index in readingOrderIndices(for: lines.map(\.bounds)) {
-        let line = lines[index]
-        if let row = rows.firstIndex(where: { values in
-            guard let anchor = values.first else { return false }
-            return abs(anchor.bounds.midY - line.bounds.midY) <= max(anchor.bounds.height, line.bounds.height) * 0.45
-        }) {
-            rows[row].append(line)
-        } else {
-            rows.append([line])
-        }
-    }
-    return rows.map { $0.sorted { $0.bounds.minX < $1.bounds.minX } }
-}
-func formattedRecognizedText(_ lines: [RecognizedLine], layout: TextCopyLayout) -> String {
-    guard !lines.isEmpty else { return "" }
-    let rows = groupedTextRows(lines)
-    if layout == .plain { return rows.map { $0.map(\.text).joined(separator: " ") }.joined(separator: "\n") }
-    let characterWidths = lines.flatMap { line -> [CGFloat] in
-        let words = line.words.isEmpty ? [RecognizedWord(text: line.text, bounds: line.bounds)] : line.words
-        return words.filter { !$0.text.isEmpty }.map { $0.bounds.width / CGFloat(max(1, $0.text.count)) }
-    }.filter { $0 > 0 }.sorted()
-    let characterWidth = characterWidths.isEmpty ? 0.01 : characterWidths[characterWidths.count / 2]
-    let left = lines.map { $0.bounds.minX }.min() ?? 0
-    if layout == .code {
-        var output: [String] = []
-        var previousY: CGFloat?
-        let lineHeight = lines.map { $0.bounds.height }.sorted()[lines.count / 2]
-        for row in rows {
-            guard let first = row.first else { continue }
-            if let previousY, lineHeight > 0, previousY - first.bounds.midY > lineHeight * 2 {
-                output.append(
-                    contentsOf: repeatElement(
-                        "", count: min(3, max(1, Int((previousY - first.bounds.midY) / lineHeight) - 1))))
-            }
-            var text = ""
-            var right = left
-            let words = row.flatMap { $0.words.isEmpty ? [RecognizedWord(text: $0.text, bounds: $0.bounds)] : $0.words }
-                .sorted { $0.bounds.minX < $1.bounds.minX }
-            for word in words {
-                let spaces = min(
-                    160, max(text.isEmpty ? 0 : 1, Int(((word.bounds.minX - right) / characterWidth).rounded())))
-                text += String(repeating: " ", count: spaces) + word.text
-                right = word.bounds.maxX
-            }
-            output.append(text)
-            previousY = first.bounds.midY
-        }
-        return output.joined(separator: "\n")
-    }
-    // Merge nearby words into cells, then align cells across rows by their left edge.
-    let cells = rows.map { row -> [RecognizedWord] in
-        let words = row.flatMap { $0.words.isEmpty ? [RecognizedWord(text: $0.text, bounds: $0.bounds)] : $0.words }
-            .sorted { $0.bounds.minX < $1.bounds.minX }
-        var cells: [RecognizedWord] = []
-        for word in words {
-            if let last = cells.last, word.bounds.minX - last.bounds.maxX < characterWidth * 2.5 {
-                cells[cells.count - 1] = RecognizedWord(
-                    text: last.text + " " + word.text, bounds: last.bounds.union(word.bounds))
-            } else {
-                cells.append(word)
-            }
-        }
-        return cells
-    }
-    var columns: [CGFloat] = []
-    for x in cells.flatMap({ $0.map { $0.bounds.minX } }).sorted() {
-        if columns.last.map({ abs($0 - x) > characterWidth * 2 }) ?? true { columns.append(x) }
-    }
-    return cells.map { row in
-        var values = Array(repeating: "", count: columns.count)
-        for cell in row {
-            guard
-                let index = columns.indices.min(by: {
-                    abs(columns[$0] - cell.bounds.minX) < abs(columns[$1] - cell.bounds.minX)
-                })
-            else { continue }
-            values[index] +=
-                (values[index].isEmpty ? "" : " ")
-                + cell.text.replacingOccurrences(of: "\t", with: " ").replacingOccurrences(of: "\n", with: " ")
-        }
-        return values.joined(separator: "\t")
-    }.joined(separator: "\n")
 }
 
 enum RedactionKind: String, CaseIterable, Sendable {
@@ -200,111 +77,6 @@ func applyRedactions(_ image: CGImage, bounds: [CGRect]) throws -> CGImage {
             context.fill(
                 CGRect(x: rect.minX, y: CGFloat(image.height) - rect.maxY, width: rect.width, height: rect.height))
         }
-    }
-}
-
-@MainActor
-final class TextPreviewWindow: NSWindowController, NSWindowDelegate {
-    private let editor = NSTextView()
-    private let mode = NSPopUpButton()
-    private let status = NSTextField(wrappingLabelWithString: "Recognizing text on this Mac…")
-    private let copyButton = NSButton(title: "Copy Text", target: nil, action: nil)
-    private var lines: [RecognizedLine] = []
-    private var task: Task<Void, Never>?
-    var onClose: (() -> Void)?
-    init(image: CGImage) {
-        let window = NSWindow(
-            contentRect: CGRect(x: 0, y: 0, width: 740, height: 570), styleMask: [.titled, .closable, .resizable],
-            backing: .buffered, defer: false)
-        window.title = "Text Preview"
-        window.minSize = CGSize(width: 560, height: 420)
-        window.isReleasedWhenClosed = false
-        super.init(window: window)
-        window.delegate = self
-        mode.addItems(withTitles: TextCopyLayout.allCases.map(\.title))
-        mode.target = self
-        mode.action = #selector(changeLayout)
-        mode.setAccessibilityLabel("Text layout")
-        copyButton.target = self
-        copyButton.action = #selector(copyText)
-        copyButton.isEnabled = false
-        editor.frame = CGRect(x: 0, y: 0, width: 700, height: 380)
-        editor.minSize = CGSize(width: 660, height: 340)
-        editor.maxSize = CGSize(width: 100_000, height: 100_000)
-        editor.isVerticallyResizable = true
-        editor.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
-        editor.isRichText = false
-        editor.isAutomaticQuoteSubstitutionEnabled = false
-        editor.isAutomaticDashSubstitutionEnabled = false
-        editor.isAutomaticSpellingCorrectionEnabled = false
-        editor.isHorizontallyResizable = true
-        editor.textContainer?.widthTracksTextView = false
-        editor.textContainer?.containerSize = CGSize(width: 100_000, height: 100_000)
-        editor.setAccessibilityLabel("Recognized text — editable preview")
-        let scroll = NSScrollView()
-        scroll.hasVerticalScroller = true
-        scroll.hasHorizontalScroller = true
-        scroll.documentView = editor
-        let top = NSStackView(views: [mode, copyButton])
-        top.spacing = 16
-        let content = NSStackView(views: [
-            top,
-            NSTextField(
-                wrappingLabelWithString:
-                    "Check and correct the text before copying. Layout is inferred from text positions; changing the mode replaces preview edits."
-            ), scroll, status,
-        ])
-        content.orientation = .vertical
-        content.alignment = .leading
-        content.spacing = 12
-        content.translatesAutoresizingMaskIntoConstraints = false
-        window.contentView?.addSubview(content)
-        NSLayoutConstraint.activate([
-            content.leadingAnchor.constraint(equalTo: window.contentView!.leadingAnchor, constant: 20),
-            content.trailingAnchor.constraint(equalTo: window.contentView!.trailingAnchor, constant: -20),
-            content.topAnchor.constraint(equalTo: window.contentView!.topAnchor, constant: 20),
-            content.bottomAnchor.constraint(equalTo: window.contentView!.bottomAnchor, constant: -20),
-            scroll.widthAnchor.constraint(equalTo: content.widthAnchor),
-            scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 280),
-        ])
-        window.center()
-        let payload = SendableImage(image: image)
-        task = Task { @MainActor [weak self] in
-            do {
-                let lines = try await Task.detached(priority: .userInitiated) { try recognizeLines(in: payload.image) }
-                    .value
-                try Task.checkCancellation()
-                guard let self else { return }
-                self.lines = lines
-                self.changeLayout()
-                self.copyButton.isEnabled = true
-            } catch is CancellationError {} catch {
-                self?.status.stringValue = "Text recognition failed. Close and try again."
-            }
-        }
-    }
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    @objc private func changeLayout() {
-        editor.string = formattedRecognizedText(lines, layout: TextCopyLayout.allCases[mode.indexOfSelectedItem])
-        editor.sizeToFit()
-        status.stringValue =
-            lines.isEmpty ? "No text detected. You can type or paste corrections here." : "Nothing has been copied yet."
-    }
-    @objc private func copyText() {
-        guard !editor.string.isEmpty else {
-            status.stringValue = "There is no text to copy."
-            return
-        }
-        _ = ClipboardDeliveryOrder.shared.begin()
-        NSPasteboard.general.clearContents()
-        status.stringValue =
-            NSPasteboard.general.setString(editor.string, forType: .string) ? "Copied" : "Couldn’t copy text"
-    }
-    func windowWillClose(_ notification: Notification) {
-        task?.cancel()
-        lines = []
-        editor.string = ""
-        onClose?()
     }
 }
 
@@ -384,7 +156,7 @@ final class RedactionReviewWindow: NSWindowController, NSWindowDelegate {
     private let phones = NSButton(checkboxWithTitle: "Phones", target: nil, action: nil)
     private let match = NSTextField(string: "")
     private let rows = TopAlignedStackView()
-    private let status = NSTextField(wrappingLabelWithString: "Recognizing text locally…")
+    private let status = NSTextField(labelWithString: "Recognizing text locally…")
     private let apply = NSButton(title: "", target: nil, action: nil)
     private var lines: [RecognizedLine] = []
     private var suggestions: [RedactionSuggestion] = []
@@ -447,17 +219,23 @@ final class RedactionReviewWindow: NSWindowController, NSWindowDelegate {
         apply.target = self
         apply.action = #selector(applySelected)
         apply.isEnabled = false
-        let buttons = NSStackView(views: [NSButton(title: "Cancel", target: self, action: #selector(cancel)), apply])
-        buttons.spacing = 12
-        let delivery =
-            copiesOnApproval
-            ? "This capture stays off the clipboard until you approve it."
-            : "Changes apply to the editor. This cannot retract any image you already copied."
-        let explanation = NSTextField(
-            wrappingLabelWithString:
-                "Review every mask. Suggestions can miss sensitive content and cover whole recognized lines. Drag on the preview to add a mask. Uncheck a suggestion to keep that line. "
-                + delivery)
-        let content = NSStackView(views: [explanation, preview, controls, scroll, status, buttons])
+        apply.keyEquivalent = "\r"
+        let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancel))
+        cancelButton.keyEquivalent = "\u{1b}"
+        status.font = .preferredFont(forTextStyle: .callout)
+        status.textColor = .secondaryLabelColor
+        status.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        status.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let footer = NSStackView(views: [status, cancelButton, apply])
+        footer.distribution = .fill
+        footer.spacing = 8
+        window.subtitle = copiesOnApproval
+            ? "Stays off the clipboard until approved"
+            : "Applies to the editor; can’t retract an earlier copy"
+        let explanation = NSTextField(labelWithString: "Check every mask; suggestions can miss text. Drag to add one.")
+        explanation.font = .preferredFont(forTextStyle: .callout)
+        explanation.textColor = .secondaryLabelColor
+        let content = NSStackView(views: [explanation, preview, controls, scroll, footer])
         content.orientation = .vertical
         content.alignment = .leading
         content.spacing = 12
@@ -472,6 +250,7 @@ final class RedactionReviewWindow: NSWindowController, NSWindowDelegate {
             preview.heightAnchor.constraint(greaterThanOrEqualToConstant: 230),
             scroll.widthAnchor.constraint(equalTo: content.widthAnchor),
             scroll.heightAnchor.constraint(equalToConstant: 140),
+            footer.widthAnchor.constraint(equalTo: content.widthAnchor),
         ])
         window.center()
         let payload = SendableImage(image: image)
