@@ -1,7 +1,7 @@
 # Security Policy
 
 This policy covers Mac Tools and the apps it installs: DockPeek, ScreenWren,
-ScrollSplit, and LinkRoutes. ScreenWren's
+ScrollSplit, LinkRoutes, StayLit, MixBar, and RightHere. ScreenWren's
 [security policy](ScreenWren/SECURITY.md) adds its capture-specific boundaries.
 Latent and Sift have their own policies: [Latent](Latent/SECURITY.md),
 [Sift](Sift/SECURITY.md).
@@ -32,4 +32,6 @@ Reports are especially useful when they concern update feed or archive signature
 verification, installation that replaces or downgrades another app, settings
 bridges accepting writes they should reject, LinkRoutes opening a link in an
 unexpected app, input-monitoring or accessibility access used beyond its stated
-purpose, or any path by which untrusted input can execute code.
+purpose, MixBar keeping, storing or sending any audio it hears, RightHere's Finder
+extension doing anything to a file beyond creating a new empty one, or any path by
+which untrusted input can execute code.

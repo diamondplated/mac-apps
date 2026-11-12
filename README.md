@@ -3,7 +3,7 @@
 Andrew's native macOS apps, one repository:
 
 - **Mac Tools**, one app to install, update, open, and configure **DockPeek**,
-  **ScreenWren**, **ScrollSplit**, **LinkRoutes**, and **StayLit**, and to install, update, and
+  **ScreenWren**, **ScrollSplit**, **LinkRoutes**, **StayLit**, **MixBar**, and **RightHere**, and to install, update, and
   open **Latent** and **Sift**. Public downloads and automatic updates use
   [diamondplated/mac-tools-releases](https://github.com/diamondplated/mac-tools-releases/releases),
   a separate repository containing release artifacts, not app source.
@@ -27,6 +27,8 @@ Everything here is MIT licensed.
 | [ScrollSplit](ScrollSplit/README.md) | Mouse fixes (wheel direction, speed, smoothing, side buttons, pointer acceleration) and keyboard overrides | macOS 14+ |
 | [LinkRoutes](LinkRoutes/README.md) | Send links to chosen browsers and profiles by site or source app, and files to chosen apps by folder | macOS 14+ |
 | [StayLit](StayLit/README.md) | Keep the Mac awake on your terms, and use the brightness and volume keys with an external display | macOS 14+ |
+| [MixBar](MixBar/README.md) | A volume slider, mute, and output device for each app | macOS 14.2+ |
+| [RightHere](RightHere/README.md) | New File, Open Terminal Here, and Copy Path in Finder's right-click menu | macOS 14+ |
 | [Latent](Latent/README.md) | Folder-first photo viewer with keyboard culling, burst grouping, and local enhancement | macOS 14+ |
 | [Sift](Sift/README.md) | Explore CSV, Parquet, JSON, and Excel files instantly, with a Quick Look preview in Finder | macOS 14+ |
 
@@ -141,9 +143,9 @@ instructions remain in its own README.
 ./verify.sh
 ```
 
-This tests all six packages, builds the suite, checks app identities, deployment
+This tests all eight packages, builds the suite, checks app identities, deployment
 targets, Universal 2 architectures, nested signatures, archive extraction, and
-ScreenWren, ScrollSplit, LinkRoutes, and StayLit headless self-checks. Use `./verify.sh --no-build` to verify a package
+ScreenWren, ScrollSplit, LinkRoutes, StayLit, MixBar, and RightHere headless self-checks. Use `./verify.sh --no-build` to verify a package
 that was just built. Live screen captures are opt-in in ScreenWren's QA workflow.
 GitHub Actions uses only Andrew's self-hosted macOS runners, with no hosted fallback
 and no installation step.
@@ -160,6 +162,8 @@ process checks are only a preflight; the final evidence comes from your next log
 - `ScrollSplit/`: menu-bar scrolling app, settings bridge, icon, and event tests.
 - `LinkRoutes/`: browser routing app, settings bridge, icon, and rule tests.
 - `StayLit/`: keep-awake and external display keys, settings bridge, icon, and tests.
+- `MixBar/`: per-app volume mixer, its audio engine and real-time callback, settings bridge, and tests.
+- `RightHere/`: Finder Sync extension and its containing app, settings bridge, and tests.
 - `Latent/`: standalone photo viewer, with its own README, CLAUDE.md, and CI (`latent.yml`).
 - `Sift/`: standalone data explorer, with its own README, AGENTS.md, and CI (`sift.yml`).
 - Root scripts and `.github/`: suite packaging, installation, and shared CI.
