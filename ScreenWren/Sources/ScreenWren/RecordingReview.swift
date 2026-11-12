@@ -325,7 +325,7 @@ final class RecordingReviewWindow: NSWindowController, NSWindowDelegate {
         widthField.formatter = {
             let formatter = NumberFormatter()
             formatter.allowsFloats = false
-            formatter.minimum = NSNumber(value: RecordingExportOptions.minimumWidth)
+            formatter.minimum = NSNumber(value: min(RecordingExportOptions.minimumWidth, recording.width))
             formatter.maximum = NSNumber(value: recording.width)
             return formatter
         }()
@@ -415,8 +415,10 @@ final class RecordingReviewWindow: NSWindowController, NSWindowDelegate {
     }
 
     private var customWidth: Int {
-        if case let .width(width) = options.size { return width }
-        return min(recording.width, 800)
+        let width: Int
+        if case let .width(chosen) = options.size { width = chosen } else { width = 800 }
+        // A remembered width larger than this recording shows as the width actually used.
+        return max(1, min(recording.width, width))
     }
 
     private func applyOptionsToControls() {
@@ -521,9 +523,11 @@ final class RecordingReviewWindow: NSWindowController, NSWindowDelegate {
             if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
             guard !Task.isCancelled else { return }
             do {
-                try await Task.detached(priority: .userInitiated) {
+                // Off the main actor, and cancelled with this task so a superseded encode stops early.
+                let work = Task.detached(priority: .userInitiated) {
                     try await exportRecording(recording, trim: trim, options: options, to: output)
-                }.value
+                }
+                try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
                 try Task.checkCancellation()
                 guard let self, self.revision == expected, !self.isClosed else {
                     try? FileManager.default.removeItem(at: output)

@@ -247,7 +247,7 @@ remembered in ScreenWren's own preferences, not the settings bridge. Closing the
 window deletes its temporary folder; quitting deletes the process's folder; launch
 deletes folders left by copies that are no longer running.
 
-GIF export builds one palette per recording (median cut over up to 24 sampled
+GIF export builds one palette per recording (median cut over at most 24 sampled
 frames, 255 colours plus a transparent index), then writes only the changed
 rectangle of each frame, marks pixels within a small tolerance of what is already
 shown as transparent, and merges identical frames into longer delays.

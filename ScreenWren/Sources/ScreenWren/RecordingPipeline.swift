@@ -247,6 +247,11 @@ final class RecordingWriter: @unchecked Sendable {
         return .appended
     }
 
+    /// Abandons a recording that never started, so the writer isn't released mid-write.
+    func cancel() {
+        if writer.status == .writing { writer.cancelWriting() }
+    }
+
     /// Ends the recording at `stopTime` (a time on the same clock as the frames), so a
     /// screen that stopped changing still lasts until Stop. Never past the limit.
     func finish(at stopTime: CMTime?, completion: @escaping @Sendable (Result<RecordingInfo, Error>) -> Void) {
@@ -475,7 +480,8 @@ func exportRecordingGIF(source: URL, trim: RecordingTrim, width: Int, height: In
 
     // Pass 1: a palette from up to 24 frames spread across the clip, about 400k pixels.
     var builder = GIFPaletteBuilder()
-    let sampledFrames = Set(stride(from: 0, to: times.count, by: max(1, times.count / 24)))
+    // At most 24: the stride rounds up.
+    let sampledFrames = Set(stride(from: 0, to: times.count, by: max(1, (times.count + 23) / 24)))
     let step = max(1, Int((Double(width * height * sampledFrames.count) / 400_000).squareRoot()))
     try await forEachGIFFrame(source: source, trim: trim, times: times) { index, buffer in
         guard sampledFrames.contains(index) else { return }

@@ -537,6 +537,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// The record shortcut also cancels its own selector.
     @objc private func toggleRecording() {
+        if colourPicker.isSampling {
+            NSSound.beep()
+            return
+        }
         if !recordingCoordinator.isActive, captureCoordinator.isSelecting {
             captureCoordinator.cancelActiveSelection()
             return

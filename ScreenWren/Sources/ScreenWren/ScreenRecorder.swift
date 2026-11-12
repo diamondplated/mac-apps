@@ -76,8 +76,13 @@ final class RegionStreamRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @u
         let writer = try RecordingWriter(url: outputURL, width: configuration.width, height: configuration.height)
         let recorder = RegionStreamRecorder(writer: writer, onLimit: onLimit, onStop: onStop)
         let stream = SCStream(filter: filter, configuration: configuration, delegate: recorder)
-        try stream.addStreamOutput(recorder, type: .screen, sampleHandlerQueue: recorder.queue)
-        try await stream.startCapture()
+        do {
+            try stream.addStreamOutput(recorder, type: .screen, sampleHandlerQueue: recorder.queue)
+            try await stream.startCapture()
+        } catch {
+            recorder.queue.sync { writer.cancel() }
+            throw error
+        }
         recorder.stream = stream
         return recorder
     }
@@ -170,9 +175,10 @@ final class RecordingCoordinator {
         phase = .countdown
         outline = RecordingOutlineWindow(region: region.rect)
         outline?.orderFrontRegardless()
-        countdown = RecordingCountdownWindow(region: region.rect)
         installEscapeKey()
-        status("Recording in 3 — Esc cancels", symbol: "record.circle")
+        countdown = RecordingCountdownWindow(region: region.rect, escapeCancels: escapeKey != nil)
+        status(escapeKey == nil ? "Recording in 3 — choose Stop Recording to cancel" : "Recording in 3 — Esc cancels",
+               symbol: "record.circle")
         onStateChange?()
         countdownTask = Task { @MainActor [weak self] in
             for value in [3, 2, 1] {
@@ -191,22 +197,26 @@ final class RecordingCoordinator {
         guard let region else { return }
         phase = .starting
         onStateChange?()
+        var directory: URL?
         do {
-            let directory = try RecordingFiles.makeSessionDirectory()
-            sessionDirectory = directory
+            let folder = try RecordingFiles.makeSessionDirectory()
+            directory = folder
+            sessionDirectory = folder
             let recorder = try await RegionStreamRecorder.start(
-                region: region, outputURL: directory.appendingPathComponent("Recording.mov"),
+                region: region, outputURL: folder.appendingPathComponent("Recording.mov"),
                 onLimit: { [weak self] in Task { @MainActor in self?.stop(reason: .limit) } },
                 onStop: { [weak self] error in Task { @MainActor in self?.stop(reason: .failure(error)) } })
             guard attempt == current, phase == .starting else {
                 // Cancelled while the stream was starting.
                 _ = try? await recorder.stop()
-                try? FileManager.default.removeItem(at: directory)
+                try? FileManager.default.removeItem(at: folder)
                 return
             }
             self.recorder = recorder
             phase = .recording
-            status("Recording — press Esc or choose Stop Recording", symbol: "record.circle")
+            status(escapeKey == nil ? "Recording — choose Stop Recording; stops at 5 minutes"
+                                    : "Recording — press Esc or choose Stop Recording; stops at 5 minutes",
+                   symbol: "record.circle")
             onStateChange?()
             limitTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .seconds(RecordingLimits.maximumDuration + 0.5))
@@ -214,8 +224,10 @@ final class RecordingCoordinator {
                 self.stop(reason: .limit)
             }
         } catch {
+            if let directory { try? FileManager.default.removeItem(at: directory) }
+            // A start that was cancelled (or replaced by a newer attempt) must not touch the new one.
+            guard attempt == current else { return }
             tearDown()
-            if let sessionDirectory { try? FileManager.default.removeItem(at: sessionDirectory) }
             sessionDirectory = nil
             if isScreenCapturePermissionError(error) {
                 onPermissionRequired?()
@@ -237,13 +249,21 @@ final class RecordingCoordinator {
         case .countdown, .starting:
             attempt &+= 1
             tearDown()
-            status("Recording cancelled")
+            if let directory = sessionDirectory { try? FileManager.default.removeItem(at: directory) }
+            sessionDirectory = nil
+            if case let .failure(error) = reason {
+                status("Couldn’t start recording: \(error.localizedDescription)", symbol: "exclamationmark.triangle",
+                       needsAttention: true)
+            } else {
+                status("Recording cancelled")
+            }
             return
         case .recording:
             break
         }
         guard let recorder else { return }
         phase = .finishing
+        region = nil
         let directory = sessionDirectory
         self.recorder = nil
         sessionDirectory = nil
@@ -391,7 +411,7 @@ final class RecordingCountdownWindow {
     private let panel: NSPanel
     private let label = NSTextField(labelWithString: "")
 
-    init(region: CGRect) {
+    init(region: CGRect, escapeCancels: Bool = true) {
         let side: CGFloat = 112
         let screen = NSScreen.screens.first { $0.frame.intersects(region) }?.visibleFrame ?? region
         var origin = CGPoint(x: region.midX - side / 2, y: region.midY - side / 2)
@@ -409,6 +429,8 @@ final class RecordingCountdownWindow {
         hint.font = .preferredFont(forTextStyle: .caption1)
         hint.textColor = .secondaryLabelColor
         hint.alignment = .center
+        // Only promise Esc when the key was actually free to take.
+        hint.isHidden = !escapeCancels
         let stack = NSStackView(views: [label, hint])
         stack.orientation = .vertical
         stack.spacing = 0
