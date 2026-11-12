@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import MacToolsCore
 import Sparkle
 import SwiftUI
 
@@ -76,42 +77,49 @@ final class UpdateController: ObservableObject {
     }
 }
 
-struct ManagerUpdatesView: View {
+/// Mac Tools' own settings (⌘,): how it updates itself and where it installs apps.
+struct PreferencesView: View {
+    @ObservedObject var library: LibraryModel
     @ObservedObject var updater: UpdateController
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            VStack(alignment: .leading, spacing: 8) {
-                Label("Mac Tools Updates", systemImage: "arrow.triangle.2.circlepath")
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
-                Text("Keep the manager and its collection up to date.").foregroundStyle(.secondary)
+        Form {
+            Section {
+                Toggle("Check for updates automatically", isOn: Binding(
+                    get: { updater.automaticallyChecksForUpdates }, set: updater.setAutomaticallyChecksForUpdates))
+                Toggle("Install updates automatically", isOn: Binding(
+                    get: { updater.automaticallyDownloadsUpdates }, set: updater.setAutomaticallyDownloadsUpdates))
+                    .disabled(!updater.automaticallyChecksForUpdates)
+                LabeledContent {
+                    HStack(spacing: 12) {
+                        if let url = updater.releasesURL { Link("Release Notes", destination: url) }
+                        Button("Check Now", action: updater.checkForUpdates).disabled(!updater.canCheckForUpdates)
+                    }
+                } label: {
+                    if let date = updater.lastUpdateCheckDate {
+                        Text("Last checked \(date.formatted(date: .abbreviated, time: .shortened))")
+                    } else {
+                        Text("Not checked yet")
+                    }
+                }
+            } header: {
+                Text("Updates")
+            } footer: {
+                Text(updater.unavailableReason ?? "A Mac Tools update brings new versions of its apps. Update each one from the Library.")
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            GroupBox {
-                VStack(alignment: .leading, spacing: 14) {
-                    Toggle("Automatically check for updates daily", isOn: Binding(
-                        get: { updater.automaticallyChecksForUpdates }, set: updater.setAutomaticallyChecksForUpdates))
-                    Toggle("Automatically download and install Mac Tools updates", isOn: Binding(
-                        get: { updater.automaticallyDownloadsUpdates }, set: updater.setAutomaticallyDownloadsUpdates))
-                        .disabled(!updater.automaticallyChecksForUpdates)
-                    Text("Updates are checked against the release signing key before they are opened.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
-            }.disabled(!updater.isConfigured)
-            Text("New releases include updated versions of your apps and built-in utilities. Choose Update in Overview when you’re ready to update installed apps.")
-                .foregroundStyle(.secondary)
-            HStack(spacing: 14) {
-                Button("Check for Updates…", action: updater.checkForUpdates)
-                    .buttonStyle(.borderedProminent).disabled(!updater.canCheckForUpdates)
-                if let url = updater.releasesURL { Link("View Releases", destination: url) }
+            .disabled(!updater.isConfigured)
+            Section {
+                Picker("Install new apps for", selection: $library.scope) {
+                    Text("All users").tag(InstallScope.system)
+                    Text("Only me").tag(InstallScope.user)
+                }.disabled(library.isBusy)
+            } footer: {
+                Text("Updates stay wherever the app already is.").frame(maxWidth: .infinity, alignment: .leading)
             }
-            if let date = updater.lastUpdateCheckDate {
-                Text("Last checked \(date.formatted(date: .abbreviated, time: .shortened))")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            if let reason = updater.unavailableReason {
-                Label(reason, systemImage: "info.circle").font(.callout).foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 0)
         }
+        .formStyle(.grouped)
+        .frame(width: 460)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }

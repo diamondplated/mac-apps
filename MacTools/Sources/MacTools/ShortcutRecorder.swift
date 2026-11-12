@@ -27,10 +27,11 @@ final class RecorderField: NSTextField {
         super.init(frame: .zero)
         isEditable = false
         isSelectable = false
-        isBordered = true
-        drawsBackground = true
+        isBezeled = true
+        bezelStyle = .roundedBezel
         alignment = .center
-        font = .monospacedSystemFont(ofSize: 12, weight: .medium)
+        font = .systemFont(ofSize: NSFont.systemFontSize)
+        placeholderString = "None"
         focusRingType = .exterior
         setAccessibilityRole(.textField)
         setAccessibilityElement(true)
@@ -43,11 +44,12 @@ final class RecorderField: NSTextField {
     override func mouseDown(with event: NSEvent) { window?.makeFirstResponder(self) }
     override func becomeFirstResponder() -> Bool {
         let result = super.becomeFirstResponder()
-        if result { stringValue = "Type shortcut…" }
+        if result { stringValue = ""; placeholderString = "Press keys…" }
         return result
     }
     override func resignFirstResponder() -> Bool {
         let result = super.resignFirstResponder()
+        placeholderString = "None"
         updateText()
         return result
     }
@@ -84,5 +86,8 @@ final class RecorderField: NSTextField {
         onRecord?(shortcut)
     }
 
-    private func updateText() { stringValue = shortcut?.displayName ?? "None"; setAccessibilityValue(stringValue) }
+    private func updateText() {
+        stringValue = shortcut?.displayName ?? ""
+        setAccessibilityValue(shortcut?.displayName ?? "None")
+    }
 }

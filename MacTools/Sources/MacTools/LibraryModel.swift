@@ -12,6 +12,8 @@ final class LibraryModel: ObservableObject {
     }
     /// The app the current operation is acting on, so its card can show progress in place.
     @Published private(set) var activeApp: ManagedApp?
+    /// Whether the current operation is worth a banner. Opening an app is not.
+    @Published private(set) var showsOperation = false
     @Published private(set) var icons: [ManagedApp: NSImage] = [:]
     @Published var scope: InstallScope = .system
     @Published var settingsApp: ManagedApp = .dockPeek
@@ -19,6 +21,7 @@ final class LibraryModel: ObservableObject {
     let manager: AppManager
     private var observers: [AnyCancellable] = []
     private var refreshing = false
+    private var refreshAgain = false
     private var noticeDismissal: Task<Void, Never>?
 
     var isBusy: Bool { operation != nil }
@@ -54,14 +57,19 @@ final class LibraryModel: ObservableObject {
     }
 
     func refresh() async {
-        guard !refreshing else { return }
+        // A refresh asked for while one is running starts another pass when it ends, so the
+        // state shown after an install is never the state from before it.
+        guard !refreshing else { refreshAgain = true; return }
         refreshing = true
         defer { refreshing = false }
-        for app in ManagedApp.allCases {
-            let state = await manager.inspect(app)
-            states[app] = state
-            icons[app] = Self.icon(for: app, installedURL: state.installedURL)
-        }
+        repeat {
+            refreshAgain = false
+            for app in ManagedApp.allCases {
+                let state = await manager.inspect(app)
+                states[app] = state
+                icons[app] = Self.icon(for: app, installedURL: state.installedURL)
+            }
+        } while refreshAgain
     }
 
     /// The app's own icon, from the installed copy or the bundled one, when it declares one.
@@ -111,7 +119,7 @@ final class LibraryModel: ObservableObject {
     }
 
     func launch(_ app: ManagedApp) async {
-        await perform("Opening \(app.name)…", app: app, success: nil) { try await self.manager.launch(app) }
+        await perform("Opening \(app.name)…", app: app, success: nil, announce: false) { try await self.manager.launch(app) }
     }
 
     func quit(_ app: ManagedApp) async {
@@ -130,12 +138,17 @@ final class LibraryModel: ObservableObject {
         if let url = URL(string: "x-apple.systempreferences:\(pane)") { NSWorkspace.shared.open(url) }
     }
 
-    private func perform(_ label: String, app: ManagedApp? = nil, success: String?, action: () async throws -> Void) async {
+    private func perform(_ label: String, app: ManagedApp? = nil, success: String?, announce: Bool = true, action: () async throws -> Void) async {
         guard !isBusy else { return }
         operation = label
         activeApp = app
+        showsOperation = announce
         notice = nil
-        defer { operation = nil; activeApp = nil }
+        defer { operation = nil; activeApp = nil; showsOperation = false }
+        // A settings read or write holds the manager briefly. Wait for it instead of failing.
+        while toolSettings.isUsingManager {
+            do { try await Task.sleep(nanoseconds: 20_000_000) } catch { return }
+        }
         do {
             try await action()
             notice = success

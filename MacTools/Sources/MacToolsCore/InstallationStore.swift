@@ -127,7 +127,7 @@ struct InstallationStore: @unchecked Sendable {
         try rejectSymlink(directory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         guard FileManager.default.isWritableFile(atPath: directory.path) else {
-            throw AppManagerError.message("Mac Tools cannot write to \(directory.path). Choose Just me for a new installation, or change permissions for the existing app.")
+            throw AppManagerError.message("Mac Tools cannot write to \(directory.path). In Mac Tools Settings, install new apps for only you, or change permissions for the existing app.")
         }
         let transaction = directory.appendingPathComponent(".MacTools-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: transaction, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
