@@ -15,6 +15,8 @@ enum LayoutSystem {
         let order: Int
         let frame: CGRect
         let element: AXUIElement
+        /// Window-server id; 0 when the app does not expose one.
+        let id: UInt32
     }
 
     /// The connected displays, in top-left global coordinates. Main thread only.
@@ -64,7 +66,7 @@ enum LayoutSystem {
                       !isFullScreen(window.element) else { continue }
                 let order = counts[app.bundleID, default: 0]
                 counts[app.bundleID] = order + 1
-                windows.append(LiveWindow(bundleID: app.bundleID, title: window.title, order: order, frame: window.bounds, element: window.element))
+                windows.append(LiveWindow(bundleID: app.bundleID, title: window.title, order: order, frame: window.bounds, element: window.element, id: window.id))
             }
         }
         return (windows, readable)
@@ -88,6 +90,15 @@ enum LayoutSystem {
         let resized = AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, extent)
         let second = AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, position)
         return first == .success || resized == .success || second == .success
+    }
+
+    /// Ids of the ordinary on-screen windows, from the window server alone.
+    static func visibleWindowIDs() -> Set<UInt32> {
+        let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        return Set(list.compactMap { info in
+            guard (info[kCGWindowLayer as String] as? Int) == 0 else { return nil }
+            return info[kCGWindowNumber as String] as? UInt32
+        })
     }
 
     /// A cheap fingerprint of every on-screen window's place, from the window server alone.

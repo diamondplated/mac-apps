@@ -80,6 +80,8 @@ struct RememberedWindow: Codable, Equatable {
     var y: Double
     var width: Double
     var height: Double
+    /// When this entry was last confirmed by a live window (seconds since 1970); the cap drops the oldest first.
+    var updated: TimeInterval = 0
 }
 
 /// What matching needs to know about an open window.
@@ -92,10 +94,10 @@ struct OpenWindowRef: Equatable {
 enum WindowMatcher {
     /// Pairs open windows with remembered ones. Returns open index to remembered index.
     ///
-    /// Per app: windows with the same title pair up (in order, when both sides have the same
-    /// number of them; otherwise only where their window order agrees). Whatever is left pairs
-    /// by window order only when exactly as many are left on each side, so a closed window or a
-    /// new one never drags a different window to its place.
+    /// Per app: windows with the same title pair up, in order, when both sides have the same
+    /// number of them. Whatever is left pairs by window order only when exactly one remembered
+    /// entry and exactly one open window remain; with two or more on either side the pairing
+    /// would be a guess, so those windows are left alone.
     static func match(remembered: [RememberedWindow], open: [OpenWindowRef]) -> [Int: Int] {
         var result: [Int: Int] = [:]
         let openByApp = Dictionary(grouping: open.indices, by: { open[$0].bundleID })
@@ -110,24 +112,16 @@ enum WindowMatcher {
             let openTitles = Dictionary(grouping: openSorted, by: { open[$0].title })
             let rememberedTitles = Dictionary(grouping: rememberedSorted, by: { remembered[$0].title })
             for (title, opens) in openTitles {
-                guard let remembers = rememberedTitles[title] else { continue }
-                if opens.count == remembers.count {
-                    for (o, r) in zip(opens, remembers) {
-                        result[o] = r; usedRemembered.insert(r); pairedOpen.insert(o)
-                    }
-                } else {
-                    for o in opens {
-                        if let r = remembers.first(where: { !usedRemembered.contains($0) && remembered[$0].order == open[o].order }) {
-                            result[o] = r; usedRemembered.insert(r); pairedOpen.insert(o)
-                        }
-                    }
+                guard let remembers = rememberedTitles[title], opens.count == remembers.count else { continue }
+                for (o, r) in zip(opens, remembers) {
+                    result[o] = r; usedRemembered.insert(r); pairedOpen.insert(o)
                 }
             }
 
             let leftOpen = openSorted.filter { !pairedOpen.contains($0) }
             let leftRemembered = rememberedSorted.filter { !usedRemembered.contains($0) }
-            if !leftOpen.isEmpty, leftOpen.count == leftRemembered.count {
-                for (o, r) in zip(leftOpen, leftRemembered) { result[o] = r }
+            if leftOpen.count == 1, leftRemembered.count == 1 {
+                result[leftOpen[0]] = leftRemembered[0]
             }
         }
         return result
@@ -204,13 +198,70 @@ enum LayoutGeometry {
 }
 
 enum LayoutMerge {
-    /// The windows to keep after a snapshot: the new ones, plus anything remembered for apps
-    /// whose windows could not be read this time (not running, or not answering).
-    /// New windows come first so a full list drops the oldest memories.
-    static func merged(existing: [RememberedWindow], current: [RememberedWindow], readableBundles: Set<String>, limit: Int) -> [RememberedWindow] {
-        let kept = existing.filter { !readableBundles.contains($0.bundleID) }
-        return Array((current + kept).prefix(limit))
+    /// What to store after a snapshot. Windows open and listed right now update their remembered
+    /// entry (or add one); every other remembered entry stays, whether its window is minimized,
+    /// full screen, on another Space, or its app is closed. Entries leave only through the cap,
+    /// oldest-updated first.
+    static func merged(existing: [RememberedWindow], current: [RememberedWindow], now: TimeInterval, limit: Int) -> [RememberedWindow] {
+        let pairs = WindowMatcher.match(
+            remembered: existing,
+            open: current.map { OpenWindowRef(bundleID: $0.bundleID, title: $0.title, order: $0.order) }
+        )
+        var result = existing
+        var added: [RememberedWindow] = []
+        for (index, window) in current.enumerated() {
+            var stamped = window
+            stamped.updated = now
+            if let slot = pairs[index] { result[slot] = stamped } else { added.append(stamped) }
+        }
+        result.append(contentsOf: added)
+        guard result.count > limit else { return result }
+        let keep = result.indices.sorted {
+            result[$0].updated != result[$1].updated ? result[$0].updated > result[$1].updated : $0 < $1
+        }.prefix(limit)
+        return keep.sorted().map { result[$0] }
     }
+}
+
+/// Which on-screen windows have already been looked at in the current arrangement. A window
+/// is placed from memory only the first time it is seen; after that, where it sits is the
+/// user's business until the arrangement changes.
+struct FirstSightTracker: Equatable {
+    /// A window that is never ready (no title, not listed by Accessibility) is given up on after this many looks.
+    static let maxLooks = 5
+    private(set) var seen = Set<UInt32>()
+    private var looks: [UInt32: Int] = [:]
+
+    mutating func reset() {
+        seen.removeAll()
+        looks.removeAll()
+    }
+
+    /// Windows to look at now.
+    func pending(visible: Set<UInt32>) -> Set<UInt32> { visible.subtracting(seen) }
+
+    /// Marks windows as seen without placing them (the ones present when an arrangement settles).
+    mutating func markSeen(_ ids: Set<UInt32>) { seen.formUnion(ids) }
+
+    /// After a look: `settled` windows are done; `notReady` ones are looked at again, up to `maxLooks`.
+    mutating func resolve(settled: Set<UInt32>, notReady: Set<UInt32>, visible: Set<UInt32>) {
+        seen.formUnion(settled)
+        for id in notReady {
+            looks[id, default: 0] += 1
+            if looks[id, default: 0] >= Self.maxLooks { seen.insert(id) }
+        }
+        // Windows that went away are forgotten, and window ids are not reused.
+        if seen.count > 4000 { seen.formIntersection(visible) }
+    }
+}
+
+/// Moves to make for one arrangement. Built for a key; applied only if the displays still form it.
+struct LayoutPlan<Move> {
+    let key: String
+    let moves: [Move]
+
+    /// The moves, or nil when the arrangement has changed since the plan was made.
+    func validated(currentKey: String) -> [Move]? { currentKey == key ? moves : nil }
 }
 
 /// A burst of events is "quiet" once nothing has happened for `quiet` seconds; with a

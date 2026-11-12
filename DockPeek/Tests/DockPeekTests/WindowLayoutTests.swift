@@ -90,11 +90,24 @@ final class WindowLayoutTests: XCTestCase {
         let open = [OpenWindowRef(bundleID: "a", title: "X", order: 0), OpenWindowRef(bundleID: "a", title: "Brand New", order: 1)]
         XCTAssertEqual(WindowMatcher.match(remembered: saved, open: open), [0: 0])
     }
-    func testRepeatedTitlesWithDifferentCountsMatchOnlyWhereOrderAgrees() {
+    func testRepeatedTitlesWithDifferentCountsAreLeftAlone() {
         let saved = [remembered("a", "Untitled", 0), remembered("a", "Untitled", 1)]
         let open = [OpenWindowRef(bundleID: "a", title: "Untitled", order: 0), OpenWindowRef(bundleID: "a", title: "Untitled", order: 1),
                     OpenWindowRef(bundleID: "a", title: "Untitled", order: 2)]
-        XCTAssertEqual(WindowMatcher.match(remembered: saved, open: open), [0: 0, 1: 1])
+        XCTAssertEqual(WindowMatcher.match(remembered: saved, open: open), [:])
+    }
+    func testOrderFallbackOnlyWhenExactlyOneAndOneRemain() {
+        // One and one: the only possible pair.
+        XCTAssertEqual(
+            WindowMatcher.match(remembered: [remembered("a", "Old", 3)], open: [OpenWindowRef(bundleID: "a", title: "New", order: 0)]),
+            [0: 0]
+        )
+        // Two and two with every title changed: any pairing is a guess.
+        let saved = [remembered("a", "P", 0), remembered("a", "Q", 1)]
+        let open = [OpenWindowRef(bundleID: "a", title: "P2", order: 0), OpenWindowRef(bundleID: "a", title: "Q2", order: 1)]
+        XCTAssertEqual(WindowMatcher.match(remembered: saved, open: open), [:])
+        // Two open, one remembered: also a guess.
+        XCTAssertEqual(WindowMatcher.match(remembered: [remembered("a", "P", 0)], open: open), [:])
     }
     func testAppsNeverMatchEachOther() {
         let saved = [remembered("a", "Same", 0)]
@@ -155,13 +168,67 @@ final class WindowLayoutTests: XCTestCase {
 
     // MARK: Merge
 
-    func testSnapshotKeepsWindowsOfAppsThatCouldNotBeRead() {
-        let existing = [remembered("a", "Old A", 0), remembered("b", "Old B", 0)]
-        let current = [remembered("a", "New A", 0)]
-        let merged = LayoutMerge.merged(existing: existing, current: current, readableBundles: ["a"], limit: 10)
-        XCTAssertEqual(merged.map(\.title), ["New A", "Old B"])
-        XCTAssertEqual(LayoutMerge.merged(existing: existing, current: [], readableBundles: ["a", "b"], limit: 10), [])
-        XCTAssertEqual(LayoutMerge.merged(existing: existing, current: current, readableBundles: ["a"], limit: 1).map(\.title), ["New A"])
+    private func entry(_ bundle: String, _ title: String, _ order: Int = 0, x: Double = 0.1) -> RememberedWindow {
+        var window = remembered(bundle, title, order)
+        window.x = x
+        return window
+    }
+    func testSaveUpdatesListedWindowsAndKeepsEveryOtherEntry() {
+        // "Minimized" is remembered but not listed now (minimized, full screen and other-Space windows are not listed).
+        let existing = [entry("a", "Open"), entry("a", "Minimized", 1), entry("b", "Not Running")]
+        let merged = LayoutMerge.merged(existing: existing, current: [entry("a", "Open", 0, x: 0.4)], now: 100, limit: 10)
+        XCTAssertEqual(merged.map(\.title), ["Open", "Minimized", "Not Running"])
+        XCTAssertEqual(merged[0].x, 0.4)
+        XCTAssertEqual(merged[0].updated, 100)
+        XCTAssertEqual(merged[1], existing[1], "untouched entries keep their stamp and place")
+    }
+    func testSaveWithNothingListedForgetsNothing() {
+        let existing = [entry("a", "One"), entry("b", "Two")]
+        XCTAssertEqual(LayoutMerge.merged(existing: existing, current: [], now: 5, limit: 10), existing)
+    }
+    func testSaveAddsNewWindowsAndTheCapDropsTheOldestUpdatedFirst() {
+        var old = entry("a", "Old"); old.updated = 1
+        var mid = entry("a", "Mid", 1); mid.updated = 5
+        let merged = LayoutMerge.merged(existing: [old, mid], current: [entry("b", "New")], now: 9, limit: 2)
+        XCTAssertEqual(merged.map(\.title), ["Mid", "New"])
+    }
+
+    // MARK: First sight
+
+    func testLateWindowIsPlacedOnceThenLeftAloneAfterTheUserMovesIt() {
+        var tracker = FirstSightTracker()
+        tracker.markSeen([1, 2]) // open when the arrangement settled
+        var visible: Set<UInt32> = [1, 2]
+        XCTAssertEqual(tracker.pending(visible: visible), [])
+        visible.insert(3) // an app creates a window later
+        XCTAssertEqual(tracker.pending(visible: visible), [3], "first sight: placed")
+        tracker.resolve(settled: [3], notReady: [], visible: visible)
+        // The user drags it; the window server id stays 3 and it is never pending again.
+        XCTAssertEqual(tracker.pending(visible: visible), [])
+        XCTAssertEqual(tracker.pending(visible: visible.union([4])), [4])
+    }
+    func testFirstSightSetClearsWhenTheArrangementChanges() {
+        var tracker = FirstSightTracker()
+        tracker.markSeen([1, 2, 3])
+        tracker.reset()
+        XCTAssertEqual(tracker.pending(visible: [1, 2, 3]), [1, 2, 3])
+    }
+    func testAWindowThatIsNeverReadyIsGivenUpOn() {
+        var tracker = FirstSightTracker()
+        for _ in 0..<(FirstSightTracker.maxLooks - 1) {
+            tracker.resolve(settled: [], notReady: [7], visible: [7])
+            XCTAssertEqual(tracker.pending(visible: [7]), [7])
+        }
+        tracker.resolve(settled: [], notReady: [7], visible: [7])
+        XCTAssertEqual(tracker.pending(visible: [7]), [])
+    }
+
+    // MARK: Plans
+
+    func testPlanIsDroppedWhenTheArrangementChanged() {
+        let plan = LayoutPlan(key: "before", moves: [1, 2, 3])
+        XCTAssertEqual(plan.validated(currentKey: "before"), [1, 2, 3])
+        XCTAssertNil(plan.validated(currentKey: "after"))
     }
 
     // MARK: Settling
@@ -275,5 +342,21 @@ final class WindowLayoutTests: XCTestCase {
             title: String(repeating: "x", count: 5000), order: 0, displays: [display]
         ))
         XCTAssertEqual(saved.title.count, LayoutStore.maxTitleLength)
+    }
+    func testUnreadableStoreIsKeptAsideNotOverwritten() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("dockpeek-aside-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = LayoutStoreFile(url: directory.appendingPathComponent("WindowLayouts.json"))
+        let aside = file.url.appendingPathExtension("unreadable")
+        try Data("first damaged copy".utf8).write(to: file.url)
+        XCTAssertEqual(file.load(), LayoutStore())
+        XCTAssertEqual(try String(contentsOf: aside), "first damaged copy")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.url.path))
+        // A fresh store is written beside it, and a later bad file replaces the older aside copy.
+        XCTAssertTrue(file.save(LayoutStore()))
+        try Data(#"{"version":2,"records":[]}"#.utf8).write(to: file.url)
+        XCTAssertEqual(file.load(), LayoutStore())
+        XCTAssertEqual(try String(contentsOf: aside), #"{"version":2,"records":[]}"#)
     }
 }

@@ -52,7 +52,13 @@ struct LayoutStoreFile {
         guard let data = try? Data(contentsOf: url) else { return LayoutStore() }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        guard var store = try? decoder.decode(LayoutStore.self, from: data), store.version == 1 else { return LayoutStore() }
+        guard var store = try? decoder.decode(LayoutStore.self, from: data), store.version == 1 else {
+            // Unreadable (damaged, or from a newer DockPeek): keep it aside rather than overwrite it.
+            let aside = url.appendingPathExtension("unreadable")
+            try? FileManager.default.removeItem(at: aside)
+            try? FileManager.default.moveItem(at: url, to: aside)
+            return LayoutStore()
+        }
         store.trim()
         return store
     }

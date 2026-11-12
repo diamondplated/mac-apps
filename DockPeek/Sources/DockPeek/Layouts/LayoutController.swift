@@ -4,15 +4,22 @@ import ApplicationServices
 /// Remembers where windows are for each monitor arrangement and puts them back when the
 /// arrangement returns. It installs no event tap or hot key: a once-a-second timer reads one
 /// cheap window-server fingerprint, and a screen-change notification starts the settle timer.
-/// Both exist only while automatic restoring is on; the two manual commands always work.
+/// Both exist only while automatic restoring is on; the manual commands always work.
 final class LayoutController {
+    private struct Move {
+        let element: AXUIElement
+        let target: CGRect
+    }
+
     private let file: LayoutStoreFile
     private let queue = DispatchQueue(label: "com.andrew.dockpeek.layouts", qos: .utility)
     private var scheduler = LayoutScheduler()
+    private var tracker = FirstSightTracker()
     private var timer: Timer?
     private var screenObserver: NSObjectProtocol?
     private var currentArrangement: String?
     private var lastSignature: Int?
+    private var lookInFlight = false
     private var accessibilityGranted = false
 
     /// Told, on the main thread, what a command did ("Saved 12 Windows").
@@ -33,6 +40,8 @@ final class LayoutController {
         guard automatic && accessibilityGranted else { return stopAutomatic() }
         guard timer == nil else { return }
         scheduler = LayoutScheduler()
+        tracker.reset()
+        lookInFlight = false
         currentArrangement = nil
         lastSignature = LayoutSystem.onScreenSignature()
         // Treat starting like an arrangement change: wait for quiet, then restore what is remembered.
@@ -66,9 +75,13 @@ final class LayoutController {
         case .settleArrangement:
             let displays = LayoutSystem.displays()
             let key = Arrangement.key(for: displays)
-            let changed = key != currentArrangement
-            currentArrangement = key
-            if changed { restore(displays: displays, key: key, announce: false) }
+            if key != currentArrangement {
+                currentArrangement = key
+                tracker.reset()
+                restore(displays: displays, key: key, announce: false)
+            }
+            // Windows already open now were handled by the restore; later ones are placed as they appear.
+            tracker.markSeen(LayoutSystem.visibleWindowIDs())
             scheduler.didRestore(at: now)
         case .saveLayout:
             let displays = LayoutSystem.displays()
@@ -78,9 +91,14 @@ final class LayoutController {
                 scheduler.displaysChanged(at: now)
                 return
             }
+            // A window that has just appeared is about to be placed; do not record its default spot first.
+            if lookInFlight || !tracker.pending(visible: LayoutSystem.visibleWindowIDs()).isEmpty {
+                scheduler.windowsMoved(at: now)
+                return
+            }
             save(displays: displays, key: key, announce: false)
         case nil:
-            break
+            if !scheduler.arrangement.isPending { placeNewWindows() }
         }
     }
 
@@ -99,37 +117,53 @@ final class LayoutController {
     }
 
     func forgetAll() {
-        queue.async { [file] in file.forget() }
+        queue.async { [file] in
+            file.forget()
+            try? FileManager.default.removeItem(at: file.url.appendingPathExtension("unreadable"))
+        }
         report("Forgot Saved Layouts")
     }
 
     // MARK: - Work
 
+    /// Reads the open windows, then (on the main thread) checks the displays still form `key`
+    /// before writing, so nothing is filed under the wrong arrangement.
     private func save(displays: [DisplayInfo], key: String, announce: Bool) {
         let apps = LayoutSystem.runningApps()
-        queue.async { [file, weak self] in
+        queue.async { [weak self] in
             let live = LayoutSystem.liveWindows(apps: apps)
             let current = live.windows.compactMap {
                 LayoutGeometry.remember(frame: $0.frame, bundleID: $0.bundleID, title: $0.title, order: $0.order, displays: displays)
             }
-            var store = file.load()
-            let existing = store.record(for: key)?.windows ?? []
-            let merged = LayoutMerge.merged(
-                existing: existing, current: current, readableBundles: live.readable, limit: LayoutStore.maxWindowsPerArrangement
-            )
-            // Apps that could not be read keep their remembered windows (see LayoutMerge).
-            store.set(merged, for: key, now: Date())
-            let written = file.save(store)
-            if announce { self?.report(!written ? "Couldn’t Save Layout" : "Saved \(current.count) \(current.count == 1 ? "Window" : "Windows")") }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                guard Arrangement.key(for: LayoutSystem.displays()) == key else {
+                    if self.isAutomatic { self.scheduler.displaysChanged(at: ProcessInfo.processInfo.systemUptime) }
+                    if announce { self.report("Displays Changed") }
+                    return
+                }
+                self.queue.async { [file = self.file] in
+                    var store = file.load()
+                    let existing = store.record(for: key)?.windows ?? []
+                    let now = Date()
+                    let merged = LayoutMerge.merged(
+                        existing: existing, current: current, now: now.timeIntervalSince1970, limit: LayoutStore.maxWindowsPerArrangement
+                    )
+                    store.set(merged, for: key, now: now)
+                    let written = file.save(store)
+                    if announce { self.report(written ? "Saved \(current.count) \(current.count == 1 ? "Window" : "Windows")" : "Couldn’t Save Layout") }
+                }
+            }
         }
     }
 
     private func restore(displays: [DisplayInfo], key: String, announce: Bool) {
         let apps = LayoutSystem.runningApps()
-        queue.async { [file, weak self] in
-            var store = file.load()
+        queue.async { [weak self] in
+            guard let self else { return }
+            var store = self.file.load()
             guard let record = store.record(for: key), !record.windows.isEmpty else {
-                if announce { self?.report("No Saved Layout") }
+                if announce { self.report("No Saved Layout") }
                 return
             }
             let live = LayoutSystem.liveWindows(apps: apps)
@@ -137,15 +171,82 @@ final class LayoutController {
                 remembered: record.windows,
                 open: live.windows.map { OpenWindowRef(bundleID: $0.bundleID, title: $0.title, order: $0.order) }
             )
-            var moved = 0
+            var moves: [Move] = []
             for (openIndex, rememberedIndex) in pairs {
                 let window = live.windows[openIndex]
                 guard let target = LayoutGeometry.target(for: record.windows[rememberedIndex], displays: displays),
                       !LayoutGeometry.isInPlace(window.frame, target) else { continue }
-                if LayoutSystem.setFrame(window.element, to: target) { moved += 1 }
+                moves.append(Move(element: window.element, target: target))
             }
             store.touch(key, now: Date())
-            file.save(store)
+            self.file.save(store)
+            DispatchQueue.main.async { self.apply(LayoutPlan(key: key, moves: moves), announce: announce) }
+        }
+    }
+
+    /// Windows that appear after the arrangement settled (login, a relaunch) get their remembered
+    /// place once, the first time they are seen. Never moves a window that was seen before.
+    private func placeNewWindows() {
+        guard let key = currentArrangement, !lookInFlight else { return }
+        let visible = LayoutSystem.visibleWindowIDs()
+        let pending = tracker.pending(visible: visible)
+        guard !pending.isEmpty else { return }
+        let displays = LayoutSystem.displays()
+        guard Arrangement.key(for: displays) == key else {
+            scheduler.displaysChanged(at: ProcessInfo.processInfo.systemUptime)
+            return
+        }
+        lookInFlight = true
+        let apps = LayoutSystem.runningApps()
+        queue.async { [weak self] in
+            guard let self else { return }
+            var settled = pending
+            var notReady = Set<UInt32>()
+            var moves: [Move] = []
+            if let record = self.file.load().record(for: key), !record.windows.isEmpty {
+                let live = LayoutSystem.liveWindows(apps: apps).windows
+                // A new window is ready once Accessibility lists it with a title.
+                let titled = Set(live.filter { !$0.title.isEmpty && $0.id != 0 }.map(\.id))
+                notReady = pending.subtracting(titled)
+                settled = pending.subtracting(notReady)
+                let candidates = live.filter { !(pending.contains($0.id) && $0.title.isEmpty) }
+                let pairs = WindowMatcher.match(
+                    remembered: record.windows,
+                    open: candidates.map { OpenWindowRef(bundleID: $0.bundleID, title: $0.title, order: $0.order) }
+                )
+                for (index, rememberedIndex) in pairs {
+                    let window = candidates[index]
+                    guard settled.contains(window.id),
+                          let target = LayoutGeometry.target(for: record.windows[rememberedIndex], displays: displays),
+                          !LayoutGeometry.isInPlace(window.frame, target) else { continue }
+                    moves.append(Move(element: window.element, target: target))
+                }
+            }
+            DispatchQueue.main.async {
+                self.lookInFlight = false
+                guard self.isAutomatic, self.currentArrangement == key else { return }
+                self.tracker.resolve(settled: settled, notReady: notReady, visible: visible)
+                self.apply(LayoutPlan(key: key, moves: moves), announce: false)
+            }
+        }
+    }
+
+    /// Applies a plan only if the displays still form the arrangement it was built for;
+    /// otherwise drops it and lets the settle logic run again.
+    private func apply(_ plan: LayoutPlan<Move>, announce: Bool) {
+        let current = Arrangement.key(for: LayoutSystem.displays())
+        guard let moves = plan.validated(currentKey: current) else {
+            if isAutomatic { scheduler.displaysChanged(at: ProcessInfo.processInfo.systemUptime) }
+            if announce { report("Displays Changed") }
+            return
+        }
+        guard !moves.isEmpty else {
+            if announce { report("Restored 0 Windows") }
+            return
+        }
+        queue.async { [weak self] in
+            var moved = 0
+            for move in moves where LayoutSystem.setFrame(move.element, to: move.target) { moved += 1 }
             if announce { self?.report("Restored \(moved) \(moved == 1 ? "Window" : "Windows")") }
         }
     }

@@ -248,7 +248,17 @@ public class AppDelegate: NSObject, NSApplicationDelegate, DockObserverDelegate,
     
     @objc private func saveLayout() { layouts.saveNow() }
     @objc private func restoreLayout() { layouts.restoreNow() }
-    @objc private func forgetLayouts() { layouts.forgetAll() }
+    @objc private func forgetLayouts() {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Forget Saved Window Layouts?"
+        alert.informativeText = "DockPeek will no longer know where windows belonged on any monitor arrangement. This cannot be undone."
+        alert.alertStyle = .warning
+        let forget = alert.addButton(withTitle: "Forget")
+        forget.hasDestructiveAction = true
+        alert.addButton(withTitle: "Cancel")
+        if alert.runModal() == .alertFirstButtonReturn { layouts.forgetAll() }
+    }
 
     @objc private func quitApp() {
         NSApplication.shared.terminate(nil)
