@@ -32,8 +32,8 @@ Everything here is MIT licensed.
 ## Use the manager
 
 Get **Mac Tools.app** from the [public downloads](https://github.com/diamondplated/mac-tools-releases/releases).
-The 1.2.0 distribution (build 3) uses the persistent local signing certificate and
-is **not notarized**. Its update feed and archives are also signed with the
+Releases use the project's persistent local signing certificate and are
+**not notarized**. The update feed and archives are also signed with the
 project's separate Sparkle key. Initial installation on another Mac may require
 manual approval in macOS Privacy & Security.
 
