@@ -40,10 +40,13 @@ final class SettingsQueueTests: XCTestCase {
 
     func testChangesMadeInQuickSuccessionApplyInTheOrderTheyWereMade() async throws {
         let (library, model, fake) = try make(.scrollSplit, ["reverseVertical": false])
-        async let first: Bool = model.save(["reverseVertical": true], app: .scrollSplit, library: library)
-        async let second: Bool = model.save(["reverseVertical": false], app: .scrollSplit, library: library)
-        async let third: Bool = model.save(["reverseVertical": true], app: .scrollSplit, library: library)
-        let results = await [first, second, third]
+        // Tasks made on the main actor start in the order they were made, like taps do.
+        // (`async let` children may start in any order, which is not what is being tested.)
+        let changes = [true, false, true].map { value in
+            Task { await model.save(["reverseVertical": value], app: .scrollSplit, library: library) }
+        }
+        var results: [Bool] = []
+        for change in changes { results.append(await change.value) }
         XCTAssertEqual(results, [true, true, true])
         XCTAssertEqual(fake.received.map { $0["reverseVertical"] as? Bool }, [true, false, true])
         XCTAssertEqual(model.snapshot?.reverseVertical, true)
@@ -98,9 +101,9 @@ final class SettingsQueueTests: XCTestCase {
     func testAFailedChangeIsReportedAndDoesNotStopTheNextOne() async throws {
         let (library, model, fake) = try make(.scrollSplit, ["enabled": false, "reverseHorizontal": false])
         fake.failNext = true
-        async let first: Bool = model.save(["enabled": true], app: .scrollSplit, library: library)
-        async let second: Bool = model.save(["reverseHorizontal": true], app: .scrollSplit, library: library)
-        let results = await [first, second]
+        let first = Task { await model.save(["enabled": true], app: .scrollSplit, library: library) }
+        let second = Task { await model.save(["reverseHorizontal": true], app: .scrollSplit, library: library) }
+        let results = [await first.value, await second.value]
         XCTAssertEqual(results, [false, true])
         XCTAssertEqual(library.error, "rejected")
         XCTAssertEqual(model.snapshot?.enabled, false)
