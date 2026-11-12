@@ -4,7 +4,6 @@ import SwiftUI
 
 // The inspector's Source tab: where this table came from, how big it is, how its row count was
 // arrived at, and the two things a person can do about it — pick a different sheet, or stage it.
-// Ported from `web/index.html:1082-1143` (`renderSource`).
 //
 // Everything the user reads here is a *sentence*, and sentences live in the UI. The engine hands up
 // values — `Table.RowsBasis`, `StageDecision.reason`, `SourceSpec` — and this file is the only place
@@ -24,11 +23,11 @@ public struct SourceTab: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(table.name).font(.system(size: 13, weight: .semibold))
+            Text(table.name).font(.siftBodyStrong)
             // Wrapping, not eliding: a path the user cannot read the end of is a path that does not
             // answer the one question this line exists for — *which* of the four `data.csv`s is this.
             Text(table.spec.key.path)
-                .font(.system(size: 10.5))
+                .font(.siftCaption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
@@ -38,20 +37,20 @@ public struct SourceTab: View {
                     GridRow {
                         Text(stat.label).foregroundStyle(.secondary)
                         Text(stat.value)
-                            .font(.system(size: 11, design: .monospaced))
+                            .font(.siftMono)
                             .frame(maxWidth: .infinity, alignment: .trailing)
                     }
                 }
             }
-            .font(.system(size: 11))
+            .font(.siftCaption)
 
             Text(rowsBasisText(table.rowsBasis))
-                .font(.system(size: 10.5))
+                .font(.siftCaption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             if table.spec.sheets.count > 1 {
-                Text("Sheets").font(.system(size: 11, weight: .semibold))
+                Text("Sheets").font(.siftCaptionStrong)
                 ForEach(table.spec.sheets, id: \.name) { sheet in
                     Button {
                         // The same route the sidebar's "Open Another Sheet…" takes — one rule about
@@ -63,19 +62,19 @@ public struct SourceTab: View {
                             Text(sheet.name).lineLimit(1)
                             Spacer(minLength: 6)
                             Text(Self.sheetDetail(sheet))
-                                .font(.system(size: 10, design: .monospaced))
+                                .font(.siftMono)
                                 .foregroundStyle(.secondary)
                         }
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .font(.system(size: 11.5))
+                    .font(.siftCaption)
                 }
             }
 
-            Text("Staging").font(.system(size: 11, weight: .semibold))
+            Text("Staging").font(.siftCaptionStrong)
             Text(Self.stagingNote(table))
-                .font(.system(size: 10.5))
+                .font(.siftCaption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             switch Self.staging(table) {
@@ -111,9 +110,9 @@ public struct SourceTab: View {
             }
 
             if let prompt = table.spec.sniffPrompt {
-                Text("Detected dialect").font(.system(size: 11, weight: .semibold))
+                Text("Detected dialect").font(.siftCaptionStrong)
                 Text(Self.dialectText(prompt))
-                    .font(.system(size: 10.5, design: .monospaced))
+                    .font(.siftMono)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(8)
@@ -177,9 +176,8 @@ public struct SourceTab: View {
         case neither
     }
 
-    /// Formats worth offering a copy of. A `Set<Fmt>`, not of strings: `web/index.html` compared
-    /// `t.fmt` against `["csv", "glob_csv", …]` and a typo in one of those literals is a silently
-    /// missing button. Mirrors `SidebarViewController.stageable`.
+    /// Formats worth offering a copy of. A `Set<Fmt>`, not of strings: a typo in a string
+    /// literal is a silently missing button. Mirrors `SidebarViewController.stageable`.
     ///
     /// This set only decides whether to OFFER the button. `SiftCore.shouldStage` remains the
     /// authority on whether staging is a good idea, and its reason is what the note quotes.

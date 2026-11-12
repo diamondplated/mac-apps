@@ -4,6 +4,7 @@ import TestSupport
 import DuckDBKit
 @testable import SiftCore
 @testable import SiftEngine
+@testable import SiftVerify
 
 // Tests for the `sift` verifier itself — the thing `swift run sift --verify` and `sift <path>`
 // are thin wrappers over. Three groups, and the split is the point:

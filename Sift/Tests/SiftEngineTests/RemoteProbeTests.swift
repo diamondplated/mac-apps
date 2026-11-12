@@ -4,6 +4,7 @@ import Foundation
 import Testing
 import TestSupport
 @testable import SiftEngine
+@testable import SiftVerify
 import SiftCore
 
 // `RemoteProbe.swift`, against the loopback oracle.

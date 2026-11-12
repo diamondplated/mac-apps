@@ -1,8 +1,7 @@
 import SiftEngine
 import SwiftUI
 
-// The SQL box: a monospaced editor on a dark console, a status line, `Run ⌘↵` and
-// `Reset to filters`. `.sqlwrap` / `.sqlbar` (`web/index.html:148-155, 359-367`).
+// The SQL box: a monospaced editor, a status line, `Run ⌘↵` and `Reset to Filters`.
 //
 // 🔴 **THIS FILE CONTAINS NO SQL AND NO VALIDATION, AND THAT IS THE POINT.** SQL mode is the one
 // place a user's own text reaches the database. The SELECT-only gate is `SiftEngine`'s
@@ -27,7 +26,7 @@ import SwiftUI
 
 /// The console's status line, which is also the one-way-door warning.
 ///
-/// Two states and no third — `web/index.html:1762, 1770`, verbatim. `owned` is
+/// Two states and no third. `owned` is
 /// `TableViewModel.sqlOwned`: the user has typed in the box, so the filters and the header controls
 /// no longer describe what the grid is showing, and nothing will try to parse their SQL back into
 /// filters to make them again. `Reset to filters` is the only way back, and this sentence is what
@@ -46,14 +45,6 @@ public struct SQLConsole: View {
         self.onError = onError
     }
 
-    // `--console-bg` / `--console-ink` (`web/index.html:12`). Dark in both appearances on purpose:
-    // the console is not a document surface, and the web build gives it the same two colours under
-    // `prefers-color-scheme: light` and `dark` alike. Computed rather than module-level `let`s —
-    // a global of a type whose `Sendable` conformance moves between SDKs is a hard error in Swift 6
-    // mode, and `gutterFont` already pays for that lesson one file over.
-    private var consoleBackground: Color { Color(red: 0x1a / 255, green: 0x23 / 255, blue: 0x2b / 255) }
-    private var consoleInk: Color { Color(red: 0xb9 / 255, green: 0xc9 / 255, blue: 0xd4 / 255) }
-
     /// Routed through `typeSQL` rather than binding `sqlText` directly: the setter is what claims
     /// the box, and the model's mirror must be able to write the same property without claiming it.
     private var text: Binding<String> {
@@ -61,54 +52,44 @@ public struct SQLConsole: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 8) {
+            // The editor sits on the system text-background colour in a hairline-bordered box, so it
+            // follows light and dark mode like any other text field.
             TextEditor(text: text)
-                // `.sqlwrap textarea`: 11.5 px monospace, 9/11 padding, 76 px minimum.
-                .font(.system(size: 11.5, design: .monospaced))
-                .foregroundStyle(consoleInk)
+                .font(.siftMono)
                 .scrollContentBackground(.hidden)
-                .padding(EdgeInsets(top: 9, leading: 11, bottom: 9, trailing: 11))
-                .frame(minHeight: 76)
+                .padding(EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6))
+                .frame(minHeight: 76, maxHeight: 120)
+                .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle.sift())
+                .overlay(RoundedRectangle.sift().strokeBorder(Color(nsColor: .separatorColor)))
 
             HStack(spacing: 8) {
                 Text(sqlStatusText(owned: model.sqlOwned))
-                    .font(.system(size: 11, weight: model.sqlOwned ? .bold : .regular))
-                    .foregroundStyle(model.sqlOwned ? Color.accentColor : consoleInk.opacity(0.65))
+                    .font(model.sqlOwned ? .siftCaptionStrong : .siftCaption)
+                    .foregroundStyle(model.sqlOwned ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.secondary))
                     // The one-way-door warning is the whole reason the line exists; an elided one
-                    // stops being a warning. `.sqlbar .own`, plus a line that never truncates.
+                    // stops being a warning.
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 12)
-                Button("Reset to filters") {
+                Button("Reset to Filters") {
                     Task { await report { try await model.exitSQLMode() } }
                 }
                 Button {
                     Task { await report { try await model.runSQL() } }
                 } label: {
-                    // "Run ⌘↵" — the shortcut is spelled out because it is the only way to run
-                    // without leaving the editor, and `.keyboardShortcut` draws nothing itself.
+                    // The shortcut is spelled out because it is the only way to run without leaving
+                    // the editor, and `.keyboardShortcut` draws nothing itself.
                     Text("Run \u{2318}\u{21A9}")
                 }
                 // 🔴 On the BUTTON, not on the editor. A `TextEditor` swallows Return, and there is
                 // no key handler to hang ⌘↵ off; a button's shortcut is dispatched by the window
                 // regardless of what holds focus, which is what makes ⌘↵ work while the user is
-                // still typing — `$("sqlbox").keydown` (`web/index.html:1773-1775`).
+                // still typing.
                 .keyboardShortcut(.return, modifiers: .command)
             }
             .controlSize(.small)
-            .padding(EdgeInsets(top: 5, leading: 10, bottom: 5, trailing: 10))
-            .overlay(alignment: .top) { Divider().opacity(0.35) }
         }
-        .background(consoleBackground)
-        // 🔴 **The console is a dark REGION, not a dark rectangle.** MEASURED, light appearance:
-        // `Reset to filters` and `Run ⌘↵` rendered at a contrast ratio of **1.03** against the
-        // console — a dark bezel and near-black label on a near-black panel, invisible. The panel is
-        // deliberately dark in both appearances (see `consoleBackground`), but every control inside
-        // it was still resolving `.aqua`, so it drew light-mode chrome onto a dark-mode surface.
-        // In dark appearance the same two buttons measure 9.52. Declaring the subtree dark makes the
-        // controls, the divider and the editor's caret and selection resolve against the surface
-        // they are actually on; both appearances now measure the same, because the console IS the
-        // same in both.
-        .environment(\.colorScheme, .dark)
+        .padding(EdgeInsets(top: 8, leading: 10, bottom: 8, trailing: 10))
         // `id:` so switching tabs re-mirrors against the newly selected table, and the error is
         // surfaced rather than swallowed — `RootView`'s own `.task(id:)` makes the same call.
         .task(id: model.name) {

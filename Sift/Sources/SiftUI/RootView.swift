@@ -9,7 +9,7 @@ public struct RootView: View {
     private let onOpen: () -> Void
 
     /// Whether the SQL console is showing. Per window and not per table — `sqlwrap`'s `display` was
-    /// one element for the whole page (`web/index.html:359`), and a toggle that forgot itself on
+    /// one element for the whole page, and a toggle that forgot itself on
     /// every tab switch would be worse than one that remembers the wrong thing.
     @State private var showSQL = false
     @State private var afterSheetDismissal: (@MainActor () async -> Void)?
@@ -24,27 +24,53 @@ public struct RootView: View {
             SourceSidebar(state: state)
                 .navigationSplitViewColumnWidth(min: 160, ideal: 220, max: 400)
         } detail: {
-            // Banners, filter bar, console, grid — `web/index.html:336-368`'s order. The banners sit
+            // Banners, filter bar, console, grid, in that order. The banners sit
             // ABOVE the toolbar because several of them (staging, a missing extension) are about the
             // engine rather than about this view of the table, and pushing them under the filters
             // would read as though the filters caused them.
             VStack(spacing: 0) {
-                BannerStack(state: state)
                 if let table = state.active, let model = state.model(for: table.name) {
-                    FilterBar(model: model, showSQL: $showSQL) { state.banner = $0 }
-                    Divider()
-                    if showSQL {
-                        SQLConsole(model: model) { state.banner = $0 }
-                        Divider()
+                    // One surface for everything above the grid, so banners, filters and the SQL
+                    // console read as a single toolbar region with one rule under it, not as
+                    // separate strips.
+                    VStack(spacing: 0) {
+                        BannerStack(state: state)
+                        FilterBar(model: model, showSQL: $showSQL) { state.banner = $0 }
+                        if showSQL {
+                            SQLConsole(model: model) { state.banner = $0 }
+                                .transition(.opacity.combined(with: .move(edge: .top)))
+                        }
                     }
+                    .background(.bar)
+                    .clipped()
+                    Divider()
                     TableGrid(
                         model: model,
                         onColumnSelected: { state.selectedColumn = $0 },
+                        onFilterColumn: {
+                            state.selectedColumn = $0
+                            state.inspectorVisible = true
+                        },
+                        onCopyAs: { dialect in Task { await state.copySnippet(dialect) } },
                         onError: { state.banner = $0 })
                 } else {
+                    BannerStack(state: state)
                     NothingOpenYet(onOpen: onOpen)
                 }
             }
+            .overlay(alignment: .bottom) {
+                if let toast = state.toast {
+                    Text(toast)
+                        .font(.siftLabel)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(.regularMaterial, in: RoundedRectangle.sift())
+                        .overlay(RoundedRectangle.sift().strokeBorder(Color(nsColor: .separatorColor)))
+                        .padding(.bottom, 16)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
+            }
+            .siftAnimation(value: state.toast)
             // 🔴 **`.toolbar` HERE, and not an `NSToolbarDelegate` in `SiftApp`.** Task 13 measured
             // the reason and then had to work around it: `NavigationSplitView` inside an
             // `NSHostingView` REPLACES `window.toolbar` with an `NSToolbar` of its own, whose
@@ -144,6 +170,10 @@ public struct RootView: View {
                 } else {
                     SheetSubjectGone()
                 }
+            case .openLocation:
+                OpenLocationSheet { path in
+                    afterSheetDismissal = { await state.open(paths: [path]) }
+                }
             case .connections:
                 // `state.engine.extensions` and not `session.engineInfo()`: that snapshot was taken
                 // once, on the MainActor, while `AppState` was built. See `extensionsAtLaunch`.
@@ -204,7 +234,7 @@ struct SheetSubjectGone: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            Text("That table is no longer open.").font(.system(size: 13))
+            Text("That table is no longer open.").font(.siftBody)
             Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
         }
         .padding(16)
@@ -258,7 +288,7 @@ private struct RowSummaryItem: View {
     /// while a background count runs, and proportional digits make the whole phrase twitch.
     private var phrase: some View {
         Text(state.rowSummary)
-            .font(.system(size: 12).monospacedDigit())
+            .font(.siftLabel.monospacedDigit())
             .foregroundStyle(.secondary)
             .lineLimit(1)
     }
@@ -273,6 +303,8 @@ private struct RowSummaryItem: View {
 private struct TableGrid: View {
     let model: TableViewModel
     let onColumnSelected: (String) -> Void
+    let onFilterColumn: (String) -> Void
+    let onCopyAs: (SnippetDialect) -> Void
     let onError: (String) -> Void
 
     private var state: GridState {
@@ -298,11 +330,12 @@ private struct TableGrid: View {
                 // detached `Task`, so there is no caller left to throw to and the banner is the only
                 // place that error can go.
                 TableGridView(
-                    model: model, onColumnSelected: onColumnSelected, onError: onError)
+                    model: model, onColumnSelected: onColumnSelected, onError: onError,
+                    onFilterColumn: onFilterColumn, onCopyAs: onCopyAs)
                     .id(model.name)
                     // The "no rows match" state deliberately does NOT cover the header —
-                    // `web/index.html:198` (`inset: 46px 0 0 0`), so the filters that emptied the
-                    // grid are still there to be undone. Opaque, so no stale rows show behind it.
+                    // so the header, and the filters that emptied the grid, stay
+                    // there to be undone. Opaque, so no stale rows show behind it.
                     .overlay(alignment: .top) {
                         if state == .noRows {
                             Text("No rows match the current filters.")
@@ -331,56 +364,30 @@ private struct TableGrid: View {
 }
 
 /// Height of the `NSTableView` header the "no rows" overlay must not cover.
-private let gridHeaderInset: CGFloat = 28
+private let gridHeaderInset: CGFloat = 40
 
-/// The no-file-open state — `showEmptyState("nofile")` (`web/index.html:637-657`), copy included.
+/// The no-file-open state: the app icon, a name, one line, and the Open button.
 private struct NothingOpenYet: View {
     let onOpen: () -> Void
-    /// `.gempty.drop` (`web/index.html:1543`) — the second half of the shell's drag hint, so a drag
-    /// over the window lights the pane the user is actually looking at as well as the sidebar.
-    /// Read from the environment rather than passed in, so `RootView`'s call site stays untouched.
-    @Environment(\.sourceDragHot) private var dragHot
-
-    private let formats = ["csv", "parquet", "json", "ndjson", "xlsx", "delta table", "folder"]
 
     var body: some View {
-        VStack(spacing: 14) {
-            Text("⚡")
-                .font(.system(size: 30))
-                .frame(width: 66, height: 66)
-                .background(Color.accentColor.opacity(0.14), in: RoundedRectangle(cornerRadius: 16))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .strokeBorder(Color.accentColor.opacity(0.28)))
-            Text("Nothing open yet").font(.system(size: 16, weight: .semibold))
-            Text(
-                """
-                Drop a file anywhere here, or open one — it loads instantly and stays on disk, \
-                so size isn't the constraint it usually is.
-                """
-            )
-            .font(.system(size: 12.5))
-            .foregroundStyle(.secondary)
-            .multilineTextAlignment(.center)
-            .frame(maxWidth: 340)
-            Button(action: onOpen) { Label("Open a File…", systemImage: "plus") }
+        VStack(spacing: 10) {
+            Image(nsImage: NSApplication.shared.applicationIconImage)
+                .resizable()
+                .frame(width: 96, height: 96)
+                .accessibilityHidden(true)
+            Text("Nothing Open").font(.siftTitle)
+            Text("Drop a file here, or press \u{2318}O.")
+                .font(.siftLabel)
+                .foregroundStyle(.secondary)
+            Button(action: onOpen) { Text("Open\u{2026}") }
                 .controlSize(.large)
                 .buttonStyle(.borderedProminent)
-            // The formats the open panel will actually accept, said before the user has to guess.
-            HStack(spacing: 5) {
-                ForEach(formats, id: \.self) { format in
-                    Text(format.uppercased())
-                        .font(.system(size: 10, design: .monospaced))
-                        .kerning(0.6)
-                        .foregroundStyle(.tertiary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 2)
-                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 5))
-                }
-            }
-            .frame(maxWidth: 360)
+                .padding(.top, 6)
+            Text("CSV, Parquet, JSON, Excel, Delta, or a folder")
+                .font(.siftCaption)
+                .foregroundStyle(.tertiary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(dragHot ? Color.accentColor.opacity(0.10) : Color.clear)
     }
 }

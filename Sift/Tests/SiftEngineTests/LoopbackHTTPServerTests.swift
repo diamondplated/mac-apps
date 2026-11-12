@@ -3,6 +3,7 @@ import Foundation
 import Testing
 import TestSupport
 @testable import SiftEngine
+@testable import SiftVerify
 
 // The oracle's own tests. Every later remote test asserts *how* DuckDB read a URL by reading
 // `requestLog`, so a wrong log here would not fail — it would quietly agree with whatever the

@@ -5,7 +5,7 @@ import SiftEngine
 import SwiftUI
 
 // The Column tab: what this one column contains, and the clicks that turn any of it into a filter.
-// Ported from `renderColumn`/`loadColumn` (`web/index.html:1145-1291`).
+// Ported from `renderColumn`/`loadColumn`.
 
 /// One column's stats, its value list, and the three clicks on a value row.
 public struct ColumnPanel: View {
@@ -14,7 +14,7 @@ public struct ColumnPanel: View {
     private let column: String
 
     /// The lens the user picked, or `nil` while the profile's own `view` is still in charge — the
-    /// web's `state.colLens || p.view` (`web/index.html:1129`), which is why this is optional
+    /// web's `state.colLens || p.view`, which is why this is optional
     /// rather than seeded to `.topn`.
     @State private var lens: ColumnProfile.View?
     @State private var search = ""
@@ -54,7 +54,7 @@ public struct ColumnPanel: View {
                 // engine throw the clean `No open table named 'x'.`; a `try?` here would turn that
                 // into a panel that just sits there empty forever.
                 Text(error)
-                    .font(.system(size: 11))
+                    .font(.siftCaption)
                     .foregroundStyle(.red)
                     .textSelection(.enabled)
             }
@@ -63,7 +63,7 @@ public struct ColumnPanel: View {
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         // 200 ms after the last keystroke, and not before — `blockTimer`
-        // (`web/index.html:1286-1290`). `.task(id:)` cancels the pending sleep on the next
+        //. `.task(id:)` cancels the pending sleep on the next
         // keystroke, which is the whole of the debounce.
         .task(id: search) {
             try? await Task.sleep(nanoseconds: 200_000_000)
@@ -77,7 +77,7 @@ public struct ColumnPanel: View {
 
     /// What a reload depends on. The filters are in it as a string because `Filter` is `Equatable`
     /// but not `Hashable`, and they must be in it at all: `applySpec` ends by re-running
-    /// `loadColumn` (`web/index.html:886`), and a spec changed anywhere else — the header's sort,
+    /// `loadColumn`, and a spec changed anywhere else — the header's sort,
     /// the filter bar — has to reach this panel too.
     private var loadKey: String {
         "\(column)|\(lens?.rawValue ?? "")|\(debouncedSearch)|\(model.table.qspec.filters)"
@@ -114,8 +114,8 @@ public struct ColumnPanel: View {
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(column).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
-            Text(type).font(.system(size: 9.5, design: .monospaced)).foregroundStyle(.tertiary)
+            Text(column).font(.siftLabelStrong).lineLimit(1)
+            Text(type).font(.siftMono).foregroundStyle(.tertiary)
         }
     }
 
@@ -127,7 +127,7 @@ public struct ColumnPanel: View {
         }
         .pickerStyle(.segmented)
         .labelsHidden()
-        .font(.system(size: 10))
+        .font(.siftCaption)
     }
 
     @ViewBuilder
@@ -136,11 +136,11 @@ public struct ColumnPanel: View {
         case .topn:
             TextField("search values…", text: $search)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: 11))
+                .font(.siftCaption)
             if let panel {
                 DistinctList(panel: panel, onClick: click)
             } else if error == nil {
-                Text("loading…").font(.system(size: 11)).foregroundStyle(.secondary)
+                Text("loading…").font(.siftCaption).foregroundStyle(.secondary)
             }
         case .hist:
             SpreadLens(session: session, model: model, column: column, profile: profile)
@@ -152,7 +152,7 @@ public struct ColumnPanel: View {
 
 // MARK: - the stats grid
 
-/// `web/index.html:1177-1193`, row for row: each line appears only when the profile carries it, so
+/// Each line appears only when the profile carries it, so
 /// a text column shows no mean and a clean column shows no "won't cast".
 private struct StatsGrid: View {
     let profile: ColumnProfile
@@ -174,11 +174,11 @@ private struct StatsGrid: View {
             if let median = profile.q50 { row("median", String(median.prefix(22))) }
             if let maxLen = profile.maxLen { row("max length", countText(maxLen)) }
         }
-        .font(.system(size: 10.5))
+        .font(.siftCaption)
     }
 
     /// The PANEL's count when it has an exact one, because it is both exact and filter-aware; the
-    /// profile only ever carries the HyperLogLog estimate (`web/index.html:1174-1176`).
+    /// profile only ever carries the HyperLogLog estimate.
     private var distinctText: String {
         if let exact = panel?.nDistinct, exact.exact { return countText(exact.value) }
         let value = profile.exactDistinct ?? profile.approxDistinct
@@ -189,7 +189,7 @@ private struct StatsGrid: View {
         GridRow {
             Text(name).foregroundStyle(.secondary)
             Text(value)
-                .font(.system(size: 10.5, design: .monospaced))
+                .font(.siftMono)
                 .foregroundStyle(colour)
                 .gridColumnAlignment(.trailing)
         }
@@ -222,14 +222,14 @@ struct DistinctList: View {
                 row(value)
             }
             Text(footer)
-                .font(.system(size: 10))
+                .font(.siftCaption)
                 .foregroundStyle(.secondary)
                 .padding(.top, 6)
             Text("""
                 Click to filter · ⌘-click to add · right-click to exclude. This list ignores its \
                 own column's filter, so everything stays visible.
                 """)
-                .font(.system(size: 10))
+                .font(.siftCaption)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -246,16 +246,16 @@ struct DistinctList: View {
         let sentinel = value.label == nullSentinelLabel || value.label == emptySentinelLabel
         return HStack(spacing: 6) {
             Text(value.label)
-                .font(.system(size: sentinel ? 11 : 11.5, design: sentinel ? .monospaced : .default))
+                .font(sentinel ? .siftMono : .siftCaption)
                 .foregroundStyle(sentinel ? Color.orange : Color.primary)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Text(countText(value.n))
-                .font(.system(size: 10, design: .monospaced))
+                .font(.siftMono)
                 .foregroundStyle(.secondary)
             Text(percentText(value.frac))
-                .font(.system(size: 10, design: .monospaced))
+                .font(.siftMono)
                 .foregroundStyle(.tertiary)
                 .frame(width: 46, alignment: .trailing)
         }
@@ -272,7 +272,7 @@ struct DistinctList: View {
         }
         .overlay {
             if value.selected {
-                RoundedRectangle(cornerRadius: 4).strokeBorder(Color.accentColor)
+                RoundedRectangle.sift().strokeBorder(Color.accentColor)
             }
         }
         .contentShape(Rectangle())

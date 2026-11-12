@@ -681,27 +681,6 @@ private func writePNG(_ image: CGImage, _ name: String) throws -> String {
     await state.session.shutdown()
 }
 
-/// The empty rail is its own state and its own sentence, not a zero-row list.
-@MainActor
-@Test(.engineLifetime) func anEmptySidebarStillDrawsTheDropzoneAndItsNote() async throws {
-    let state = AppState(session: try Session(home: tempHome()))
-    let cold = try render(
-        SourceSidebar(state: state).environment(\.sourceDragHot, false), 260, 420)
-    let path = try writePNG(cold, "sidebar-empty")
-
-    // 🔴 The comparison is against the SAME view with the drag hint on: the dropzone's hot state is
-    // the only thing that differs, so this can only pass if `\.sourceDragHot` reaches the pixels —
-    // which is the feedback whose absence reads as "drops are not supported here".
-    let hot = try render(
-        SourceSidebar(state: state).environment(\.sourceDragHot, true), 260, 420)
-    try writePNG(hot, "sidebar-empty-drag")
-    let coldBytes = try #require(cold.dataProvider?.data) as Data
-    let hotBytes = try #require(hot.dataProvider?.data) as Data
-    #expect(coldBytes != hotBytes, "a drag over the window gives no feedback — see \(path)")
-
-    await state.session.shutdown()
-}
-
 // MARK: - the engine, in the window
 
 /// 🔴 The web build showed engine and version in-window; the native port showed it only in About

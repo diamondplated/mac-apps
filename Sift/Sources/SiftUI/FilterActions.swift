@@ -6,7 +6,7 @@ import SiftCore
 // `[Filter]` in, `[Filter]` out, no `Session`, no view — because every one of its edges is a
 // behaviour a user can hit in one click and none of them are observable from a rendered view.
 //
-// Ported from the two handlers on `.vrow` (`web/index.html:1268-1284`), rule for rule.
+// Ported from the two handlers on `.vrow`, rule for rule.
 
 /// Which of the three clicks the user made. `exclude` is the right-click.
 public enum DistinctClick: Sendable {
@@ -35,13 +35,13 @@ let emptySentinelLabel = "␀ EMPTY"
 ///
 /// Three behaviours worth stating, because each of them is a bug if you get it backwards:
 ///
-///  1. **Replacement is per (column, op), not per column** — `addFilter` (`web/index.html:889-893`)
+///  1. **Replacement is per (column, op), not per column** — `addFilter`
 ///     drops only filters that match on both, so clicking a value on a column that already carries
 ///     an `is_null` or an exclusion adds to it rather than silently discarding it.
 ///  2. **⌘-click toggles.** Clicking an already-selected value removes it, which is what makes the
 ///     panel's `selected` highlighting a control rather than a readout.
 ///  3. **Emptying the ⌘-selection drops EVERY filter on the column, not just the `in`**
-///     (`web/index.html:1279-1280`). Leaving an empty `in` behind would be worse than useless:
+///. Leaving an empty `in` behind would be worse than useless:
 ///     `whereClause` skips a value-taking op with no values, so the filter would be invisible in
 ///     SQL while still sitting in the spec — and dropping only the `in` while leaving, say, an
 ///     `is_null` on the same column would leave the user staring at rows they just deselected.
@@ -53,7 +53,7 @@ public func applyDistinctClick(
     }
 
     // Before the sentinel check, exactly as `oncontextmenu` sits outside `onclick`'s two sentinel
-    // branches (`web/index.html:1283`). Excluding the two sentinels through their values is
+    // branches. Excluding the two sentinels through their values is
     // correct rather than an oversight: `whereClause` turns `not_in [null]` into `IS NOT NULL` and
     // `not_in ['']` into `<> '' OR IS NULL`, which is what "exclude this row" means for both.
     if modifier == .exclude { return replacing(.notIn, [value]) }

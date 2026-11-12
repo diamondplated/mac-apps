@@ -272,12 +272,12 @@ private func isItalic(_ field: NSTextField?) -> Bool {
     #expect(!bridge.syncColumns(view))
 
     // Every branch of `computeWidths` (web/index.html:576-583), and all four answers different:
-    //  id     2-char values  -> 34.8 by data, 41.2 by name, floored at 76
+    //  id     2-char values  -> 34.8 by data, 41.2 by name, floored at 96
     //  descr. 20-char values -> 168 by data, which beats its 109.6 by name
     //  30-char name          -> 254 by name, which beats its 27.4 by data
     //  blob   60-char values -> capped at 42 chars (330.8) and then clamped at 320
-    #expect(bridge.columnWidths() == [76, 168, 254, 320])
-    #expect(view.tableColumns.dropFirst().map(\.width) == [76, 168, 254, 320])
+    #expect(bridge.columnWidths() == [96, 168, 254, 320])
+    #expect(view.tableColumns.dropFirst().map(\.width) == [96, 168, 254, 320])
     #expect(view.tableColumns[0].width == 62, "the gutter is fixed — `.rownum { width: 62px }`")
 }
 
@@ -458,8 +458,8 @@ private func truncated(_ field: NSTextField) -> Bool {
 /// clamp.
 ///
 /// Worth its own file rather than reusing `openedFixture`: every column of that one is short enough
-/// to bottom out at the 76-pt floor, so a width formula with the wrong multiplier in it would still
-/// produce 76 and the assertion would pass on a broken implementation.
+/// to bottom out at the 96-pt floor, so a width formula with the wrong multiplier in it would still
+/// produce 96 and the assertion would pass on a broken implementation.
 @MainActor
 private func gridWidthFixture() async throws -> (AppState, TableViewModel) {
     let path = tempDir("grid-widths").appendingPathComponent("widths.csv").path

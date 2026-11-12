@@ -21,11 +21,11 @@ import SwiftUI
 // decision lives there and the representable is left holding only wiring. If something here starts
 // wanting a test, it is in the wrong type.
 
-/// Matches the shell's `--row-h: 27px` (`web/index.html:112`). The scroll↔row mapping is computed
+/// Matches the shell's `--row-h: 27px`. The scroll↔row mapping is computed
 /// from this, so it and the table view's `rowHeight` are the same number by construction.
 public let gridRowHeight: CGFloat = 27
 
-/// The row-number gutter's floor — `.rownum { width: 62px }` (`web/index.html:192`). A floor rather
+/// The row-number gutter's floor — `.rownum { width: 62px }`. A floor rather
 /// than the width, because 62 is not enough past ~100k rows; see `GridBridge.gutterWidth()`.
 private let minimumGutterWidth: CGFloat = 62
 
@@ -35,7 +35,7 @@ private let minimumGutterWidth: CGFloat = 62
 /// Computed rather than a stored global: an `NSFont` is not `Sendable`, so a global `let` is a hard
 /// error in Swift 6 mode. AppKit caches the lookup, so this costs nothing per call.
 @MainActor
-var gutterFont: NSFont { .monospacedSystemFont(ofSize: 10.5, weight: .regular) }
+var gutterFont: NSFont { .monospacedSystemFont(ofSize: 11, weight: .regular) }
 
 /// Identifier of the gutter column. Data columns are identified by ordinal (`c0`, `c1`, …) rather
 /// than by name: DuckDB will happily return two columns called `id`, and a name-keyed identifier
@@ -44,7 +44,7 @@ private let gutterID = NSUserInterfaceItemIdentifier("__rownum__")
 
 // MARK: - which of the four things the pane is showing
 
-/// The web's `renderGrid` fan-out (`web/index.html:660-666`), as a value.
+/// The web's `renderGrid` fan-out, as a value.
 ///
 /// Lives here rather than inside `RootView`'s body because it is a decision with edges and a body
 /// cannot be tested. The fourth state — nothing open at all — is not in here: it is decided by
@@ -79,6 +79,8 @@ public struct TableGridView: NSViewRepresentable {
     private let model: TableViewModel
     private let onColumnSelected: ((String) -> Void)?
     private let onError: ((String) -> Void)?
+    private let onFilterColumn: ((String) -> Void)?
+    private let onCopyAs: ((SnippetDialect) -> Void)?
 
     /// Both closures default to `nil` so the existing call site keeps compiling. `onColumnSelected`
     /// is where a plain header click lands once there is an inspector to select a column *in* (Task
@@ -87,16 +89,22 @@ public struct TableGridView: NSViewRepresentable {
     public init(
         model: TableViewModel,
         onColumnSelected: ((String) -> Void)? = nil,
-        onError: ((String) -> Void)? = nil
+        onError: ((String) -> Void)? = nil,
+        onFilterColumn: ((String) -> Void)? = nil,
+        onCopyAs: ((SnippetDialect) -> Void)? = nil
     ) {
         self.model = model
         self.onColumnSelected = onColumnSelected
+        self.onFilterColumn = onFilterColumn
+        self.onCopyAs = onCopyAs
         self.onError = onError
     }
 
     public func makeCoordinator() -> GridBridge {
         let bridge = GridBridge(model: model)
         bridge.onColumnSelected = onColumnSelected
+        bridge.onFilterColumn = onFilterColumn
+        bridge.onCopyAs = onCopyAs
         bridge.onError = onError
         return bridge
     }
@@ -108,7 +116,12 @@ public struct TableGridView: NSViewRepresentable {
         table.rowHeight = gridRowHeight
         table.usesAlternatingRowBackgroundColors = true
         table.style = .plain
-        table.headerView = NSTableHeaderView()
+        let header = SiftTableHeaderView()
+        // Right-click (or control-click) on any header: sort, filter, copy the name.
+        header.menuProvider = { [weak bridge] column in bridge?.headerMenu(forColumnIndex: column) }
+        table.headerView = header
+        // The table's own context menu: Copy As, the current view as code.
+        table.menu = bridge.tableContextMenu()
         table.allowsColumnReordering = false
         table.allowsMultipleSelection = true
         table.columnAutoresizingStyle = .noColumnAutoresizing
@@ -154,7 +167,7 @@ public struct TableGridView: NSViewRepresentable {
         }
         model.onViewportReset = { [weak bridge, weak table, weak scroll] in
             guard let bridge, let table, let scroll else { return }
-            // A spec change is `resetGrid()` (`web/index.html:585-592`), not a re-request of
+            // A spec change is `resetGrid()`, not a re-request of
             // wherever the thumb happened to be: a filter that cuts 1,000,000 rows to 12 leaves it
             // parked past the end of the data.
             scroll.contentView.scroll(to: .zero)
@@ -198,6 +211,10 @@ public final class GridBridge: NSObject, NSTableViewDataSource, NSTableViewDeleg
     /// throw back to; without this the user's shift-click would simply do nothing, which is the
     /// silent failure this app exists to be the opposite of.
     public var onError: ((String) -> Void)?
+    /// "Filter…" on a header menu: show that column's values, where a filter is one click.
+    public var onFilterColumn: ((String) -> Void)?
+    /// "Copy As" on the table's context menu.
+    public var onCopyAs: ((SnippetDialect) -> Void)?
 
     private var stamp: ColumnStamp?
     private var builtExtent = -1
@@ -385,7 +402,7 @@ public final class GridBridge: NSObject, NSTableViewDataSource, NSTableViewDeleg
     // MARK: - the viewport
 
     /// Which rows a visible rectangle covers. The web's `firstRow = scrollTop / ROW_H` and
-    /// `visibleRows = ceil(clientHeight / ROW_H)` (`web/index.html:593`).
+    /// `visibleRows = ceil(clientHeight / ROW_H)`.
     ///
     /// 🔴 This is the reason the grid is an `NSTableView`: the model is asked for *this* window plus
     /// its overscan, and never for the whole table. A version of this that returned the full extent
@@ -480,7 +497,7 @@ public final class GridBridge: NSObject, NSTableViewDataSource, NSTableViewDeleg
     }
 
     /// Plain click opens the column; shift-click sorts. The web build's binding, and the reason its
-    /// header tooltip ends `click: values · shift-click: sort` (`web/index.html:617`) — nobody
+    /// header tooltip ends `click: values · right-click: sort and filter` — nobody
     /// guesses this one.
     ///
     /// It is this way round rather than the more obvious click-to-sort because a sort on a file this
@@ -497,6 +514,132 @@ public final class GridBridge: NSObject, NSTableViewDataSource, NSTableViewDeleg
             guard let self else { return }
             do { try await model.setSort(next) } catch { onError?(error.localizedDescription) }
         }
+    }
+
+    // MARK: - the header menu
+
+    /// The menu for the header at `index` in the table's column order (the gutter is 0), or `nil`
+    /// over the gutter. Sort Ascending, Sort Descending, Clear Sort, Filter…, Copy Column Name.
+    func headerMenu(forColumnIndex index: Int) -> NSMenu? {
+        guard index > 0, index - 1 < model.columns.count else { return nil }
+        return headerMenu(for: model.columns[index - 1].name)
+    }
+
+    func headerMenu(for column: String) -> NSMenu {
+        let menu = NSMenu(title: column)
+        menu.autoenablesItems = true
+        func add(_ title: String, _ action: Selector) {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = self
+            item.representedObject = column
+            menu.addItem(item)
+        }
+        add("Sort Ascending", #selector(sortAscending(_:)))
+        add("Sort Descending", #selector(sortDescending(_:)))
+        add("Clear Sort", #selector(clearSort(_:)))
+        menu.addItem(.separator())
+        add("Filter\u{2026}", #selector(filterColumn(_:)))
+        add("Copy Column Name", #selector(copyColumnName(_:)))
+        return menu
+    }
+
+    /// The context menu over the rows: Copy As pandas, Polars, DuckDB or SQL.
+    func tableContextMenu() -> NSMenu {
+        let menu = NSMenu(title: "Table")
+        let copyAs = NSMenuItem(title: "Copy As", action: nil, keyEquivalent: "")
+        let submenu = NSMenu(title: "Copy As")
+        for dialect in SnippetDialect.allCases {
+            let item = NSMenuItem(
+                title: dialect.title, action: #selector(copyAs(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = dialect.rawValue
+            submenu.addItem(item)
+        }
+        copyAs.submenu = submenu
+        menu.addItem(copyAs)
+        return menu
+    }
+
+    @objc func copyAs(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let dialect = SnippetDialect(rawValue: raw)
+        else { return }
+        onCopyAs?(dialect)
+    }
+
+    fileprivate func direction(of column: String) -> QuerySpec.SortDirection? {
+        model.table.qspec.sort.first { $0.column == column }?.direction
+    }
+
+    private func sort(_ column: String, _ direction: QuerySpec.SortDirection?) {
+        let next = direction.map { [QuerySpec.SortTerm(column: column, direction: $0)] } ?? []
+        Task { [weak self] in
+            guard let self else { return }
+            do { try await model.setSort(next) } catch { onError?(error.localizedDescription) }
+        }
+    }
+
+    @objc func sortAscending(_ sender: NSMenuItem) {
+        if let column = sender.representedObject as? String { sort(column, .asc) }
+    }
+
+    @objc func sortDescending(_ sender: NSMenuItem) {
+        if let column = sender.representedObject as? String { sort(column, .desc) }
+    }
+
+    @objc func clearSort(_ sender: NSMenuItem) {
+        if sender.representedObject is String { sort("", nil) }
+    }
+
+    @objc func filterColumn(_ sender: NSMenuItem) {
+        if let column = sender.representedObject as? String { onFilterColumn?(column) }
+    }
+
+    @objc func copyColumnName(_ sender: NSMenuItem) {
+        guard let column = sender.representedObject as? String else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(column, forType: .string)
+    }
+}
+
+extension GridBridge: NSMenuItemValidation {
+    /// Checkmark the sort the column is in, and grey Clear Sort when there is none to clear. SQL mode
+    /// freezes the header controls, so the sort and filter items grey there too.
+    public func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        guard let column = item.representedObject as? String else { return true }
+        let sorted = direction(of: column)
+        switch item.action {
+        case #selector(sortAscending(_:)):
+            item.state = sorted == .asc ? .on : .off
+            return !model.table.sqlMode
+        case #selector(sortDescending(_:)):
+            item.state = sorted == .desc ? .on : .off
+            return !model.table.sqlMode
+        case #selector(clearSort(_:)):
+            return !model.table.qspec.sort.isEmpty && !model.table.sqlMode
+        case #selector(filterColumn(_:)):
+            return !model.table.sqlMode
+        default:
+            return true
+        }
+    }
+}
+
+/// The header strip, with a context menu per column. A plain `NSTableHeaderView` has no hook for
+/// one, and the click handling it already does (drag to resize, the click delegate) stays as is.
+final class SiftTableHeaderView: NSTableHeaderView {
+    var menuProvider: ((Int) -> NSMenu?)?
+
+    /// Tall enough for a 12-pt name over an 11-pt type line and the missing bar.
+    override init(frame: NSRect) {
+        super.init(frame: NSRect(x: 0, y: 0, width: frame.width, height: 40))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("SiftTableHeaderView is never unarchived") }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let column = self.column(at: convert(event.locationInWindow, from: nil))
+        return column >= 0 ? menuProvider?(column) : nil
     }
 }
 
@@ -528,7 +671,7 @@ final class GridCellView: NSTableCellView {
         bar.boxType = .custom
         bar.titlePosition = .noTitle
         bar.borderWidth = 0
-        bar.cornerRadius = 4
+        bar.cornerRadius = Theme.Radius.control
         bar.fillColor = .quaternaryLabelColor
         bar.isHidden = true
         addSubview(bar)
@@ -541,7 +684,7 @@ final class GridCellView: NSTableCellView {
 
     override func layout() {
         super.layout()
-        // `.gcell { padding: 2px 7px }` (`web/index.html:180`).
+        // `.gcell { padding: 2px 7px }`.
         let inset: CGFloat = 7
         let width = max(0, bounds.width - inset * 2)
         let height = ceil(label.intrinsicContentSize.height)
@@ -598,7 +741,7 @@ final class GridCellView: NSTableCellView {
         needsDisplay = true
         bar.isHidden = false
         // `.gcell.skel i { width: 70% }`, and `.skel.n i { margin-left:auto; width:52% }` — a number
-        // column's placeholder sits where its digits will (`web/index.html:219-221`).
+        // column's placeholder sits where its digits will.
         barFraction = kind == .number ? 0.52 : 0.70
         barTrailing = kind == .number
         toolTip = nil
@@ -617,7 +760,7 @@ final class GridCellView: NSTableCellView {
 
         switch glyph {
         case .null:
-            // `.gcell .nul { font-style: italic; color: var(--ink-3) }` (`web/index.html:188`).
+            // `.gcell .nul { font-style: italic; color: var(--ink-3) }`.
             label.attributedStringValue = NSAttributedString(
                 string: SiftEngine.nullGlyph,
                 attributes: [.font: italic(font), .foregroundColor: NSColor.tertiaryLabelColor])
@@ -647,7 +790,7 @@ final class GridCellView: NSTableCellView {
         needsLayout = true
     }
 
-    /// `cellClass` (`web/index.html:513`): alignment comes from the COLUMN's kind, never from
+    /// `cellClass`: alignment comes from the COLUMN's kind, never from
     /// whether this particular value parsed — so an `N/A` in a number column still lines up under
     /// the digits above it.
     private func alignment(for kind: Kind) -> NSTextAlignment {
@@ -693,12 +836,12 @@ final class SiftHeaderCell: NSTableHeaderCell {
     var decoration = HeaderDecoration(caret: nil, distinctLabel: "", missingFraction: 0)
 
     /// `.hcell .hn { font-weight:700; font-size:11.5px }`.
-    private var nameFont: NSFont { .systemFont(ofSize: 11.5, weight: .bold) }
+    private var nameFont: NSFont { .systemFont(ofSize: 12, weight: .semibold) }
     /// `.hcell .ht`/`.dcount { font-size:9px; font-family:ui-monospace }`. Monospaced so the distinct
     /// counts down a wide table line up with each other instead of wandering.
-    private var metaFont: NSFont { .monospacedSystemFont(ofSize: 9, weight: .regular) }
+    private var metaFont: NSFont { .monospacedSystemFont(ofSize: 11, weight: .regular) }
     /// `letter-spacing:.06em` on a 9 pt uppercase run — without it `VARCHAR` sets as a grey smudge.
-    private var metaKern: CGFloat { 0.54 }
+    private var metaKern: CGFloat { 0 }
     /// `.hcell { padding: 3px 7px }`, and the same 7 the cells below use, so a header sits over its
     /// own column's values rather than 2 pt off them.
     private let inset: CGFloat = 7
@@ -718,6 +861,9 @@ final class SiftHeaderCell: NSTableHeaderCell {
         band(cellFrame, fromTop: cellFrame.height - 1, height: 1, flipped: flipped).fill()
         NSRect(x: cellFrame.maxX - 1, y: cellFrame.minY, width: 1, height: cellFrame.height).fill()
 
+        // AppKit draws a copy of the last column's cell across the empty strip after it, with no name
+        // of its own; that strip is chrome only.
+        guard !stringValue.isEmpty else { return }
         let box = layout(cellFrame, flipped: flipped)
         guard box.name.width > 0 else { return }
         drawNameLine(in: box.name)
@@ -737,7 +883,7 @@ final class SiftHeaderCell: NSTableHeaderCell {
     /// The name, then its sort caret immediately after it.
     ///
     /// 🔴 The caret is on THIS line, beside the name, and not down on the type line. `.hn` is a flex
-    /// row with `gap: 3px` (`web/index.html:618-620`), so the caret follows the text rather than
+    /// row with `gap: 3px`, so the caret follows the text rather than
     /// sitting against the right edge — and, measured, putting it on the second line cost about
     /// 12 pt there and truncated a sorted `BIGINT` column at the 76-pt width floor to `BIG…`. The
     /// name line has the room (the width formula sizes for the name and then floors at 76) and the
@@ -779,7 +925,7 @@ final class SiftHeaderCell: NSTableHeaderCell {
         guard forType.width > 0 else { return }
         // `text-transform: uppercase`. `uppercased()` and not `uppercased(with:)` — the locale-aware
         // one turns a Turkish `i` into `İ`, and these are DuckDB type names.
-        draw(typeText.uppercased(), font: metaFont, color: .tertiaryLabelColor, in: forType,
+        draw(typeText, font: metaFont, color: .tertiaryLabelColor, in: forType,
              kern: metaKern)
     }
 

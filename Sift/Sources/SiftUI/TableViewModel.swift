@@ -86,7 +86,7 @@ public final class TableViewModel {
     /// SQL mode, which is what hands `scrollExtent` back to the table's own row count.
     private var sqlExtent: Int?
 
-    /// Rows of overscan either side of the viewport — `OVERSCAN` (`web/index.html:423`).
+    /// Rows of overscan either side of the viewport — `OVERSCAN`.
     private let overscan = 8
 
     public init(session: Session, table: SiftEngine.Table) {
@@ -128,7 +128,7 @@ public final class TableViewModel {
     }
 
     /// The viewport moved. Requests the blocks covering it plus `overscan` rows either way,
-    /// nearest-to-centre first — `neededBlocks()` (`web/index.html:800-807`), with the loader doing
+    /// nearest-to-centre first — `neededBlocks()`, with the loader doing
     /// the sorting.
     public func ensureVisible(firstRow: Int, rowsOnScreen: Int) {
         self.firstRow = max(0, firstRow)
@@ -154,7 +154,6 @@ public final class TableViewModel {
         let last = (firstRow + rowsOnScreen + overscan) / pageRows
         // Blocks already held are not re-requested: every scroll tick re-asks for the whole
         // viewport, and `PageLoader` has no cache of its own to notice that it just fetched them.
-        // (`ensureBlocks`'s own `!state.blocks.has(b)`, web/index.html:818.)
         let blocks = (first...last).filter { cache[$0] == nil }
         loader.request(
             blocks: blocks, centre: (Double(firstRow) + Double(rowsOnScreen) / 2) / Double(pageRows)
@@ -164,7 +163,7 @@ public final class TableViewModel {
     /// One block, from whichever query is driving the grid.
     ///
     /// 🔴 In SQL mode that is the user's own text, re-run at this offset — `fetchBlock`'s own branch
-    /// (`web/index.html:834-838`), which posts to `/api/sql` for every block and not just the first.
+    ///, which posts to `/api/sql` for every block and not just the first.
     /// It goes through `Session.runSQL`, so **the SELECT-only gate runs again on every block**;
     /// nothing here validates, unwraps or builds SQL of its own.
     ///
@@ -205,7 +204,7 @@ public final class TableViewModel {
     // MARK: - loading
 
     /// Fetch block 0 and kick the profile, in that order — the web's `fetchBlock(0)` then
-    /// `loadProfile()` (`web/index.html:551-557`).
+    /// `loadProfile()`.
     ///
     /// Fetched directly rather than through the loader because this is the one page whose failure
     /// the user must see: it is all that stands between them and an empty window, so it throws and
@@ -224,7 +223,7 @@ public final class TableViewModel {
     /// The catalog's newest copy of this table.
     ///
     /// **A staged or reopened table drops the cache.** The web did this on the `staged` SSE event
-    /// (`web/index.html:1838-1843`): the relation underneath is swapped view→native table, so every
+    ///: the relation underneath is swapped view→native table, so every
     /// cached row describes something that no longer exists. Polling replaced SSE, so `apply` is the
     /// only place that can see the edge — hence the comparison against the previous value rather
     /// than a notification.
@@ -276,7 +275,7 @@ public final class TableViewModel {
         // extent taken from the one above would have promised the old number until the next poll.
         table = try await session.table(name)
         // 🔴 Row 0, NOT "wherever the thumb was". `applySpec` calls `resetGrid()` in the web build
-        // (`web/index.html:585-592`), which sets `firstRow = 0` and `scrollTop = 0`. A filter that
+        //, which sets `firstRow = 0` and `scrollTop = 0`. A filter that
         // cuts 1,000,000 rows to 12 leaves the thumb parked past the end of the data, asking for
         // blocks that no longer exist.
         resetViewport()
@@ -293,11 +292,11 @@ public final class TableViewModel {
     ///
     /// The query runs BEFORE anything on screen changes, so a refused statement leaves the table the
     /// user was looking at exactly where it was. The web wiped the grid first
-    /// (`web/index.html:1811-1812`) and a refusal left an empty one sitting behind the banner.
+    /// and a refusal left an empty one sitting behind the banner.
     public func runSQL() async throws {
         do {
             let page = try await session.runSQL(name, sql: sqlText, offset: 0, limit: pageRows)
-            // `resetGrid()` (`web/index.html:1812`), now that there is a result to put in its place.
+            // `resetGrid()`, now that there is a result to put in its place.
             loader.invalidate()
             cache.removeAll()
             // `runSQL` already set `sqlMode`/`sqlText` on the engine's copy — read it back rather
@@ -330,12 +329,12 @@ public final class TableViewModel {
     /// Back to the filters, and the ONLY way back.
     ///
     /// 🔴 Taking over the box is a one-way door: no attempt is made to parse SQL back into filters
-    /// and sort (`web/index.html:1768-1769`), because round-tripping SQL→filters is where tools like
+    /// and sort, because round-tripping SQL→filters is where tools like
     /// this go to die. The status line says so in words the moment the user types, and this is the
     /// exit it is pointing at.
     public func exitSQLMode() async throws {
         table = try await session.exitSQLMode(name)
-        // Re-mirrored rather than cleared — `$("sqlbox").value = r.sql` (`web/index.html:1761`).
+        // Re-mirrored rather than cleared — `$("sqlbox").value = r.sql`.
         // The box goes back to showing the filter-derived SQL, and the status line back to saying
         // it is a mirror.
         sqlText = try await session.renderedSQL(name)
@@ -348,7 +347,7 @@ public final class TableViewModel {
     }
 
     /// Put the rendered SQL in the box without claiming it — `loadTable`'s
-    /// `$("sqlbox").value = d.sql` (`web/index.html:552`).
+    /// `$("sqlbox").value = d.sql`.
     ///
     /// In SQL mode `renderedSQL` hands back the user's own text, so `sqlOwned` follows the table
     /// rather than being forced false: re-selecting a tab that is in SQL mode must not tell the user
@@ -362,7 +361,7 @@ public final class TableViewModel {
     ///
     /// 🔴 Claimed HERE rather than by observing `sqlText` change, because `mirrorRenderedSQL` writes
     /// to it too. The web told the two apart with the `input` event, which does not fire on a
-    /// programmatic assignment (`web/index.html:1767`); a SwiftUI `onChange` cannot, and a console
+    /// programmatic assignment; a SwiftUI `onChange` cannot, and a console
     /// that claimed itself on the mirror would show "your SQL — filters and header controls are
     /// frozen" over a box the user has never touched.
     public func typeSQL(_ text: String) {
@@ -427,7 +426,7 @@ public final class TableViewModel {
 }
 
 /// SQL mode's scroll extent after `rows` arrived as block `block` — `fetchBlock`'s three-way
-/// (`web/index.html:846-855`), minus the branch that does not apply because a SQL page carries no
+///, minus the branch that does not apply because a SQL page carries no
 /// total (`Session.runSQL` sets `total.value` to `nil` on purpose).
 ///
 /// 🔴 **A SQL result has no exact count, so the extent GROWS rather than being known.** Nothing

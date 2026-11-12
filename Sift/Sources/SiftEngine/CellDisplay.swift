@@ -17,8 +17,7 @@ import SiftCore
 // shared layer instead: whether a value is null, empty, or the literal text `N/A` is *meaning*, not
 // wording, and it must not differ between two views of the same file.
 //
-// Ported from `web/index.html`'s `cellHTML`/`groupDigits` (the shipping renderer), rule for rule.
-// One rule simplifies on the way across: the web re-derives a DECIMAL's scale by regexing
+// One rule is simpler than the old web renderer's: that one re-derives a DECIMAL's scale by regexing
 // `DECIMAL(p,s)` out of the column type, because JSON lost it. `Cell.decimal` carries the scale
 // itself, so this reads it from the value.
 //

@@ -4,7 +4,7 @@ import SiftEngine
 import SwiftUI
 
 // The two column lenses that are not a ranked list: a numeric/temporal histogram, and the
-// high-cardinality panel a ranked list would be useless for. Ported from `web/index.html:1198-1233`.
+// high-cardinality panel a ranked list would be useless for.
 //
 // Every number on this page is arithmetic done ONCE, in a static function with a test on it, and
 // the `body` below only positions rectangles. That split is deliberate: a body cannot be tested,
@@ -34,7 +34,7 @@ public struct HistogramView: View {
     public var body: some View {
         if panel.degenerate {
             Text(Self.degenerateText(panel))
-                .font(.system(size: 10.5))
+                .font(.siftCaption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         } else {
@@ -65,10 +65,10 @@ public struct HistogramView: View {
                     Spacer(minLength: 4)
                     Text(axis.max).fixedSize()
                 }
-                .font(.system(size: 9.5, design: .monospaced))
+                .font(.siftMono)
                 .foregroundStyle(.secondary)
                 Text(Self.caption(panel))
-                    .font(.system(size: 10.5))
+                    .font(.siftCaption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -195,11 +195,11 @@ public struct SpreadLens: View {
             if let error {
                 // Shown, never swallowed: closing the tab mid-load throws the engine's clean
                 // sentence, and a `try?` here would leave an empty panel sitting there forever.
-                Text(error).font(.system(size: 11)).foregroundStyle(.red).textSelection(.enabled)
+                Text(error).font(.siftCaption).foregroundStyle(.red).textSelection(.enabled)
             } else if let panel {
                 HistogramView(panel: panel, profile: profile)
             } else {
-                Text("loading…").font(.system(size: 11)).foregroundStyle(.secondary)
+                Text("loading…").font(.siftCaption).foregroundStyle(.secondary)
             }
         }
         // Keyed on the filters too: the histogram is faceted (`qspec.withoutColumn(col).filters`),
@@ -236,11 +236,11 @@ public struct IdentityLens: View {
     public var body: some View {
         Group {
             if let error {
-                Text(error).font(.system(size: 11)).foregroundStyle(.red).textSelection(.enabled)
+                Text(error).font(.siftCaption).foregroundStyle(.red).textSelection(.enabled)
             } else if let profile {
                 HighCardView(profile: profile, lengths: lengths, sample: sample)
             } else {
-                Text("loading…").font(.system(size: 11)).foregroundStyle(.secondary)
+                Text("loading…").font(.siftCaption).foregroundStyle(.secondary)
             }
         }
         .task(id: "\(model.name)|\(column)|\(model.table.qspec.filters)") {
@@ -275,7 +275,7 @@ public struct HighCardView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(Self.headline(profile))
-                .font(.system(size: 10.5))
+                .font(.siftCaption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -301,14 +301,14 @@ public struct HighCardView: View {
                     Spacer(minLength: 4)
                     Text("len \(lengths[lengths.count - 1].len)").fixedSize()
                 }
-                .font(.system(size: 9.5, design: .monospaced))
+                .font(.siftMono)
                 .foregroundStyle(.secondary)
             }
 
-            Text("Sample").font(.system(size: 11, weight: .semibold))
+            Text("Sample").font(.siftCaptionStrong)
             ForEach(Array(sample.enumerated()), id: \.offset) { item in
                 Text(Self.sampleLabel(item.element, kind: profile.kind))
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.siftMono)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)

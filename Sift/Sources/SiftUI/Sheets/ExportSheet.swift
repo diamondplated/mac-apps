@@ -3,7 +3,7 @@ import SiftCore
 import SiftEngine
 import SwiftUI
 
-// Export. Ported from `showExport` (web/index.html:1376-1417).
+// Export. Ported from `showExport`.
 //
 // The engine's `export` is the only thing Sift ever writes, and Export.swift's header spells the
 // three rules holding that trust boundary. NOTHING HERE MAY WEAKEN THEM: this sheet collects a
@@ -102,20 +102,20 @@ public struct ExportSheet: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Export current result").font(.system(size: 15, weight: .semibold))
+            Text("Export current result").font(.siftTitle)
             Text(
                 """
                 Writes what the grid is showing — filters, sort, or your SQL — using DuckDB's \
                 COPY. The only thing Sift ever writes.
                 """
             )
-            .font(.system(size: 12))
+            .font(.siftLabel)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
 
             TextField("destination", text: $dest)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: 12, design: .monospaced))
+                .font(.siftLabelMono)
 
             HStack {
                 Picker("", selection: $formatKey) {
@@ -129,7 +129,7 @@ public struct ExportSheet: View {
                     guard let format = exportFormat(named: key) else { return }
                     dest = retargetExtension(dest, to: format.ext)
                 }
-                Toggle("overwrite if it exists", isOn: $overwrite).font(.system(size: 12))
+                Toggle("overwrite if it exists", isOn: $overwrite).font(.siftLabel)
                 Spacer()
             }
 

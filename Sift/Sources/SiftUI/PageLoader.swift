@@ -1,10 +1,9 @@
 /// The block pump: one fetch at a time, nearest the viewport first, results dropped if the grid
 /// moved on while they were in flight.
 ///
-/// **Single-flight, because `Task.cancel()` does not cancel an actor call.** The web version held
-/// an `AbortController` per block and aborted the ones it had scrolled past (`web/index.html:809`
-/// — measured there: a 60-event drag fired 78 requests and the block under the cursor queued
-/// behind ones already off screen). There is no equivalent in-process: `await session.page(...)`
+/// **Single-flight, because `Task.cancel()` does not cancel an actor call.** Aborting the blocks
+/// already scrolled past matters (measured: a 60-event drag fired 78 requests and the block under
+/// the cursor queued behind ones already off screen). There is no abort in-process: `await session.page(...)`
 /// runs to completion whether or not its task is cancelled, so spawning a task per block would do
 /// every query anyway and merely throw the answers away. The abort is replaced by *not starting*:
 /// the loader holds a want-set and pumps it one block at a time, so a block dropped from the set

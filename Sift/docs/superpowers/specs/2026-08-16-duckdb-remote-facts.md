@@ -20,7 +20,7 @@ the shipped code, per format, measured at Task 13).
 
 **The test oracle.** Probes that need a server use an HTTP/1.1 origin server on `127.0.0.1` with
 `Range`/206 support, a request log, and a switch for how it treats `Range` (honor / ignore /
-reject). It has since moved to `Sources/SiftEngine/LoopbackHTTPServer.swift`, because `sift
+reject). It has since moved to `Sources/SiftVerify/LoopbackHTTPServer.swift`, because `sift
 --verify` needs it too — it binds the loopback address on an ephemeral port, is started only by a
 test or by `--verify`, and must never grow a wildcard bind.
 

@@ -655,7 +655,7 @@ extension Session {
     /// `kill(pid, 0)`-checks) and is the model. No default value on purpose: this is the one
     /// destructive operation in the engine, and a caller has to say which scope it is in rather than
     /// inherit an answer.
-    static func sweepRemoteCache(in home: String, con: Connection, sharedStore: Bool) {
+    package static func sweepRemoteCache(in home: String, con: Connection, sharedStore: Bool) {
         guard sharedStore else { return }
         let dir = (home as NSString).appendingPathComponent(remoteCacheDirName)
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: dir) else { return }
@@ -916,7 +916,7 @@ func swapStaged(_ con: Connection, name: String, lock: NSLock, beforeCommit: () 
 /// prefixes it. Get it wrong and the two consumers below stop recognising remote rows: the
 /// staleness sweep starts `stat()`ing URLs and `stagedEntries` starts reporting every remote copy
 /// as `sourceMissing`.
-let remoteTokenPrefix = "\(stagingTokenVersion)|remote|"
+package let remoteTokenPrefix = "\(stagingTokenVersion)|remote|"
 
 /// The identity a staged copy is matched on: the exact bytes it was made from.
 ///
@@ -1074,7 +1074,7 @@ func stageBudgetBytes() -> Int {
 
 /// `SIFT_STAGE_MAX_AGE_DAYS`, ported from session.py:979. Internal for the same reason as
 /// `stageBudgetBytes` above.
-func stageMaxAgeDays() -> Int {
+package func stageMaxAgeDays() -> Int {
     guard let raw = ProcessInfo.processInfo.environment["SIFT_STAGE_MAX_AGE_DAYS"],
         let days = Int(raw)
     else { return defaultMaxAgeDays }

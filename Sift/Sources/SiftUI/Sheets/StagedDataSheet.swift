@@ -3,7 +3,7 @@ import SiftCore
 import SiftEngine
 import SwiftUI
 
-// The staged-data manager. Ported from `showStaged` (web/index.html:1332-1370).
+// The staged-data manager. Ported from `showStaged`.
 //
 // This sheet exists because staging writes A REAL COPY OF THE USER'S DATA to their disk, and a
 // tool that does that silently is a tool that has to be found out. Everything here is in service
@@ -31,7 +31,7 @@ import SwiftUI
 /// `20 * GB`, so the value is always a whole number of GiB.
 public func stageBudgetGB(_ policy: StagePolicy) -> Int { policy.budgetBytes / 1_073_741_824 }
 
-/// The sentence that says what this copy is and what governs it (web/index.html:1335-1339).
+/// The sentence that says what this copy is and what governs it.
 public func stagePolicySentence(home: String, policy: StagePolicy) -> String {
     "Native copies kept in \(home) so reopening a large file is instant. This is a real copy of "
         + "your data on this machine: anything untouched for \(policy.maxAgeDays) days is purged "
@@ -113,9 +113,9 @@ public struct StagedDataSheet: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Staged data").font(.system(size: 15, weight: .semibold))
+            Text("Staged data").font(.siftTitle)
             Text(stagePolicySentence(home: session.siftHome, policy: policy))
-                .font(.system(size: 12))
+                .font(.siftLabel)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
@@ -126,22 +126,22 @@ public struct StagedDataSheet: View {
             if !loaded {
                 ProgressView().frame(maxWidth: .infinity)
             } else if entries.isEmpty {
-                Text("Nothing staged.").font(.system(size: 12)).foregroundStyle(.secondary)
+                Text("Nothing staged.").font(.siftLabel).foregroundStyle(.secondary)
             } else {
                 ScrollView {
                     Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 5) {
                         GridRow {
                             ForEach(["table", "source", "size", "last used", ""], id: \.self) {
-                                Text($0).font(.system(size: 11, weight: .semibold))
+                                Text($0).font(.siftCaptionStrong)
                                     .foregroundStyle(.secondary)
                             }
                         }
                         ForEach(entries, id: \.table) { entry in
                             GridRow {
-                                Text(entry.table).font(.system(size: 12))
+                                Text(entry.table).font(.siftLabel)
                                 StagedSourceCell(entry: entry)
-                                Text(humanBytes(entry.bytes)).font(.system(size: 12))
-                                Text(stagedTimestamp(entry.lastUsed)).font(.system(size: 12))
+                                Text(humanBytes(entry.bytes)).font(.siftLabel)
+                                Text(stagedTimestamp(entry.lastUsed)).font(.siftLabel)
                                 Button("drop") { Task { await purge(tables: [entry.table]) } }
                                     .controlSize(.small)
                             }
@@ -156,11 +156,11 @@ public struct StagedDataSheet: View {
             // disk) was the one state that hid them.
             if loaded {
                 Text(stagedTotalSentence(totalBytes: totalBytes, policy: policy))
-                    .font(.system(size: 12))
+                    .font(.siftLabel)
                     .foregroundStyle(.secondary)
                 if let downloaded = remoteCacheSentence(bytes: remoteBytes) {
                     Text(downloaded)
-                        .font(.system(size: 12))
+                        .font(.siftLabel)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -213,10 +213,10 @@ private struct StagedSourceCell: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            Text(stagedSourceName(entry.path)).font(.system(size: 12)).lineLimit(1)
+            Text(stagedSourceName(entry.path)).font(.siftLabel).lineLimit(1)
             if let marker = stagedSourceMarker(entry) {
                 Text(marker)
-                    .font(.system(size: 12))
+                    .font(.siftLabel)
                     .foregroundStyle(entry.sourceMissing ? Color.red : Color.orange)
             }
         }

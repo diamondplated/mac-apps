@@ -65,7 +65,7 @@ public enum ConnectionOutcome: Sendable, Equatable {
 extension Session {
     /// `<home>/connections.json`. Static so `Session.init` can read the file before there is a
     /// `self` to hang it off, and so `--verify` can plant one in a workspace home.
-    static func connectionsPath(in home: String) -> String {
+    package static func connectionsPath(in home: String) -> String {
         (home as NSString).appendingPathComponent(connectionsFileName)
     }
 
@@ -115,7 +115,7 @@ extension Session {
     /// that `loadRemoteConfig` REFUSES, which is a Sift that will not start until the user finds and
     /// deletes a file they have never heard of. Written to a per-process temp name and renamed, so
     /// the file at `path` is always one whole config or the previous one.
-    static func writeRemoteConfig(_ config: RemoteConfig, to path: String) throws {
+    package static func writeRemoteConfig(_ config: RemoteConfig, to path: String) throws {
         let encoder = JSONEncoder()
         // Human-editable on purpose: this is a small settings file, and a user who wants to delete
         // one connection with a text editor should be able to see what they are deleting.

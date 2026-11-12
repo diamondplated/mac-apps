@@ -5,7 +5,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 // The open-sources list. Ports `SidebarViewController` (shell/Sources/Sift/SidebarViewController.swift)
-// and `renderRail` (web/index.html:975-988) into one view.
+// and `renderRail` into one view.
 //
 // Everything the AppKit sidebar did as *presentation* stays presentation — the tinted format chip,
 // the two-press armed ×, the hover-revealed buttons — and everything the browser rail did as
@@ -20,7 +20,7 @@ import UniformTypeIdentifiers
 // MARK: - the strings
 
 /// `csv · 41.2 MB · 2,412,338 rows · staged`. A verbatim port of `sourceSubtitle`
-/// (web/index.html:966-972).
+///.
 ///
 /// Three details that are not incidental:
 /// * `merge` reads `merged`, and a merge view has **no size** — its `SourceKey` is
@@ -38,7 +38,7 @@ public func sourceSubtitle(_ t: SiftEngine.Table) -> String {
     return parts.joined(separator: " · ")
 }
 
-/// The row-count phrase — `rowText` (web/index.html:958-963) onto Task 5's fields.
+/// The row-count phrase — `rowText` onto Task 5's fields.
 ///
 /// 🔴 **The `≈ N rows` branch is reachable only because of `Table.displayRows`' estimate fallback.**
 /// Before it, `displayRows` was `nil` in precisely the case `!rowsAreExact` describes, so every
@@ -223,8 +223,7 @@ enum SidebarSymbol {
     static let all = [remote, refresh, sheets, connections]
 }
 
-/// The path **or URL** the box should open by itself, or `nil`. Ports the paste handler at
-/// web/index.html:1796-1799 — a pasted absolute path with no newline in it opens immediately,
+/// The path **or URL** the box should open by itself, or `nil`. A pasted absolute path with no newline in it opens immediately,
 /// because the whole point of ⌥⌘C in Finder is not having to press anything else.
 ///
 /// A *paste* is "more than one character arrived at once". The web had a `paste` event to key off;
@@ -292,12 +291,9 @@ extension EnvironmentValues {
 
 // MARK: - the sidebar
 
-/// Open sources, the dropzone, the path box and the drop note.
+/// The open sources and the engine footer.
 public struct SourceSidebar: View {
     @Bindable private var state: AppState
-
-    @Environment(\.sourceDragHot) private var dragHot
-    @State private var pathText = ""
 
     public init(state: AppState) {
         self.state = state
@@ -306,9 +302,8 @@ public struct SourceSidebar: View {
     public var body: some View {
         VStack(spacing: 0) {
             if state.tables.isEmpty {
-                // `renderRail`'s `<div class="rail-note">Nothing open yet.</div>`.
-                Text("Nothing open yet.")
-                    .font(.system(size: 11))
+                Text("No Tables")
+                    .font(.siftCaption)
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .padding(12)
@@ -318,9 +313,6 @@ public struct SourceSidebar: View {
                 }
             }
             Divider()
-            dropzone
-            pathBox
-            dropNote
             engineLine
         }
     }
@@ -329,7 +321,7 @@ public struct SourceSidebar: View {
     private var engineLine: some View {
         HStack(spacing: 8) {
             Text(engineFooterText(state.engine))
-                .font(.system(size: 10, design: .monospaced))
+                .font(.siftMono)
                 .foregroundStyle(.tertiary)
                 // Selectable, because the whole point of it being on screen is that it can be pasted
                 // into a bug report without anyone hunting through the About box for it.
@@ -356,87 +348,14 @@ public struct SourceSidebar: View {
     private var connectionsButton: some View {
         Button { state.presentConnections() } label: {
             Label("Connections…", systemImage: SidebarSymbol.connections)
-                .font(.system(size: 10))
+                .labelStyle(.titleOnly)
+                .font(.siftCaption)
+                .lineLimit(1)
         }
         .buttonStyle(.plain)
+        .fixedSize()
         .foregroundStyle(.secondary)
         .help("Remote data: the master switch, and the connections Sift has saved")
-    }
-
-    /// `web/index.html:342` — the dashed target, and the one place a drag anywhere in the window
-    /// says so in the sidebar.
-    private var dropzone: some View {
-        VStack(spacing: 2) {
-            Text("Drop a file here").font(.system(size: 12))
-            Text("CSV · Parquet · JSON · XLSX · folder · Delta")
-                .font(.system(size: 10.5))
-                .foregroundStyle(.tertiary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 14)
-        .padding(.horizontal, 10)
-        .background(
-            dragHot ? Color.accentColor.opacity(0.16) : Color.clear,
-            in: RoundedRectangle(cornerRadius: 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(
-                    dragHot ? Color.accentColor : Color.secondary.opacity(0.35),
-                    style: StrokeStyle(lineWidth: 1.5, dash: [4, 3])))
-        .foregroundStyle(dragHot ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
-        .padding(.horizontal, 10)
-        .padding(.top, 8)
-    }
-
-    /// The paste-a-path box. It shipped in `web/index.html` and was unreachable inside `Sift.app`
-    /// only because `body.native` hid the rail that held it, so this is a restoration.
-    ///
-    /// 🔴 It opens through `AppState.open(paths:)` — the same entry the open panel, a Dock-icon drop,
-    /// Finder "Open With" and `open -a Sift.app` all use — so a pasted workbook reaches the sheet
-    /// picker by the one route that decides that, and not by a second copy of the rule.
-    private var pathBox: some View {
-        HStack(spacing: 6) {
-            // The placeholder is the only place the URL route is advertised at all — the dropzone
-            // above it can only ever mean a file, and `ConnectionsSheet.sasNote` already tells the
-            // user to "paste the whole URL when you open it" about a box that, until now, would not
-            // take one.
-            TextField("…or paste a path or URL (⌥⌘C in Finder)", text: $pathText)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 11))
-                .onSubmit(submit)
-                .onChange(of: pathText) { old, new in
-                    guard let path = autoOpenPath(from: old, to: new) else { return }
-                    pathText = ""
-                    Task { await state.open(paths: [path]) }
-                }
-            Button("Open", action: submit)
-                .controlSize(.small)
-                .disabled(pathText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        }
-        .padding(.horizontal, 10)
-        .padding(.top, 8)
-    }
-
-    private var dropNote: some View {
-        Text(
-            """
-            Files are read **in place** — nothing is copied, so a 20 GB file opens as fast as a \
-            2 MB one. Drop here, on the Dock icon, or use Finder's Open With.
-            """
-        )
-        .font(.system(size: 10.5))
-        .foregroundStyle(.tertiary)
-        .fixedSize(horizontal: false, vertical: true)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-    }
-
-    private func submit() {
-        let path = pathText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !path.isEmpty else { return }
-        pathText = ""
-        Task { await state.open(paths: [path]) }
     }
 }
 
@@ -461,13 +380,13 @@ struct SourceRow: View {
     var body: some View {
         HStack(spacing: 7) {
             Image(systemName: badge.symbol)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.siftBodyStrong)
                 .foregroundStyle(badge.tint)
                 .frame(width: 30, height: 30)
-                .background(badge.tint.opacity(0.18), in: RoundedRectangle(cornerRadius: 7))
+                .background(badge.tint.opacity(0.18), in: RoundedRectangle.sift())
             VStack(alignment: .leading, spacing: 1) {
                 Text(table.name)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.siftBodyStrong)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 HStack(spacing: 3) {
@@ -477,13 +396,13 @@ struct SourceRow: View {
                     // something anyone reads before they need it.
                     if offersRefresh(table) {
                         Image(systemName: SidebarSymbol.remote)
-                            .font(.system(size: 9))
+                            .font(.siftCaption)
                             .foregroundStyle(.secondary)
                     }
                     // Orange the moment a row was thrown away reading this file. The count itself is
                     // in the tooltip and the bad-rows sheet; this is the part you see without asking.
                     Text(sourceSubtitle(table))
-                        .font(.system(size: 11))
+                        .font(.siftCaption)
                         .foregroundStyle(
                             table.badRows > 0 ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary)
                         )
@@ -605,7 +524,7 @@ struct SourceRow: View {
         }
     }
 
-    /// `window.siftStage` (web/index.html:1596-1607). Staging is a background job the poll loop
+    /// `window.siftStage`. Staging is a background job the poll loop
     /// picks up; unstaging is immediate, so the catalog is refreshed before the sentence lands.
     private func stage(_ on: Bool) {
         Task {
@@ -651,6 +570,19 @@ private struct SourceDrop: ViewModifier {
     func body(content: Content) -> some View {
         content
             .environment(\.sourceDragHot, hot)
+            // A drop anywhere in the window opens the file, and the window says so with an accent
+            // outline while the drag is over it.
+            .overlay {
+                if hot {
+                    RoundedRectangle.sift(Theme.Radius.panel)
+                        .strokeBorder(Color.accentColor, lineWidth: 2)
+                        .background(Color.accentColor.opacity(0.08), in: RoundedRectangle.sift(Theme.Radius.panel))
+                        .padding(4)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
+            }
+            .siftAnimation(value: hot)
             .onDrop(of: [.fileURL], isTargeted: $hot) { providers in
                 Task {
                     let paths = await droppedPaths(from: providers)

@@ -3,12 +3,12 @@ import SiftCore
 import SiftEngine
 import SwiftUI
 
-// The workbook sheet picker. Ported from `maybeSheetPicker` (web/index.html:1511-1530).
+// The workbook sheet picker. Ported from `maybeSheetPicker`.
 //
 // 🔴 **IT IS PRESENTED FOR EVERY WORKBOOK, WHATEVER ITS SHEET COUNT.** `window.siftOpenPaths` —
 // the entry point the native shell actually calls, for an in-window drop, a Dock-icon drop, Finder
 // "Open With" and File > Open alike — routes every matching path through `maybeSheetPicker`
-// unconditionally (web/index.html:1536). Only the browser-only `openPath` used it as a
+// unconditionally. Only the browser-only `openPath` used it as a
 // failure fallback (:1507). Shortcutting a single-sheet workbook straight to open would be a nicer
 // flow, and is deliberately NOT done here: this is a parity release, and a one-sheet picker is a
 // visible behaviour change, not an implementation detail.
@@ -93,7 +93,7 @@ public struct SheetPickerSheet: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title).font(.system(size: 15, weight: .semibold))
+            Text(title).font(.siftTitle)
 
             if let error {
                 Text(error).foregroundStyle(.red).textSelection(.enabled)
@@ -102,7 +102,7 @@ public struct SheetPickerSheet: View {
                 ProgressView().frame(maxWidth: .infinity)
             } else {
                 Text(sheetPickerSubtitle(count: sheets.count))
-                    .font(.system(size: 12))
+                    .font(.siftLabel)
                     .foregroundStyle(.secondary)
                 ScrollView {
                     VStack(alignment: .leading, spacing: 2) {
@@ -117,10 +117,10 @@ public struct SheetPickerSheet: View {
                                             else { picked.remove(sheet.name) }
                                         })
                                 )
-                                .font(.system(size: 12))
+                                .font(.siftLabel)
                                 .disabled(sheet.empty)
                                 Text(sheetRowLabel(sheet))
-                                    .font(.system(size: 11, design: .monospaced))
+                                    .font(.siftMono)
                                     .foregroundStyle(.tertiary)
                                 Spacer()
                             }

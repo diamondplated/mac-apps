@@ -180,7 +180,7 @@ public actor Session {
     /// `@unchecked Sendable` (Database.swift) and immutable after `init`, so `nonisolated` lets
     /// the detached background pipeline in `runAfterOpen` reach it without an actor hop — the
     /// whole point of that path being detached in the first place.
-    nonisolated let database: Database
+    package nonisolated let database: Database
     /// The one `Connection` shared by eight methods — `page`, `sortedRelation`, `closeTable`,
     /// `finishOpen` and `tempTableExistsForTest` here, three more in Staging.swift. See this file's
     /// header (fact 3) for the full list, for why it must be a single long-lived connection rather
@@ -278,7 +278,7 @@ public actor Session {
     }
 
     /// Internal fault-injection seam: production uses Database.harden and its measured outcomes.
-    init(home: String?, keychainService: String, identityBudget: TimeInterval = 5,
+    package init(home: String?, keychainService: String, identityBudget: TimeInterval = 5,
          hardening: ((Database, Bool) -> [String: Bool])? = nil) throws {
         let lifetime = SessionLifetime.current
         try lifetime?.beginInitialization()
@@ -436,7 +436,7 @@ public actor Session {
     /// staged data is a copy of someone's real data sitting on a laptop. `createDirectory`'s own
     /// `attributes` are subject to umask and are not retroactively applied to a directory that
     /// already existed, so the explicit `setAttributes` below runs unconditionally afterward.
-    static func ensureHomeDirectory(_ path: String) throws {
+    package static func ensureHomeDirectory(_ path: String) throws {
         try FileManager.default.createDirectory(
             atPath: path, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]
         )
@@ -502,8 +502,8 @@ public actor Session {
     }
 
     /// 🔴 **LANDMINE, sorted rather than `Array(tables.values)`.** This list IS the tab bar's
-    /// order, the sources list's order, and the default selection: `web/index.html` renders it
-    /// into the tabs (:945) and the sources list (:974), and picks `tables[0]` (:526, :993).
+    /// order, the sources list's order, and the default selection: the window picks the
+    /// first table from it.
     /// Python iterates an insertion-ordered dict (`session.py:1187-1189`), so that order is the
     /// order the user opened the files in, every launch.
     ///
@@ -1731,7 +1731,7 @@ struct RemoteOpen: Sendable {
 }
 
 /// Where downloaded remote objects live, under `SIFT_HOME`.
-let remoteCacheDirName = "remote-cache"
+package let remoteCacheDirName = "remote-cache"
 
 /// The note a SAS-signed parquet gets, and the shape of the ruling behind it.
 ///
@@ -1745,7 +1745,7 @@ let remoteCacheDirName = "remote-cache"
 /// place (MEASURED, spike §7: `count(*)` over 28.6 MB costs 64 KB), and a downloaded copy pays for
 /// the object once instead. Plain `https://` parquet and `az://`-through-a-connection parquet still
 /// read in place: their credential is a Database-scoped secret, not a string in the URL.
-let sasParquetNote =
+package let sasParquetNote =
     "SAS-signed parquet cannot be read in place without persisting the token, so Sift downloaded "
     + "a local copy instead"
 
@@ -1841,7 +1841,7 @@ func buildRemoteOpen(
 /// The directory is created at **0700**, through the same call that enforces it on `~/.sift`
 /// itself: these files are copies of someone's real data sitting on a laptop (spec §11), and
 /// `downloadRemoteObject` writes each one 0600 inside it.
-func remoteCachePath(home: String, url: RemoteURL, owner: Int32? = nil) throws -> String {
+package func remoteCachePath(home: String, url: RemoteURL, owner: Int32? = nil) throws -> String {
     var dir = (home as NSString).appendingPathComponent(remoteCacheDirName)
     // Named for `~/.sift`, but it is exactly "create this directory and hold it at 0700, whether or
     // not it already existed" — which is the contract this needs, unchanged.

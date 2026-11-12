@@ -9,18 +9,16 @@ import SiftCore
 // left holding only `NSBezierPath` and `draw(in:)`. Same split as `GridBridge` vs `TableGridView`,
 // one layer down.
 //
-// Ported from `renderHead` / `computeWidths` / `compact` / `cycleSort` (`web/index.html:576-634`,
-// `:870-874`). The arithmetic is the web's, constant for constant, because the two builds are
-// supposed to lay a file out identically.
+// Column widths, the compact count and the sort cycle are plain arithmetic here so they can be tested.
 
 // MARK: - widths
 
-/// Column widths in `cols` order — `computeWidths` (`web/index.html:576-583`), rule for rule.
+/// Column widths in `cols` order — `computeWidths`, rule for rule.
 ///
 /// Two candidate widths, and the wider wins: one from the column *name* (so a header is readable
 /// even over a column of one-character values) and one from the widest *value* the profile saw. The
 /// 120 is the pre-profile fallback, and it is the reason a profile arriving has to force a column
-/// rebuild — see `GridBridge.ColumnStamp`. The 76…320 clamp is what stops one 4 KB JSON blob from
+/// rebuild — see `GridBridge.ColumnStamp`. The 96…320 clamp is what stops one 4 KB JSON blob from
 /// asking for a 30,000-point column.
 ///
 /// The 42-character cap beside it is dead arithmetic: 42 characters is 330.8 pt, already past the
@@ -39,13 +37,13 @@ public func columnWidths(_ cols: [Column], profile: [ColumnProfile]) -> [Double]
     return cols.map { column in
         let byName = Double(column.name.count) * 7.6 + 26
         let byData = maxLens[column.name].map { Double(min($0, 42)) * 7.4 + 20 } ?? 120
-        return max(76, min(320, max(byName, byData))).rounded()
+        return max(96, min(320, max(byName, byData))).rounded()
     }
 }
 
 // MARK: - sort
 
-/// One click on a column header — `cycleSort` (`web/index.html:870-874`).
+/// One click on a column header — `cycleSort`.
 ///
 /// none → asc → desc → none, and the result is at most ONE term: sorting by a second column
 /// *replaces* the first rather than adding to it. That is the web build's behaviour and it is
@@ -65,7 +63,7 @@ public func nextSort(for col: String, current: [QuerySpec.SortTerm]) -> [QuerySp
 // MARK: - counts
 
 /// A distinct count, shortened to fit under a column name — the web's `compact`
-/// (`web/index.html:630-633`): `999`, `1.0k`, `10k`, `1.0M`.
+///: `999`, `1.0k`, `10k`, `1.0M`.
 ///
 /// 🔴 INTEGER arithmetic, not `String(format: "%.1f", Double(n) / 1000)`. Two reasons, and the first
 /// one is the whole no-`NumberFormatter` rule wearing a different hat: anything that turns a count
@@ -118,7 +116,7 @@ public struct HeaderDecoration: Equatable {
     }
 }
 
-/// The three decorations for one column — `renderHead`'s per-column block (`web/index.html:600-613`).
+/// The three decorations for one column — `renderHead`'s per-column block.
 ///
 /// 🔴 `exactDistinct == nil` is the `≈`, and it is not decoration. `approxDistinct` is HyperLogLog:
 /// on a 40M-row column it can be several percent out, and a header that spelled `1,204,318` when
@@ -143,7 +141,7 @@ public func headerDecoration(
 }
 
 /// Null + empty + uncastable, over the rows profiled — the web's three summed percentages
-/// (`web/index.html:606-609`), clamped.
+///, clamped.
 ///
 /// Clamped because the three counts are not disjoint: an empty string in a number column is both
 /// `n_empty` and `n_uncastable`, so their sum can exceed `n` and the bar would run past the column.
@@ -154,7 +152,7 @@ private func missingFraction(_ profile: ColumnProfile) -> Double {
     return min(1, max(0, Double(missing) / Double(profile.n)))
 }
 
-/// The header's hover text — the web's `title` attribute (`web/index.html:615-617`), including the
+/// The header's hover text — the web's `title` attribute, including the
 /// last line.
 ///
 /// 🔴 That last line is not a nicety. Plain click opens the column and SHIFT-click sorts, which is
@@ -169,5 +167,5 @@ public func headerTooltip(_ col: Column, profile: ColumnProfile?) -> String {
         out += "\(groupDigits(String(profile.nEmpty))) empty, "
         out += "\(profile.exactDistinct == nil ? "≈" : "")\(compactCount(distinct)) distinct"
     }
-    return out + "\nclick: values · shift-click: sort"
+    return out + "\nclick: values · right-click: sort and filter"
 }

@@ -139,6 +139,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appMenu.addItem(.separator())
         appMenu.addItem(
             withTitle: "Hide Sift", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        let hideOthers = NSMenuItem(
+            title: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)),
+            keyEquivalent: "h")
+        hideOthers.keyEquivalentModifierMask = [.command, .option]
+        appMenu.addItem(hideOthers)
+        appMenu.addItem(
+            withTitle: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)),
+            keyEquivalent: "")
         appMenu.addItem(.separator())
         appMenu.addItem(
             withTitle: "Quit Sift", action: #selector(NSApplication.terminate(_:)),
@@ -149,6 +157,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let fileItem = NSMenuItem()
         let fileMenu = NSMenu(title: "File")
         fileMenu.addItem(withTitle: "Open…", action: #selector(showOpenPanel), keyEquivalent: "o")
+        fileMenu.addItem(
+            withTitle: "Open Location…", action: #selector(openLocationAction), keyEquivalent: "l")
         let recents = NSMenuItem(title: "Open Recent", action: nil, keyEquivalent: "")
         // 🔴 NOT the `NSRecentDocumentsMenu` identifier the shell used, and that is MEASURED, not a
         // preference. With the identifier set, AppKit adopts the submenu — and then lists nothing:
@@ -184,6 +194,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ] as [(String, Selector, String)] {
             editMenu.addItem(withTitle: title, action: action, keyEquivalent: key)
         }
+        // Copy As: the current view as code, for a notebook. Greyed with no table open.
+        editMenu.addItem(.separator())
+        let copyAs = NSMenuItem(title: "Copy As", action: nil, keyEquivalent: "")
+        let copyAsMenu = NSMenu(title: "Copy As")
+        for dialect in SnippetDialect.allCases {
+            let item = NSMenuItem(
+                title: dialect.title, action: #selector(copySnippetAction(_:)), keyEquivalent: "")
+            item.representedObject = dialect.rawValue
+            copyAsMenu.addItem(item)
+        }
+        copyAs.submenu = copyAsMenu
+        editMenu.addItem(copyAs)
         editItem.submenu = editMenu
         main.addItem(editItem)
 
@@ -191,17 +213,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let viewMenu = NSMenu(title: "View")
         // AppKit retitles this to "Hide Sidebar"/"Show Sidebar" itself, because the selector is the
         // standard one — which is what a Mac user expects to read, so it is left to do so.
-        viewMenu.addItem(
-            withTitle: "Toggle Sidebar", action: #selector(toggleSidebar(_:)), keyEquivalent: "s")
+        let sidebar = NSMenuItem(
+            title: "Toggle Sidebar", action: #selector(toggleSidebar(_:)), keyEquivalent: "s")
+        sidebar.keyEquivalentModifierMask = [.command, .control]
+        viewMenu.addItem(sidebar)
         let inspector = NSMenuItem(
             title: "Toggle Inspector", action: #selector(toggleInspectorAction), keyEquivalent: "i")
         inspector.keyEquivalentModifierMask = [.command, .option]
         viewMenu.addItem(inspector)
         // View > Reload is gone on purpose: it reloaded a `WKWebView` that no longer exists.
         // Re-reading a file from disk is unstage/reopen, which the Source tab already offers.
-        viewMenu.addItem(
-            withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)),
+        viewMenu.addItem(.separator())
+        let fullScreen = NSMenuItem(
+            title: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)),
             keyEquivalent: "f")
+        fullScreen.keyEquivalentModifierMask = [.command, .control]
+        viewMenu.addItem(fullScreen)
         viewItem.submenu = viewMenu
         main.addItem(viewItem)
 
@@ -223,6 +250,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         dataItem.submenu = dataMenu
         main.addItem(dataItem)
 
+        let windowItem = NSMenuItem()
+        let windowMenu = NSMenu(title: "Window")
+        windowMenu.addItem(
+            withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)),
+            keyEquivalent: "m")
+        windowMenu.addItem(
+            withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        windowMenu.addItem(.separator())
+        windowMenu.addItem(
+            withTitle: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)),
+            keyEquivalent: "")
+        windowItem.submenu = windowMenu
+        main.addItem(windowItem)
+        NSApp.windowsMenu = windowMenu
+
+        let helpItem = NSMenuItem()
+        let helpMenu = NSMenu(title: "Help")
+        helpMenu.addItem(
+            withTitle: "Sift Documentation", action: #selector(openDocumentation), keyEquivalent: "")
+        helpMenu.addItem(
+            withTitle: "Report an Issue\u{2026}", action: #selector(reportIssue), keyEquivalent: "")
+        helpItem.submenu = helpMenu
+        main.addItem(helpItem)
+        NSApp.helpMenu = helpMenu
+
         NSApp.mainMenu = main
     }
 
@@ -237,6 +289,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func mergeAction() { state?.presentMerge() }
     @objc private func stagedAction() { state?.presentStaged() }
     @objc private func connectionsAction() { state?.presentConnections() }
+    @objc private func openLocationAction() { state?.presentOpenLocation() }
+    @objc private func copySnippetAction(_ sender: NSMenuItem) {
+        guard let state, let raw = sender.representedObject as? String,
+            let dialect = SnippetDialect(rawValue: raw)
+        else { return }
+        Task { await state.copySnippet(dialect) }
+    }
+    @objc private func openDocumentation() {
+        NSWorkspace.shared.open(URL(string: "https://github.com/diamondplated/mac-apps/tree/main/Sift")!)
+    }
+    @objc private func reportIssue() {
+        NSWorkspace.shared.open(URL(string: "https://github.com/diamondplated/mac-apps/issues")!)
+    }
     // `badRowsAction` is gone with the title-bar accessory that was its only caller. The way into
     // the bad-rows sheet is the toolbar's row phrase (`RootView.RowSummaryItem`), which calls
     // `presentBadRows()` directly — a dead `@objc` selector kept "in case" is how a menu ends up
@@ -255,17 +320,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { await state.open(paths: [url.path]) }
     }
 
+    /// The standard About panel: name, icon and version come from Info.plist, and the credit line
+    /// names the engine.
     @objc private func about() {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
-        let alert = NSAlert()
-        alert.messageText = version.map { "Sift \($0)" } ?? "Sift"
-        alert.informativeText = """
-            Drop a file in and explore it. DuckDB reads files in place, so size is not the \
-            constraint it usually is.
-
-            DuckDB \(state?.engine.duckdbVersion ?? "?")
-            """
-        alert.runModal()
+        let credits = NSAttributedString(
+            string: "DuckDB \(state?.engine.duckdbVersion ?? "")",
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor,
+            ])
+        NSApp.orderFrontStandardAboutPanel(options: [.credits: credits])
     }
 
     @objc private func showOpenPanel() {
@@ -381,7 +444,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         else { return }
 
         let alert = NSAlert()
-        alert.messageText = "Go to row"
+        alert.messageText = "Go to Row"
         alert.informativeText = "1 – \(groupDigits(String(viewport.total)))"
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
         field.placeholderString = "Row number"
@@ -513,6 +576,8 @@ extension AppDelegate: NSMenuItemValidation {
         // Both act on the open table, which is what `canExport` is.
         case #selector(exportAction), #selector(closeTableAction):
             return state.canExport
+        case #selector(copySnippetAction(_:)):
+            return state.canCopySnippet
         case #selector(mergeAction):
             return state.canMerge
         default:

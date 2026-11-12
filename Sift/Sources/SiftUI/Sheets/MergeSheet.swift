@@ -3,7 +3,7 @@ import SiftCore
 import SiftEngine
 import SwiftUI
 
-// Merge. Ported from `showMerge` (web/index.html:1419-1495).
+// Merge. Ported from `showMerge`.
 //
 // The overlap probe is a PREVIEW here, not the product — the product is the joined view that lands
 // in the sidebar. But the preview is what prevents more bad analyses than anything else in the
@@ -49,13 +49,6 @@ public func overlapSentence(_ probe: JoinProbe) -> String {
 public func unmatchedSentence(_ probe: JoinProbe) -> String? {
     guard probe.unmatched > 0 else { return nil }
     return "\(groupDigits(String(probe.unmatched))) unmatched (kept only by a left/full join)"
-}
-
-/// `Merged into orders_returns — 1,204 rows`. The presenting view raises this; the sheet hands
-/// back the `Table` and gets out of the way.
-public func mergeToast(_ table: SiftEngine.Table) -> String {
-    guard let rows = table.displayRows else { return "Merged into \(table.name)" }
-    return "Merged into \(table.name) — \(groupDigits(String(rows))) rows"
 }
 
 /// What to say above the key list, given what `joinCandidates` came back with.
@@ -130,14 +123,14 @@ public struct MergeSheet: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Merge tables").font(.system(size: 15, weight: .semibold))
+            Text("Merge tables").font(.siftTitle)
             Text(
                 """
                 Join two tables into a new dataset. It appears in the sidebar as a view — instant, \
                 no copy — and you can explore or export it like any other source.
                 """
             )
-            .font(.system(size: 12))
+            .font(.siftLabel)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
 
@@ -158,7 +151,7 @@ public struct MergeSheet: View {
                 .labelsHidden()
             }
 
-            Text(prompt.text).font(.system(size: 12)).foregroundStyle(.secondary)
+            Text(prompt.text).font(.siftLabel).foregroundStyle(.secondary)
             if prompt == .pick {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 2) {
@@ -173,14 +166,14 @@ public struct MergeSheet: View {
                                             else { picked.remove(candidate.col) }
                                         })
                                 )
-                                .font(.system(size: 12))
+                                .font(.siftLabel)
                                 .disabled(!candidate.compatible)
                                 Text("\(candidate.leftType) / \(candidate.rightType)")
-                                    .font(.system(size: 11, design: .monospaced))
+                                    .font(.siftMono)
                                     .foregroundStyle(.tertiary)
                                 if !candidate.compatible {
                                     Text("type mismatch")
-                                        .font(.system(size: 11))
+                                        .font(.siftCaption)
                                         .foregroundStyle(Color.orange)
                                 }
                                 Spacer()
@@ -193,14 +186,14 @@ public struct MergeSheet: View {
 
             TextField("new table name (optional)", text: $name)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: 12))
+                .font(.siftLabel)
 
             if let probe {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(overlapSentence(probe))
                     if let unmatched = unmatchedSentence(probe) { Text(unmatched) }
                 }
-                .font(.system(size: 12, design: .monospaced))
+                .font(.siftLabelMono)
                 .textSelection(.enabled)
             }
             if let error {

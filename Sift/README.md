@@ -77,7 +77,8 @@ Or build it yourself — two commands, below.
 ./build-app.sh /Applications        # builds Sift.app and installs it
 ```
 
-Drag a file onto the Dock icon, double-click a `.parquet`, or right-click → **Open With → Sift**.
+Drag a file onto the window or the Dock icon, double-click a `.parquet`, or right-click → **Open With → Sift**.
+Paste a path or URL with **File → Open Location…** (⌘L).
 
 The app is self-contained: libduckdb is copied inside the bundle, so it keeps working with this
 checkout deleted. There is also a CLI:
@@ -126,6 +127,14 @@ recovers the real columns.
 **Real numbers.** `BIGINT` and `DECIMAL` render exactly — there is no JavaScript in the building to
 round them. `10.50` stays `10.50`.
 
+**Sort and filter from the header.** Right-click any column header for Sort Ascending, Sort
+Descending, Clear Sort, Filter… and Copy Column Name; the sorted column shows an indicator. Click a
+header for the column's values, shift-click to cycle its sort.
+
+**Copy as code.** **Edit → Copy As** (also on the table's context menu) puts the current view on the
+clipboard as pandas, Polars, DuckDB or SQL, filters and sort included, so a quick look can become a
+notebook cell.
+
 **A SQL box that cannot write.** Run any `SELECT` against what's open. The enforcement isn't a
 keyword blocklist (see [below](#things-that-are-the-way-they-are-for-a-reason)).
 
@@ -153,6 +162,7 @@ sift/
     SiftEngine/         Session — the one actor holding all state
     SiftUI/             every view and view model
     SiftApp/            @main, menus, LaunchServices — nothing with a decision in it
+    SiftVerify/         `--verify` and its loopback HTTP oracle; the CLI and tests link it, the app does not
     sift/               the CLI
   Tests/                Swift Testing suites; the spec
 ```

@@ -291,6 +291,8 @@ public final class AppState {
         /// Remote data: the master switch and the saved connections. About the app, not about any
         /// open table — see `subject`.
         case connections
+        /// File > Open Location…: a path or URL typed or pasted into a box.
+        case openLocation
         public var id: String {
             switch self {
             case .export: return "export"
@@ -300,6 +302,7 @@ public final class AppState {
             case .workbook: return "workbook"
             case .sheets: return "sheets"
             case .connections: return "connections"
+            case .openLocation: return "openLocation"
             }
         }
 
@@ -320,7 +323,7 @@ public final class AppState {
         public var subject: String? {
             switch self {
             case .export(let table), .badRows(let table), .sheets(let table): return table
-            case .merge, .staged, .workbook, .connections: return nil
+            case .merge, .staged, .workbook, .connections, .openLocation: return nil
             }
         }
     }
@@ -392,6 +395,44 @@ public final class AppState {
     /// in which this screen has nothing to say — and the one it has most to say in (remote off,
     /// nothing saved) is exactly the state a guard would refuse to open it in.
     public func presentConnections() { modalSheet = .connections }
+
+    /// File > Open Location…. Like Connections it is about the app, not about an open table, so it
+    /// has no guard.
+    public func presentOpenLocation() { modalSheet = .openLocation }
+
+    // MARK: - copy as code
+
+    /// A brief confirmation, shown at the foot of the window and cleared on its own.
+    public private(set) var toast: String?
+    @ObservationIgnored private var toastTask: Task<Void, Never>?
+
+    func showToast(_ text: String) {
+        toast = text
+        toastTask?.cancel()
+        toastTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_800_000_000)
+            guard !Task.isCancelled else { return }
+            self?.toast = nil
+        }
+    }
+
+    /// Edit > Copy As: the snippet that reproduces what is on screen, on the clipboard. The engine
+    /// builds it (`Session.snippet`), so the filters, the sort and a SQL-mode query all come along;
+    /// a failure is the engine's own sentence on the banner.
+    public func copySnippet(_ dialect: SnippetDialect) async {
+        guard let name = activeName, canCopySnippet else { return }
+        do {
+            let code = try await session.snippet(name, dialect: dialect.rawValue)
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(code, forType: .string)
+            showToast("Copied as \(dialect.title)")
+        } catch {
+            banner = error.localizedDescription
+        }
+    }
+
+    /// Copy As acts on the open table, which is all `canExport` asks too.
+    public var canCopySnippet: Bool { active != nil }
 
     /// The sidebar row's "Open Another Sheet…". Guarded on the same rule the row draws itself with,
     /// so a route that skips the row — a menu item somebody adds later — cannot put up a picker over
@@ -496,7 +537,7 @@ public final class AppState {
     public var rowSummary: String { active.map { rowSummaryText($0) } ?? "" }
 }
 
-/// The toolbar's row-count phrase: `rowText` (`web/index.html:958-963`) wrapped in
+/// The toolbar's row-count phrase: `rowText` wrapped in
 /// `pushNativeState`'s `summary` (`:1570-1589`), one decision tree, both halves.
 ///
 /// A free function taking a `Table` rather than a method on `AppState`, so every branch is
@@ -504,7 +545,7 @@ public final class AppState {
 /// opening a real file small enough for a test to wait on.
 ///
 /// 🔴 **The row phrase itself is `SourceSidebar`'s `rowText`, not a second copy of it.** Task 13 and
-/// Task 14 each ported `web/index.html:958-963` and landed within hours of each other, which on this
+/// Task 14 each wrote their own copy and landed within hours of each other, which on this
 /// branch is already a named failure — see commit 3c114b4, "Two tasks wrote compactCount, and only
 /// one of them was right". The toolbar's contribution is the ` · N cols · N dropped` tail; the
 /// count sentence has exactly one implementation, and both suites point at it.
@@ -520,7 +561,7 @@ public func rowSummaryText(_ table: SiftEngine.Table) -> String {
 /// Whether a path goes to the sheet picker instead of straight to `open(path:)`.
 ///
 /// EVERY `.xlsx`/`.xlsm`, not only multi-sheet workbooks — `siftOpenPaths`
-/// (`web/index.html:1533-1537`) routes on the extension alone, because which sheet a one-sheet
+/// routes on the extension alone, because which sheet a one-sheet
 /// workbook contains is still a thing the user is entitled to see named before it opens.
 ///
 /// `.xls` deliberately does not route here even though the web's regex (`/\.xlsx?$/i`) caught it:
@@ -607,5 +648,19 @@ struct ExtensionDownloadPrompt: Identifiable {
     var message: String {
         let format = extensionName == "excel" ? "Excel" : "Delta"
         return "Opening this \(format) file requires the \(extensionName) extension, downloaded from extensions.duckdb.org. Your file data is not uploaded. Once installed, this extension can be used without another download prompt."
+    }
+}
+
+/// The four ways Edit > Copy As can write the current view. Raw values are the engine's dialect names.
+public enum SnippetDialect: String, CaseIterable, Sendable {
+    case pandas, polars, duckdb, sql
+
+    public var title: String {
+        switch self {
+        case .pandas: return "pandas"
+        case .polars: return "Polars"
+        case .duckdb: return "DuckDB"
+        case .sql: return "SQL"
+        }
     }
 }

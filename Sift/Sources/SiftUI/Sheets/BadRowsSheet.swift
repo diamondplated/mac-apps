@@ -3,7 +3,7 @@ import SiftCore
 import SiftEngine
 import SwiftUI
 
-// "The rows your file lost." Ported from `showBadRows` (web/index.html:1306-1330).
+// "The rows your file lost." Ported from `showBadRows`.
 //
 // 🔴 THIS PANEL IS THE PRODUCT'S HEADLINE CLAIM. Every other tool in this space reads a CSV with
 // `ignore_errors` (or its equivalent) and shows you the rows that survived, with nothing anywhere
@@ -29,8 +29,8 @@ public func badRowsHeadline(rows: Int) -> String {
     "\(groupDigits(String(rows))) row\(rows == 1 ? "" : "s") dropped"
 }
 
-/// The paragraph under it, verbatim from web/index.html:1308-1311. The web bolds the "not"; a
-/// `Text` of a plain `String` does not parse markdown, and the emphasis is not the information.
+/// The paragraph under the headline. A `Text` of a plain `String` does not parse markdown, so the
+/// word "not" is not bold, and the emphasis is not the information.
 public func badRowsExplanation(cells: Int) -> String {
     "\(groupDigits(String(cells))) cell\(cells == 1 ? "" : "s") could not be cast to the detected "
         + "type, so DuckDB skipped the whole row. These are not in the grid or in any aggregate. "
@@ -82,9 +82,9 @@ public struct BadRowsSheet: View {
                 // prose of our own, and never swallowed by a `try?`.
                 Text(error).foregroundStyle(.red).textSelection(.enabled)
             } else if let panel {
-                Text(badRowsHeadline(rows: panel.rows)).font(.system(size: 15, weight: .semibold))
+                Text(badRowsHeadline(rows: panel.rows)).font(.siftTitle)
                 Text(badRowsExplanation(cells: panel.cells))
-                    .font(.system(size: 12))
+                    .font(.siftLabel)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 if !panel.data.isEmpty {
@@ -127,7 +127,7 @@ struct BadRowsTable: View {
             GridRow {
                 ForEach(panel.columns.indices, id: \.self) { c in
                     Text(panel.columns[c].name)
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.siftCaptionStrong)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -155,7 +155,7 @@ struct BadCell: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 11, design: .monospaced))
+            .font(.siftMono)
             .foregroundStyle(bad ? Color.red : Color.primary)
             .lineLimit(1)
     }

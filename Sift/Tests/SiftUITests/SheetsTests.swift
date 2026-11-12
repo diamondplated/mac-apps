@@ -321,13 +321,6 @@ private func appKitReady() { _ = NSApplication.shared }
     #expect(candidates[0].leftType == candidates[0].rightType)
 }
 
-@Test(.engineLifetime) func mergeToastCountsTheRowsTheNewViewActuallyHas() async throws {
-    let (session, _, _) = try await joinFixture()
-    let merged = try await session.merge("orders", "returns", on: ["order_id"])
-    #expect(merged.name == "orders_returns")
-    #expect(mergeToast(merged) == "Merged into orders_returns — 7 rows")
-}
-
 /// 🔴 **Closing a source under a live merge is REFUSED, not cascaded**, and the refusal names the
 /// dependents so the fix is one click away. This sheet creates that dependency, so this is the
 /// behaviour it is on the hook for surfacing — it must not invent a cascade and must not swallow

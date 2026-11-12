@@ -1,10 +1,11 @@
 import Foundation
 import SiftEngine
+import SiftVerify
 
 // The `sift` CLI. Deliberately almost empty: a SwiftPM test target cannot import an
 // `executableTarget`, so every line written here is a line no test will ever run. Argument
 // parsing, the checks, the exit-status rule and all the formatting live in
-// SiftEngine/Verification.swift, which SiftEngineTests does import. This file matches arguments
+// SiftVerify/Verification.swift, which SiftEngineTests does import. This file matches arguments
 // to calls and prints strings — nothing else belongs in it.
 
 func fail(_ message: String) -> Never {

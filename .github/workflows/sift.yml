@@ -73,6 +73,18 @@ jobs:
       - name: Verify end to end
         run: swift run sift --verify
 
+      # The verifier and its loopback HTTP server live in SiftVerify, which only the CLI and the
+      # tests link. If the app ever depends on it again, its binary carries those symbols.
+      - name: App does not link the verifier
+        shell: bash
+        run: |
+          app="$(swift build --show-bin-path)/SiftApp"
+          test -f "$app"
+          if nm "$app" 2>/dev/null | grep -qE 'LoopbackHTTPServer|SiftVerify'; then
+            echo "SiftApp links the verifier" >&2
+            exit 1
+          fi
+
       # Everything the `Test` step above runs is offline. This is the one place a cold
       # `INSTALL httpfs` / `INSTALL azure` from extensions.duckdb.org is exercised, and the
       # one place the loopback test oracle has to bind a socket inside the runner.

@@ -22,7 +22,7 @@ registers no secret (RE-MEASURED: `CREATE SECRET (TYPE s3|azure)` is refused out
 extension — an earlier "it needs no extension" measurement was taken on a `Database` that had not
 been `harden()`ed, so DuckDB autoloaded one behind it). Credentials live
 in the Keychain; a SAS query string is memory-only for one open. The only listener anywhere is
-`LoopbackHTTPServer` — the oracle every remote test and five `--verify` checks read their
+`LoopbackHTTPServer` (in `SiftVerify`, which the app does not link) — the oracle every remote test and five `--verify` checks read their
 verdict from — which binds 127.0.0.1 on an ephemeral port, is started only by tests or
 `--verify`, and **must never grow a wildcard bind**.
 
@@ -106,7 +106,9 @@ inference and system-color resolution breaks multiple times). It runs on PRs and
 - `Sources/SiftUI/` is every view and view-model; `Sources/SiftApp/` is `@main` + menus +
   LaunchServices **and is untestable by construction** (a test target cannot import an
   executable target) — nothing with a decision in it goes there. Same for `Sources/sift/`
-  (the CLI): logic lives in `SiftEngine/Verification.swift`.
+  (the CLI): logic lives in `SiftVerify/Verification.swift`. `SiftVerify` is a library only the CLI and
+  the tests depend on, so the shipped app never links the verifier or the loopback server; what
+  it needs from `SiftEngine` is `package`-visible rather than public.
 
 ## Frozen contracts — changing these breaks the app silently
 

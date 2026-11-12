@@ -4,6 +4,7 @@ import Foundation
 import DuckDBKit
 @testable import SiftCore
 @testable import SiftEngine
+@testable import SiftVerify
 
 // The shared presentation layer — the rules the `sift` grid and the SwiftUI grid both render
 // through. Ported from `web/index.html`'s `cellHTML`/`groupDigits`, so these tests are the contract
