@@ -9,6 +9,11 @@ A native, lightweight macOS utility built in Swift that brings live window hover
 - **Click to Focus:** Clicking any window preview immediately brings that specific window to the front and activates the application.
 - **Open Tabs:** Windows that expose an accessible tab strip (including Chrome) show a scrollable list of tab titles below their preview. The active tab carries a checkmark; click a tab to select it and bring its window forward. Tabs stay grouped by window, and duplicate titles remain separate entries.
 - **Quick Close (`x`):** Hover over a window card to reveal a close button to dismiss windows directly from the preview without switching into the app.
+- **Window Switcher (⌥Tab, on by default):** Hold ⌥ and press Tab to see every window of every app, on every Space and display, most recently used first, with minimized windows last. Each card shows a live thumbnail, the app icon and the window title. Tab and ⇧Tab (or the arrow keys) move the highlight; releasing ⌥ switches to that window and Esc closes the panel without switching. A quick ⌥Tab switches straight to the window you were in before, without showing the panel. Turn it off on DockPeek's page in Mac Tools.
+- **Dock Click Actions (each off by default):** Three separate switches on DockPeek's page in Mac Tools change what a Dock icon does:
+  - **Click to hide:** clicking the icon of the app that is already in front hides it. Every other click (another app, a click with a modifier key, click-and-hold, dragging, right-clicking, the Trash, folders, minimized windows) works as usual.
+  - **Scroll to cycle windows:** scrolling over a running app's icon brings its next or previous window forward, one window per scroll step.
+  - **Middle-click for a new window:** middle-clicking a running app's icon brings it forward and sends it ⌘N. A middle click on an app that is not running does what it always did.
 - **Menu Bar Companion:** Runs as an accessory (`LSUIElement`) with a menu bar status icon. The menu shows a status line, **Grant Accessibility…** / **Grant Screen Recording…** only while that permission is missing, **Settings…** (opens DockPeek's page in Mac Tools, `mactools://app/dockPeek`, falling back to opening Mac Tools) and **Quit**.
 - **Reliable Dismissal:** Previews close after the pointer spends about 0.6 seconds outside the Dock icon and preview, with a grace period for crossing between them.
 - **Lightweight Hover Checks:** Event-driven Dock detection, with pointer-position checks only during an active hover to recover from missed mouse-exit events.
@@ -31,6 +36,8 @@ Because macOS protects other applications' windows and screen contents, two stan
    - Allows macOS to generate live visual thumbnails of running application windows.
 
 When you launch DockPeek for the first time, click the **DockPeek icon** in your menu bar (top right) to see the status and grant any missing permission.
+
+The window switcher and the Dock click actions use only Accessibility. Without Screen Recording, switcher cards show app icons instead of thumbnails; without Accessibility the switcher and the Dock actions do nothing until it is granted from the menu. Each feature installs its keyboard or mouse listener only while it is switched on, and removes it when switched off.
 
 Tab discovery uses the existing Accessibility permission; no browser extension or Automation permission is required. Lists refresh whenever you hover over the app again. Background tabs are listed by title; the thumbnail shows the window's currently selected tab. Availability depends on the app exposing its tab strip, so hidden/collapsed tabs that an app omits from Accessibility cannot be listed. Apps without an accessible tab strip retain their window previews. Discovery skips webpage content and is bounded to keep an unresponsive app or an unusually large accessibility tree from blocking previews.
 
@@ -57,6 +64,9 @@ Accessibility and Screen Recording.
 ## Architecture
 
 - **`DockObserver.swift`**: Monitors cursor position relative to the Dock and queries `AXUIElement` on `com.apple.dock` to extract the target application PID and icon coordinates.
+- **`Switcher/`**: The ⌥Tab window switcher. `SwitcherLogic.swift` holds every decision as pure functions (window order, the previous-window rule, highlight movement, quick ⌥Tab, key routing, grid layout); `SwitcherWindowSource.swift` lists windows from the window server and Accessibility; `SwitcherController.swift` owns the key tap, the session and the panel.
+- **`DockClicks/`**: The Dock click actions. `DockClickLogic.swift` decides which clicks and scrolls are acted on and which pass through, and turns scrolling into steps; `DockHitTester.swift` asks only the Dock what is under the pointer; `DockClickController.swift` owns the mouse tap.
+- **`EventTap.swift`**: Session event taps on their own thread. Unclaimed events pass untouched, a tap the system disables is re-enabled at once, and a switched-off feature's tap is removed.
 - **`HoverDismissalState.swift`**: Uses current pointer geometry and a bounded departure grace period; no cached mouse-enter flag or permanent transit corridor.
 - **`WindowService.swift`**: Enumerates active application windows using `CGWindowListCopyWindowInfo` and captures live thumbnails using `CGWindowListCreateImage`. Manages window raising via `AXUIElementPerformAction(kAXRaiseAction)`.
 - **`TabService.swift`**: Finds native Accessibility tab groups, reads their tab titles and selection state, and selects the original tab element without relying on a mutable index or a unique title.
@@ -83,4 +93,6 @@ An optional read-only integration test checks a running Chrome instance and its 
 DOCKPEEK_TEST_CHROME=1 swift test --package-path DockPeek
 ```
 
-Set `DOCKPEEK_PREVIEW_SNAPSHOT=/tmp/dockpeek-preview.png` on the same command to also save rendered preview fixtures for visual inspection: the tabbed fixture at that path, and `-light`/`-dark` with `-windows`/`-tabs` variants beside it.
+Set `DOCKPEEK_PREVIEW_SNAPSHOT=/tmp/dockpeek-preview.png` on the same command to also save rendered preview fixtures for visual inspection: the tabbed fixture at that path, `-light`/`-dark` with `-windows`/`-tabs` variants beside it, and the window switcher as `-switcher-light`/`-switcher-dark` with `-row`, `-wrap` and `-scroll` variants.
+
+For the switcher, check a quick ⌥Tab between two windows (no panel flashes), holding ⌥ through several Tabs and ⇧Tabs, the arrow keys, Esc, a window on another Space, a minimized window, and an app that is hidden. For the Dock actions, turn each on in Mac Tools and check its pass-through cases as well as the action itself: a trackpad swipe and a fast wheel spin over an icon should each move one window at a time.

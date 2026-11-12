@@ -87,4 +87,48 @@ final class ToolPreferencesTests: XCTestCase {
         XCTAssertFalse(state.shouldDismiss(pointer: point, dockFrame: nil, previewFrame: nil, now: 1.4))
         XCTAssertTrue(state.shouldDismiss(pointer: point, dockFrame: nil, previewFrame: nil, now: 1.6))
     }
+
+    func testSwitcherAndDockActionDefaults() throws {
+        let snapshot = preferences.snapshot(loginStatus: .notRegistered)
+        XCTAssertTrue(snapshot.switcherEnabled)
+        XCTAssertFalse(snapshot.dockClickHidesFrontApp)
+        XCTAssertFalse(snapshot.dockScrollCyclesWindows)
+        XCTAssertFalse(snapshot.dockMiddleClickOpensWindow)
+        XCTAssertEqual(preferences.dockClickSettings, DockClickSettings())
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot)) as? [String: Any])
+        XCTAssertEqual(json["schemaVersion"] as? Int, 1)
+        for key in DockPeekSettingsPatch.booleanKeys {
+            let number = try XCTUnwrap(json[key] as? NSNumber, key)
+            XCTAssertEqual(CFGetTypeID(number), CFBooleanGetTypeID(), key)
+        }
+    }
+    func testSwitcherAndDockActionsPersist() throws {
+        try preferences.apply(patch("""
+            {"switcherEnabled":false,"dockClickHidesFrontApp":true,"dockScrollCyclesWindows":true,"dockMiddleClickOpensWindow":true}
+            """)) { _ in XCTFail() }
+        let reloaded = ToolPreferences(defaults: UserDefaults(suiteName: suite)!, runningAppPermissions: { nil })
+        XCTAssertFalse(reloaded.switcherEnabled)
+        XCTAssertEqual(reloaded.dockClickSettings, DockClickSettings(hidesFrontApp: true, scrollCyclesWindows: true, middleClickOpensWindow: true))
+        let snapshot = reloaded.snapshot(loginStatus: .notRegistered)
+        XCTAssertFalse(snapshot.switcherEnabled)
+        XCTAssertTrue(snapshot.dockClickHidesFrontApp && snapshot.dockScrollCyclesWindows && snapshot.dockMiddleClickOpensWindow)
+    }
+    func testOldPatchWithoutTheNewKeysStillValidatesAndLeavesThemAlone() throws {
+        let old = try patch(#"{"previewsEnabled":false,"showsTabs":true,"dismissalDelay":1}"#)
+        XCTAssertNil(old.switcherEnabled)
+        XCTAssertNil(old.dockClickHidesFrontApp)
+        try preferences.apply(old) { _ in XCTFail() }
+        for key in DockPeekSettingsPatch.booleanKeys { XCTAssertNil(defaults.object(forKey: key), key) }
+        XCTAssertTrue(preferences.switcherEnabled)
+    }
+    func testNewKeysMustBeBooleansAndNothingAppliesOtherwise() {
+        for key in DockPeekSettingsPatch.booleanKeys {
+            for bad in ["1", "0", "\"true\"", "null", "{}"] {
+                let json = "{\"previewsEnabled\":false,\"\(key)\":\(bad)}"
+                XCTAssertThrowsError(try preferences.apply(patch(json)) { _ in XCTFail() }, json)
+                XCTAssertNil(defaults.object(forKey: "previewsEnabled"), json)
+                XCTAssertNil(defaults.object(forKey: key), json)
+            }
+        }
+    }
 }

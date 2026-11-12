@@ -34,12 +34,12 @@ enum PreviewRadius {
     static let panel: CGFloat = 14
 }
 
-private func roundedShape(_ radius: CGFloat) -> RoundedRectangle {
+func roundedShape(_ radius: CGFloat) -> RoundedRectangle {
     RoundedRectangle(cornerRadius: radius, style: .continuous)
 }
 
 /// Short ease for anything that appears, disappears or changes state on hover.
-private func hoverEase(_ reduceMotion: Bool) -> Animation? {
+func hoverEase(_ reduceMotion: Bool) -> Animation? {
     reduceMotion ? nil : .easeOut(duration: 0.15)
 }
 
@@ -127,7 +127,7 @@ public struct PreviewView: View {
             ZStack(alignment: .topTrailing) {
                 Button { onSelectWindow(win) } label: {
                     VStack(spacing: 6) {
-                        thumbnail(for: win)
+                        WindowThumbnail(window: win)
                             .frame(width: width, height: 135)
                             .overlay(
                                 roundedShape(PreviewRadius.control)
@@ -194,41 +194,6 @@ public struct PreviewView: View {
                 hoveredWindowID = win.id
             } else if hoveredWindowID == win.id {
                 hoveredWindowID = nil
-            }
-        }
-    }
-
-    private func thumbnail(for win: WindowInfo) -> some View {
-        ZStack(alignment: .bottomLeading) {
-            ZStack {
-                roundedShape(PreviewRadius.control)
-                    .fill(Color.primary.opacity(0.06))
-                if let thumb = win.thumbnail {
-                    Image(nsImage: thumb)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .clipShape(roundedShape(PreviewRadius.control))
-                        .padding(4)
-                } else {
-                    VStack(spacing: 8) {
-                        if let icon = win.appIcon {
-                            Image(nsImage: icon).resizable().frame(width: 48, height: 48)
-                        }
-                        Text("No Preview")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-            if win.isMinimized {
-                Label("Minimized", systemImage: "arrow.down.right.and.arrow.up.left")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.primary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(.regularMaterial, in: roundedShape(PreviewRadius.control))
-                    .overlay(roundedShape(PreviewRadius.control).strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1))
-                    .padding(6)
             }
         }
     }
