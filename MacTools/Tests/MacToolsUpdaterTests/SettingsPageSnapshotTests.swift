@@ -59,7 +59,13 @@ final class SettingsPageSnapshotTests: XCTestCase {
                                                         ["command": "toggleMicrophoneMute", "title": "Mute or Unmute Microphone", "shortcut": NSNull()]],
                                           "permissions": ["accessibility": true, "inputMonitoring": true, "eventTapActive": true],
                                           "permissionsSource": "runningApp"]
+        let stayLit: [String: Any] = ["keepAwake": false, "keepAwakeApps": ["com.apple.finder"], "keepsDisplayAwake": false,
+                                      "brightnessKeysControlDisplays": true, "volumeKeysControlDisplays": false,
+                                      "awakeReason": "Awake while Finder is running",
+                                      "externalDisplays": [["name": "Studio Monitor", "controllable": true], ["name": "Old Projector", "controllable": false]],
+                                      "permissions": ["accessibility": true], "permissionsSource": "runningApp"]
         for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            try render(.stayLit, stayLit, appearance: appearance, to: directory)
             try render(.scrollSplit, scrollSplit, appearance: appearance, to: directory)
             try render(.dockPeek, dockPeek, appearance: appearance, to: directory)
             try render(.linkRoutes, linkRoutes, appearance: appearance, to: directory)

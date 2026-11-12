@@ -11,3 +11,4 @@ dist/
 *.p12
 *.pfx
 *.key
+.claude/

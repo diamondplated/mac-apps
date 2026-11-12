@@ -132,7 +132,7 @@ if [ "$PREFLIGHT_ONLY" = 1 ]; then
 fi
 
 # Every published build reaches installed copies through Sparkle; test before signing anything.
-for package in DockPeek ScreenWren ScrollSplit LinkRoutes MacTools; do
+for package in DockPeek ScreenWren ScrollSplit LinkRoutes StayLit MacTools; do
     swift test --package-path "$PROJECT_DIR/$package" --parallel
 done
 
@@ -197,7 +197,7 @@ build_standalone_payload() {
     fi
     ditto "$source_dir/dist/$name.app" "$WORK/payloads/$name.app"
 }
-for name in DockPeek ScreenWren ScrollSplit LinkRoutes Latent Sift; do
+for name in DockPeek ScreenWren ScrollSplit LinkRoutes StayLit Latent Sift; do
     build_isolated_payload "$name"
 done
 
@@ -218,13 +218,14 @@ PY
     cp "$result" "$WORK/output/notarization-$name.json"
 }
 if [ "$MODE" = notarized ]; then
-    for name in DockPeek ScreenWren ScrollSplit LinkRoutes Latent Sift; do
+    for name in DockPeek ScreenWren ScrollSplit LinkRoutes StayLit Latent Sift; do
         notarize_and_staple "$WORK/payloads/$name.app" "$name"
     done
 fi
 MACTOOLS_DIST_DIR="$WORK/output" MACTOOLS_DOCKPEEK_APP="$WORK/payloads/DockPeek.app" \
 MACTOOLS_SCREENWREN_APP="$WORK/payloads/ScreenWren.app" \
 MACTOOLS_SCROLLSPLIT_APP="$WORK/payloads/ScrollSplit.app" MACTOOLS_LINKROUTES_APP="$WORK/payloads/LinkRoutes.app" \
+MACTOOLS_STAYLIT_APP="$WORK/payloads/StayLit.app" \
 MACTOOLS_LATENT_APP="$WORK/payloads/Latent.app" MACTOOLS_SIFT_APP="$WORK/payloads/Sift.app" \
 SCREENWREN_SIGNING_IDENTITY="$SIGNING_IDENTITY" SCREENWREN_SIGNING_TIMESTAMP="$SIGNING_TIMESTAMP" \
     "$PROJECT_DIR/build-app.sh" --reuse-payloads
@@ -242,11 +243,11 @@ fi
 printf '\n' >> "$WORK/output/RELEASE-NOTES.md"
 cat "$NOTES" >> "$WORK/output/RELEASE-NOTES.md"
 codesign --verify --deep --strict "$APP"
-for name in DockPeek ScreenWren ScrollSplit LinkRoutes Latent Sift; do codesign --verify --deep --strict "$APP/Contents/Resources/Applications/$name.app"; done
+for name in DockPeek ScreenWren ScrollSplit LinkRoutes StayLit Latent Sift; do codesign --verify --deep --strict "$APP/Contents/Resources/Applications/$name.app"; done
 # Every shipped bundle must be certificate-anchored so no other code can inherit its permissions.
-"$PROJECT_DIR/scripts/check-signing.sh" --certificate "$APP" "$APP/Contents/Resources/Applications/"{DockPeek,ScreenWren,ScrollSplit,LinkRoutes,Latent,Sift}.app \
+"$PROJECT_DIR/scripts/check-signing.sh" --certificate "$APP" "$APP/Contents/Resources/Applications/"{DockPeek,ScreenWren,ScrollSplit,LinkRoutes,StayLit,Latent,Sift}.app \
     "$APP/Contents/Resources/Applications/ScreenWren.app/Contents/Library/LoginItems/ScreenWrenLoginItem.app"
-for name in ScreenWren ScrollSplit LinkRoutes; do
+for name in ScreenWren ScrollSplit LinkRoutes StayLit; do
     "$APP/Contents/Resources/Applications/$name.app/Contents/MacOS/$name" --self-check
 done
 unzip -tq "$ARCHIVE"
@@ -279,7 +280,7 @@ python3 - "$WORK/output/release.json" "$VERSION" "$BUILD" "$MODE" "$SOURCE_REPOS
 import hashlib, json, pathlib, plistlib, sys
 path, version, build, mode, repository, revision, app=sys.argv[1:]
 managed_apps=[]
-for name in ['DockPeek','ScreenWren','ScrollSplit','LinkRoutes','Latent','Sift']:
+for name in ['DockPeek','ScreenWren','ScrollSplit','LinkRoutes','StayLit','Latent','Sift']:
     bundle=pathlib.Path(app)/'Contents/Resources/Applications'/f'{name}.app'
     with (bundle/'Contents/Info.plist').open('rb') as source:
         info=plistlib.load(source)

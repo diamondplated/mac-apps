@@ -74,10 +74,26 @@ struct ToolSettingsSnapshot: Decodable {
     var stripsTrackingParameters: Bool?
     var unwrapsRedirects: Bool?
     var supportsSourceRules: Bool { stripsTrackingParameters != nil }
+    // StayLit.
+    var keepAwake: Bool?
+    var keepAwakeApps: [String]?
+    var keepsDisplayAwake: Bool?
+    var brightnessKeysControlDisplays: Bool?
+    var volumeKeysControlDisplays: Bool?
+    /// Why the Mac is being kept awake right now, in StayLit's own words. Read-only.
+    var awakeReason: String?
+    var externalDisplays: [ExternalDisplay]?
     // LinkRoutes file rules. Absent from older LinkRoutes builds.
     var fileRules: [FileRouteRule]?
     /// File types LinkRoutes is currently the default app for. Read-only.
     var takenOverExtensions: [String]?
+}
+
+struct ExternalDisplay: Decodable, Equatable, Identifiable {
+    let name: String
+    /// Whether StayLit can change this display's brightness and volume.
+    let controllable: Bool
+    var id: String { name }
 }
 
 /// "Files of this type, in this folder, open with this app."
