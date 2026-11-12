@@ -10,6 +10,8 @@ final class ManagedAppTests: XCTestCase {
             .scrollSplit: "com.andrew.scrollsplit",
             .linkRoutes: "com.andrew.linkroutes",
             .stayLit: "com.andrew.staylit",
+            .mixBar: "com.andrew.mixbar",
+            .rightHere: "com.andrew.righthere",
             .latent: "com.diamondplated.latent",
             .sift: "io.github.diamondplated.sift",
         ]
@@ -20,8 +22,8 @@ final class ManagedAppTests: XCTestCase {
         }
     }
 
-    func testOnlyMenuBarUtilitiesUseTheSettingsBridge() {
-        XCTAssertEqual(ManagedApp.allCases.filter(\.supportsSettingsBridge), [.dockPeek, .screenWren, .scrollSplit, .linkRoutes, .stayLit])
+    func testOnlyUtilitiesUseTheSettingsBridge() {
+        XCTAssertEqual(ManagedApp.allCases.filter(\.supportsSettingsBridge), [.dockPeek, .screenWren, .scrollSplit, .linkRoutes, .stayLit, .mixBar, .rightHere])
         XCTAssertEqual(ManagedApp.allCases.filter { $0.kind == .app }, [.latent, .sift])
     }
 

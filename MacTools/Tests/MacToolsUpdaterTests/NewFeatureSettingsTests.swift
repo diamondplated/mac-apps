@@ -66,6 +66,53 @@ final class NewFeatureSettingsTests: XCTestCase {
         XCTAssertNil(idle.externalDisplays)
     }
 
+    func testRoundFourKeysAreAbsentFromOlderAppsAndReadFromNewerOnes() throws {
+        XCTAssertFalse(try snapshot("scrollSplit").hasKeyboardOverrides)
+        let cut = try snapshot("scrollSplit", ["cutAndPasteFilesInFinder": false])
+        XCTAssertTrue(cut.hasKeyboardOverrides)
+        XCTAssertNil(cut.capsLockIsHyper)
+        XCTAssertTrue(cut.canOpenAtLogin)
+    }
+
+    func testMixBarSnapshotIsReadAndAnEntryIsWrittenBackWithoutItsName() throws {
+        let value = try snapshot("mixBar", ["remembersVolumes": true, "audioControlAvailable": true, "audioCaptureStatus": "granted",
+                                            "appVolumes": [["bundleIdentifier": "com.example.music", "name": "Music", "volume": 0.654, "muted": false, "outputDeviceUID": NSNull()],
+                                                           ["bundleIdentifier": "com.example.calls", "name": "", "volume": 1.5, "muted": true, "outputDeviceUID": "Speakers-1"]]])
+        let entries = try XCTUnwrap(value.appVolumes)
+        XCTAssertEqual(entries.map(\.summary), ["65%", "Muted, own output"])
+        XCTAssertEqual(entries[0].displayName, "Music")
+        XCTAssertEqual(value.audioCaptureStatus, "granted")
+        let patch = entries[0].patch
+        XCTAssertEqual(Set(patch.keys), ["bundleIdentifier", "volume", "muted", "outputDeviceUID"])
+        XCTAssertTrue(patch["outputDeviceUID"] is NSNull)
+        XCTAssertEqual(entries[1].patch["outputDeviceUID"] as? String, "Speakers-1")
+        // The whole patch must survive JSON encoding, null included.
+        XCTAssertNoThrow(try JSONSerialization.data(withJSONObject: ["appVolumes": entries.map(\.patch)]))
+        XCTAssertNil(try snapshot("mixBar").appVolumes)
+    }
+
+    func testRightHereSnapshotIsReadAndHasNothingToOpenAtLogin() throws {
+        let value = try snapshot("rightHere", ["loginStatus": "notApplicable", "showsNewFile": true, "showsOpenTerminal": false, "showsCopyPath": true,
+                                               "newFileExtensions": ["txt", "md"], "terminalBundleIdentifier": "com.apple.Terminal",
+                                               "availableTerminals": [["bundleIdentifier": "com.apple.Terminal", "name": "Terminal"]],
+                                               "extensionEnabled": false])
+        XCTAssertFalse(value.canOpenAtLogin)
+        XCTAssertEqual(value.showsOpenTerminal, false)
+        XCTAssertEqual(value.availableTerminals, [TerminalApp(bundleIdentifier: "com.apple.Terminal", name: "Terminal")])
+        XCTAssertEqual(value.extensionEnabled, false)
+    }
+
+    func testNewFileTypesAreTidiedAndRefusedForTheRightReasons() throws {
+        XCTAssertEqual(NewFileTypes.cleaned(" .CSV "), "csv")
+        XCTAssertEqual(NewFileTypes.cleaned("*.json5"), "json5")
+        for bad in ["", ".", "tar.gz", "a b", "über", "abcdefghijk", "../x"] { XCTAssertNil(NewFileTypes.cleaned(bad), bad) }
+        XCTAssertEqual(try NewFileTypes.adding(".PY", to: ["txt"]).get(), ["txt", "py"])
+        XCTAssertThrowsError(try NewFileTypes.adding("TXT", to: ["txt"]).get())
+        XCTAssertThrowsError(try NewFileTypes.adding("no good", to: ["txt"]).get())
+        XCTAssertThrowsError(try NewFileTypes.adding("h", to: ["a", "b", "c", "d", "e", "f", "g", "i"]).get())
+        XCTAssertEqual(["txt", "md", "py"].map(NewFileTypes.title(for:)), ["Text File", "Markdown File", "PY File"])
+    }
+
     func testAFileRuleIsTidiedBeforeItIsSaved() throws {
         let rule = FileRouteRule(id: "1", fileExtension: " *.MD ", folder: "   ", applicationIdentifier: "com.example.editor")
         let ready = rule.readyToSave

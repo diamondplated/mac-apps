@@ -40,6 +40,7 @@ snapshot_tool_login() {
             com.andrew.scrollsplit) executable=ScrollSplit; app_key=scrollSplit ;;
             com.andrew.linkroutes) executable=LinkRoutes; app_key=linkRoutes ;;
             com.andrew.staylit) executable=StayLit; app_key=stayLit ;;
+            com.andrew.mixbar) executable=MixBar; app_key=mixBar ;;
             *) continue ;;
         esac
         [ "$(plutil -extract MacToolsSettingsProtocolVersion raw "$app/Contents/Info.plist" 2>/dev/null || true)" = 1 ] || continue

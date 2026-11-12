@@ -34,9 +34,11 @@ struct ToolSettingsView: View {
                 linkSettings(snapshot)
                 fileSettings(snapshot)
             case .stayLit: stayLitSettings(snapshot)
+            case .mixBar: mixBarSettings(snapshot)
+            case .rightHere: rightHereSettings(snapshot)
             case .latent, .sift: EmptyView()
             }
-            general(snapshot)
+            if snapshot.canOpenAtLogin { general(snapshot) }
             permissions(snapshot)
         } else if let error = settings.error {
             Section {
@@ -97,7 +99,7 @@ struct ToolSettingsView: View {
         case .screenWren: return [screen]
         case .scrollSplit: return [accessibility, input]
         case .stayLit: return [accessibility]
-        case .linkRoutes, .latent, .sift: return []
+        case .linkRoutes, .mixBar, .rightHere, .latent, .sift: return []
         }
     }
 
@@ -383,11 +385,14 @@ struct ToolSettingsView: View {
                             .disabled(!(settings.pending["capsLockIsHyper"] as? Bool ?? hyper))
                     }
                 }
+                if let cut = value.cutAndPasteFilesInFinder {
+                    Toggle("⌘X then ⌘V moves files in Finder", isOn: toggle(cut, key: "cutAndPasteFilesInFinder"))
+                }
             } header: {
                 Text("Keyboard")
             } footer: {
-                footnote(value.capsLockRemapAvailable == false
-                    ? "Caps Lock can’t be remapped on this Mac."
+                footnote(value.capsLockIsHyper == nil ? "These change what the keys normally do, so they start off."
+                    : value.capsLockRemapAvailable == false ? "Caps Lock can’t be remapped on this Mac."
                     : "While Caps Lock is a Hyper key it no longer locks capitals.")
             }
         }
@@ -454,6 +459,139 @@ struct ToolSettingsView: View {
         Task {
             await settings.save(app: selectedApp, library: library) { latest in
                 ["keepAwakeApps": change(latest?.keepAwakeApps ?? shown)]
+            }
+        }
+    }
+
+    // MARK: MixBar
+
+    @ViewBuilder
+    private func mixBarSettings(_ value: ToolSettingsSnapshot) -> some View {
+        let saved = value.appVolumes ?? []
+        Section {
+            if value.audioControlAvailable == false {
+                Label("Changing one app’s volume needs macOS 14.2 or later.", systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.secondary)
+            }
+            if value.audioCaptureStatus == "denied" {
+                LabeledContent("MixBar isn’t allowed to control app audio") {
+                    Button("Open Settings") { library.openSettings("com.apple.preference.security?Privacy_ScreenCapture") }
+                }
+            }
+            Toggle("Remember each app’s volume", isOn: toggle(value.remembersVolumes ?? true, key: "remembersVolumes"))
+        } header: {
+            Text("Volume")
+        } footer: {
+            footnote("Set an app’s volume from MixBar’s menu bar icon. An app left at normal volume on the usual output is never touched, and everything plays normally if MixBar quits.")
+        }
+        Section {
+            if saved.isEmpty {
+                Text("No app has its own volume yet.").foregroundStyle(.secondary)
+            }
+            ForEach(saved) { entry in
+                LabeledContent(entry.displayName) {
+                    HStack(spacing: 10) {
+                        Text(entry.summary).foregroundStyle(.secondary).monospacedDigit()
+                        Button("Forget \(entry.displayName)", systemImage: "minus.circle", role: .destructive) {
+                            editAppVolumes(from: saved) { $0.filter { $0.bundleIdentifier != entry.bundleIdentifier } }
+                        }.labelStyle(.iconOnly).buttonStyle(.borderless)
+                    }
+                }
+            }
+            if saved.count > 1 {
+                Button("Forget All") { editAppVolumes(from: saved) { _ in [] } }
+            }
+        } header: {
+            Text("Remembered Apps")
+        } footer: {
+            footnote("Forgetting an app returns it to normal volume on the usual output.")
+        }
+    }
+
+    /// Changes the saved volumes starting from whatever is saved when this edit's turn comes.
+    private func editAppVolumes(from shown: [AppVolume], _ change: @escaping ([AppVolume]) -> [AppVolume]) {
+        let selectedApp = app
+        Task {
+            await settings.save(app: selectedApp, library: library) { latest in
+                ["appVolumes": change(latest?.appVolumes ?? shown).map(\.patch)]
+            }
+        }
+    }
+
+    // MARK: RightHere
+
+    @ViewBuilder
+    private func rightHereSettings(_ value: ToolSettingsSnapshot) -> some View {
+        let types = value.newFileExtensions ?? []
+        let terminals = value.availableTerminals ?? []
+        let terminal = value.terminalBundleIdentifier ?? ""
+        Section {
+            if value.extensionEnabled == false {
+                LabeledContent("The Finder extension is switched off") {
+                    Button("Turn On…") { Task { await library.launch(.rightHere) } }
+                }
+            }
+            Toggle("New File", isOn: toggle(value.showsNewFile ?? true, key: "showsNewFile"))
+            Toggle("Open Terminal Here", isOn: toggle(value.showsOpenTerminal ?? true, key: "showsOpenTerminal"))
+            Toggle("Copy Path", isOn: toggle(value.showsCopyPath ?? true, key: "showsCopyPath"))
+        } header: {
+            Text("Finder’s Right-Click Menu")
+        } footer: {
+            footnote("These appear when you right-click a file, a folder, or the background of a Finder window.")
+        }
+        Section {
+            ForEach(types, id: \.self) { ext in
+                LabeledContent(NewFileTypes.title(for: ext)) {
+                    HStack(spacing: 10) {
+                        Text("." + ext).foregroundStyle(.secondary)
+                        Button("Remove \(NewFileTypes.title(for: ext))", systemImage: "minus.circle", role: .destructive) {
+                            editNewFileTypes(from: types) { $0.count > 1 ? $0.filter { $0 != ext } : $0 }
+                        }.labelStyle(.iconOnly).buttonStyle(.borderless).disabled(types.count <= 1)
+                    }
+                }
+            }
+            LabeledContent("Add a type") {
+                HStack(spacing: 6) {
+                    TextField("Extension", text: $settings.newFileExtension, prompt: Text("csv")).textFieldStyle(.roundedBorder)
+                        .labelsHidden().frame(width: 90).accessibilityLabel("File extension to add")
+                        .onSubmit { addNewFileType(to: types) }
+                    Button("Add") { addNewFileType(to: types) }
+                        .disabled(NewFileTypes.cleaned(settings.newFileExtension) == nil || types.count >= NewFileTypes.limit)
+                }
+            }
+        } header: {
+            Text("New File")
+        } footer: {
+            footnote("New files are empty and named untitled. An existing file is never replaced.")
+        }
+        Section("Terminal") {
+            Picker("Open Terminal Here uses", selection: setting(terminal, key: "terminalBundleIdentifier")) {
+                ForEach(terminals) { Text($0.name).tag($0.bundleIdentifier) }
+                if !terminals.contains(where: { $0.bundleIdentifier == terminal }) {
+                    Text(terminal.isEmpty ? "Choose a terminal" : "Unavailable (\(terminal))").tag(terminal)
+                }
+            }
+        }
+    }
+
+    private func addNewFileType(to shown: [String]) {
+        switch NewFileTypes.adding(settings.newFileExtension, to: shown) {
+        case .failure(let problem): library.error = problem.localizedDescription
+        case .success:
+            let typed = settings.newFileExtension
+            settings.newFileExtension = ""
+            // Re-checked against the saved list when its turn comes; a duplicate writes nothing.
+            editNewFileTypes(from: shown) { (try? NewFileTypes.adding(typed, to: $0).get()) ?? $0 }
+        }
+    }
+
+    private func editNewFileTypes(from shown: [String], _ change: @escaping ([String]) -> [String]) {
+        let selectedApp = app
+        Task {
+            await settings.save(app: selectedApp, library: library) { latest in
+                let current = latest?.newFileExtensions ?? shown
+                let changed = change(current)
+                return changed == current ? nil : ["newFileExtensions": changed]
             }
         }
     }

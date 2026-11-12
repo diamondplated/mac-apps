@@ -54,6 +54,7 @@ final class SettingsPageSnapshotTests: XCTestCase {
                                           "smoothScrolling": true, "sideButtonsNavigate": true, "mouseAccelerationOff": false,
                                           "mouseAccelerationAvailable": true,
                                           "holdToQuit": true, "capsLockIsHyper": true, "capsLockTapIsEscape": false, "capsLockRemapAvailable": true,
+                                          "cutAndPasteFilesInFinder": false,
                                           "shortcuts": [["command": "pastePlainText", "title": "Paste as Plain Text",
                                                          "shortcut": ["keyCode": 9, "carbonModifiers": 4352, "keyEquivalent": "v", "keyLabel": "V"]],
                                                         ["command": "toggleMicrophoneMute", "title": "Mute or Unmute Microphone", "shortcut": NSNull()]],
@@ -64,7 +65,19 @@ final class SettingsPageSnapshotTests: XCTestCase {
                                       "awakeReason": "Awake while Finder is running",
                                       "externalDisplays": [["name": "Studio Monitor", "controllable": true], ["name": "Old Projector", "controllable": false]],
                                       "permissions": ["accessibility": true], "permissionsSource": "runningApp"]
+        let mixBar: [String: Any] = ["remembersVolumes": true, "audioControlAvailable": true, "audioCaptureStatus": "denied",
+                                     "appVolumes": [["bundleIdentifier": "com.apple.Music", "name": "Music", "volume": 0.4, "muted": false, "outputDeviceUID": NSNull()],
+                                                    ["bundleIdentifier": "us.zoom.xos", "name": "Zoom", "volume": 1.5, "muted": false, "outputDeviceUID": "Headphones"],
+                                                    ["bundleIdentifier": "com.apple.Safari", "name": "Safari", "volume": 1.0, "muted": true, "outputDeviceUID": NSNull()]]]
+        let rightHere: [String: Any] = ["loginStatus": "notApplicable", "launchAtLogin": false,
+                                        "showsNewFile": true, "showsOpenTerminal": true, "showsCopyPath": false,
+                                        "newFileExtensions": ["txt", "md", "py"], "terminalBundleIdentifier": "com.apple.Terminal",
+                                        "availableTerminals": [["bundleIdentifier": "com.apple.Terminal", "name": "Terminal"],
+                                                               ["bundleIdentifier": "com.mitchellh.ghostty", "name": "Ghostty"]],
+                                        "extensionEnabled": false]
         for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            try render(.mixBar, mixBar, appearance: appearance, to: directory)
+            try render(.rightHere, rightHere, appearance: appearance, to: directory)
             try render(.stayLit, stayLit, appearance: appearance, to: directory)
             try render(.scrollSplit, scrollSplit, appearance: appearance, to: directory)
             try render(.dockPeek, dockPeek, appearance: appearance, to: directory)

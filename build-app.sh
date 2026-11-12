@@ -8,10 +8,12 @@ SCREENWREN_APP=${MACTOOLS_SCREENWREN_APP:-"$PROJECT_DIR/ScreenWren/dist/ScreenWr
 SCROLLSPLIT_APP=${MACTOOLS_SCROLLSPLIT_APP:-"$PROJECT_DIR/ScrollSplit/dist/ScrollSplit.app"}
 LINKROUTES_APP=${MACTOOLS_LINKROUTES_APP:-"$PROJECT_DIR/LinkRoutes/dist/LinkRoutes.app"}
 STAYLIT_APP=${MACTOOLS_STAYLIT_APP:-"$PROJECT_DIR/StayLit/dist/StayLit.app"}
+MIXBAR_APP=${MACTOOLS_MIXBAR_APP:-"$PROJECT_DIR/MixBar/dist/MixBar.app"}
+RIGHTHERE_APP=${MACTOOLS_RIGHTHERE_APP:-"$PROJECT_DIR/RightHere/dist/RightHere.app"}
 LATENT_APP=${MACTOOLS_LATENT_APP:-"$PROJECT_DIR/Latent/dist/Latent.app"}
 SIFT_APP=${MACTOOLS_SIFT_APP:-"$PROJECT_DIR/Sift/dist/Sift.app"}
 APP_PATH="$DIST_DIR/Mac Tools.app"
-PAYLOAD_NAMES=(DockPeek ScreenWren ScrollSplit LinkRoutes StayLit Latent Sift)
+PAYLOAD_NAMES=(DockPeek ScreenWren ScrollSplit LinkRoutes StayLit MixBar RightHere Latent Sift)
 select_payload() {
     # Latent is Apple silicon only (Float16 pipeline); Mac Tools refuses it on Intel.
     architectures="arm64 x86_64"
@@ -21,6 +23,8 @@ select_payload() {
         ScrollSplit) source_app="$SCROLLSPLIT_APP"; identifier=com.andrew.scrollsplit; minimum=14.0 ;;
         LinkRoutes) source_app="$LINKROUTES_APP"; identifier=com.andrew.linkroutes; minimum=14.0 ;;
         StayLit) source_app="$STAYLIT_APP"; identifier=com.andrew.staylit; minimum=14.0 ;;
+        MixBar) source_app="$MIXBAR_APP"; identifier=com.andrew.mixbar; minimum=14.0 ;;
+        RightHere) source_app="$RIGHTHERE_APP"; identifier=com.andrew.righthere; minimum=14.0 ;;
         Latent) source_app="$LATENT_APP"; identifier=com.diamondplated.latent; minimum=14.0; architectures="arm64" ;;
         Sift) source_app="$SIFT_APP"; identifier=io.github.diamondplated.sift; minimum=14.0 ;;
         *) echo "Unknown managed app: $1" >&2; exit 1 ;;
@@ -61,6 +65,8 @@ if [ "$REUSE_PAYLOADS" = 0 ]; then
     "$PROJECT_DIR/ScrollSplit/build-app.sh"
     "$PROJECT_DIR/LinkRoutes/build-app.sh"
     "$PROJECT_DIR/StayLit/build-app.sh"
+    "$PROJECT_DIR/MixBar/build-app.sh"
+    "$PROJECT_DIR/RightHere/build-app.sh"
     "$PROJECT_DIR/Latent/scripts/build_app.sh" --mac-tools-payload
     "$PROJECT_DIR/Sift/scripts/fetch-duckdb.sh"
     "$PROJECT_DIR/Sift/build-app.sh" --mac-tools-payload
