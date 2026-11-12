@@ -28,6 +28,9 @@ enum ShortcutCommand: String, CaseIterable, Codable {
     case freeze
     case recents
     case togglePins
+    // Appended so existing commands keep their order and identifiers in the settings bridge.
+    case recordRegion
+    case pickColour
 
     var identifier: UInt32 {
         switch self {
@@ -38,6 +41,8 @@ enum ShortcutCommand: String, CaseIterable, Codable {
         case .freeze: 5
         case .recents: 6
         case .togglePins: 7
+        case .recordRegion: 8
+        case .pickColour: 9
         }
     }
 
@@ -50,6 +55,8 @@ enum ShortcutCommand: String, CaseIterable, Codable {
         case .freeze: "Freeze Screen & Select"
         case .recents: "Browse Recent Captures"
         case .togglePins: "Hide / Restore All Pins"
+        case .recordRegion: "Record Region"
+        case .pickColour: "Pick Colour"
         }
     }
 
@@ -65,7 +72,7 @@ enum ShortcutCommand: String, CaseIterable, Codable {
             Shortcut(keyCode: UInt32(kVK_ANSI_P), carbonModifiers: UInt32(controlKey | shiftKey), keyEquivalent: "p", keyLabel: "P")
         case .togglePins:
             Shortcut(keyCode: UInt32(kVK_ANSI_P), carbonModifiers: UInt32(controlKey | optionKey), keyEquivalent: "p", keyLabel: "P")
-        case .frontWindow, .freeze:
+        case .frontWindow, .freeze, .recordRegion, .pickColour:
             nil
         }
     }
@@ -698,7 +705,7 @@ final class ReadinessWindowController: NSWindowController, NSWindowDelegate {
         permissionButton.target = self
         permissionButton.action = #selector(requestOrOpenPermission)
         permissionButton.bezelStyle = .rounded
-        let permissionNote = label("Enable this copy, then quit and reopen. Still images only, never audio.",
+        let permissionNote = label("Enable this copy, then quit and reopen. Stills and region video, never audio.",
                                    style: .callout, color: .secondaryLabelColor)
         let revealButton = NSButton(title: "Show in Finder", target: self, action: #selector(revealCurrentCopy))
         revealButton.toolTip = "Show this copy of ScreenWren, the one System Settings must allow"

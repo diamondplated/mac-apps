@@ -103,6 +103,29 @@ While the selector is open:
 - **Scrolling capture.** Guided, with conservative seam detection.
 - **Session-only recents.** A visual picker (`⌃⇧P`) for copying, editing, pinning, exporting, and removing captures. Never a hidden screenshot library.
 
+### Record a region
+
+- **Record Region…** uses the same selector, counts down 3-2-1 inside the chosen area, then
+  records video of that region at the display's scale, 30 frames per second, with the cursor.
+  It never records audio: no system sound, no microphone.
+- While recording, the menu-bar icon turns into a red record mark, a thin outline marks the
+  region, and **Stop Recording** is the first menu item. `Esc` or the Record Region shortcut
+  stops. ScreenWren's own windows and the outline stay out of the recording.
+- Recordings stop at 5 minutes, and ScreenWren says so.
+- A review window loops the clip. Trim the start and end, choose MP4 (H.264) or GIF, a size
+  (Original, Half, or a width you choose) and, for GIF, 10, 15 or 20 frames per second. The
+  output size updates as you change options, and the choices are remembered.
+- GIFs use a palette built for each recording and only redraw what changed between frames.
+- **Export…** saves to the Desktop by default with a dated name. **Copy** puts the file on the
+  clipboard, and the file icon drags out.
+
+### Pick a colour
+
+- **Pick Colour…** shows the system colour loupe. Click to copy the colour's sRGB hex value, such
+  as `#3A7BD5`; a brief notice shows it beside a swatch. `Esc` cancels and copies nothing.
+- **Recent Colours** in the menu holds the last five picks for this session; choose one to copy
+  it again.
+
 ### Edit and finish
 
 - **Native markup.** Apple PaperKit and PencilKit, in one header row: the native markup
@@ -158,8 +181,8 @@ so moving content may differ slightly in time between monitors.
 | Copy the edited image and close its editor | `⌘Return` |
 
 Every capture command is also in the menu-bar icon. Open **Permissions & Shortcuts…** to change global
-shortcuts, see conflicts, restore defaults, and control Launch at Login. Front Window and Freeze
-start unassigned, so they don't claim a global key without your say-so.
+shortcuts, see conflicts, restore defaults, and control Launch at Login. Front Window, Freeze,
+Record Region and Pick Colour start unassigned, so they don't claim a global key without your say-so.
 If a shortcut was busy at launch, ScreenWren retries when an app quits, when it
 becomes active, and when you open its menu. The warning stays visible until the
 key becomes available; **Fix Unavailable Shortcuts…** opens Permissions & Shortcuts.
@@ -196,6 +219,10 @@ of its own. OCR and subject lifting run through Apple's local Vision frameworks.
 - Recents are capped at five images and approximately 128 MB, then disappear when ScreenWren quits.
 - ScreenWren writes an image file only when you complete Save or a file drag. A Share service may
   send or persist it only after you choose that service.
+- A recording is held in one temporary file until you export it. ScreenWren deletes it when the
+  review window closes or the app quits, and clears any left behind by a crash at next launch.
+  Recordings never include audio.
+- Recent colours are hex values in memory and vanish when ScreenWren quits.
 - Clipboard contents are system-wide and may be read or retained by other apps, clipboard managers,
   or macOS.
 - ScreenWren requests Screen Recording access — not Accessibility, not microphone.
@@ -317,7 +344,8 @@ ScreenWren is a capture loop, not a document suite:
   access.
 - Protected or DRM-restricted content may capture as black.
 - OCR and subject detection can fail on ambiguous imagery.
-- There is no video/GIF capture, cloud sync, account system, or persistent library.
+- Recordings cover one region on one display, last at most 5 minutes, and never include audio.
+- There is no cloud sync, account system, or persistent library.
 
 The source currently identifies as a pre-1.0 build. Behavior and file formats may change before the
 first stable release.

@@ -65,11 +65,12 @@ final class CaptureStatusPresenter {
     func update(_ status: ScreenWrenStatus) {
         notice?.close()
         notice = nil
-        guard status.needsAttention else { return }
+        guard status.needsAttention || status.swatch != nil else { return }
         let notice = CaptureStatusWindow(status: status, onRecovery: onRecovery)
         notice.onClose = { [weak self] in self?.notice = nil }
         self.notice = notice
-        notice.present()
+        // A colour confirmation needs no action, so it goes sooner.
+        notice.present(duration: status.swatch == nil ? .seconds(8) : .seconds(3))
     }
 }
 
@@ -99,20 +100,35 @@ final class CaptureStatusWindow: NSWindowController {
         panel.contentView = background
         super.init(window: panel)
 
-        let icon = NSImageView(
-            image: NSImage(systemSymbolName: "exclamationmark.circle.fill", accessibilityDescription: nil) ?? NSImage())
-        icon.symbolConfiguration = NSImage.SymbolConfiguration(textStyle: .title2)
-        icon.contentTintColor = .systemOrange
+        let icon: NSView
+        if let swatch = status.swatch {
+            let well = SemanticLayerView(fill: swatch, border: .separatorColor, borderWidth: 1,
+                                         cornerRadius: CornerRadius.control)
+            well.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                well.widthAnchor.constraint(equalToConstant: 24), well.heightAnchor.constraint(equalToConstant: 24),
+            ])
+            icon = well
+        } else {
+            let symbol = NSImageView(
+                image: NSImage(systemSymbolName: "exclamationmark.circle.fill", accessibilityDescription: nil) ?? NSImage())
+            symbol.symbolConfiguration = NSImage.SymbolConfiguration(textStyle: .title2)
+            symbol.contentTintColor = .systemOrange
+            icon = symbol
+        }
         icon.setContentHuggingPriority(.required, for: .horizontal)
-        let label = NSTextField(wrappingLabelWithString: status.message)
+        // A colour confirmation reads as just the value: "#3A7BD5 copied".
+        let text = status.swatch == nil ? status.message
+            : status.message.replacingOccurrences(of: "ScreenWren — ", with: "")
+        let label = NSTextField(wrappingLabelWithString: text)
         label.font = .preferredFont(forTextStyle: .body)
         label.preferredMaxLayoutWidth = 268
         let message = NSStackView(views: [icon, label])
-        message.alignment = .top
+        message.alignment = status.swatch == nil ? .top : .centerY
         message.spacing = 10
         let dismiss = CaptureStatusButton(title: "Dismiss", target: self, action: #selector(dismiss))
         dismiss.setAccessibilityLabel("Dismiss capture status")
-        var buttons: [NSView] = [dismiss]
+        var buttons: [NSView] = status.swatch == nil || status.recoveryAction != nil ? [dismiss] : []
         if let recoveryAction {
             let recover = CaptureStatusButton(title: recoveryAction.title, target: self, action: #selector(recover))
             recover.bezelColor = .controlAccentColor
@@ -120,7 +136,7 @@ final class CaptureStatusWindow: NSWindowController {
         }
         let actions = NSStackView(views: buttons)
         actions.spacing = 8
-        let content = NSStackView(views: [message, actions])
+        let content = NSStackView(views: buttons.isEmpty ? [message] : [message, actions])
         content.orientation = .vertical
         content.alignment = .trailing
         content.spacing = 12
@@ -133,7 +149,9 @@ final class CaptureStatusWindow: NSWindowController {
             message.widthAnchor.constraint(equalTo: content.widthAnchor),
         ])
         background.layoutSubtreeIfNeeded()
-        panel.setContentSize(CGSize(width: 340, height: max(88, content.fittingSize.height + 32)))
+        let minimumHeight: CGFloat = buttons.isEmpty ? 56 : 88
+        let width: CGFloat = buttons.isEmpty ? min(340, content.fittingSize.width + 32) : 340
+        panel.setContentSize(CGSize(width: width, height: max(minimumHeight, content.fittingSize.height + 32)))
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }

@@ -1,8 +1,8 @@
-# ScreenWren 0.6 product design
+# ScreenWren 0.7 product design
 
 Status: implemented product contract
 
-App version: 0.6.0 (16)
+App version: 0.7.0 (17)
 
 Platform: macOS 26 and newer
 
@@ -72,8 +72,10 @@ ScreenWren is a menu-bar app with focused native surfaces:
    ratio, and saved size presets through the settings bridge.
 5. **Recent Captures** browses the existing five-image, memory-only collection.
    Export and redaction review are explicit action windows.
+6. **Recording review** loops a finished region recording, trims it, and exports
+   MP4 or GIF (see Record Region).
 
-Recents, pins, and review windows exist only for the current process.
+Recents, pins, recent colours, and review windows exist only for the current process.
 
 ## Readiness, permission, and shortcuts
 
@@ -94,7 +96,8 @@ for replacing a stale permission entry. A ScreenCaptureKit permission denial
 invalidates pending capture work, dismisses the selector, and overrides an allowed
 preflight result until relaunch. Approval never starts capture automatically.
 
-Screen Recording is the only capture permission. ScreenWren does not request
+Screen Recording is the only capture permission; it covers still captures and
+region video. ScreenWren never records audio and does not request
 Accessibility, microphone, Contacts, or Photos access. The wording remains honest
 that the precision loupe and Freeze feature temporarily inspect one display frame.
 
@@ -109,6 +112,11 @@ Capture commands, the recent picker, and pin visibility can have global shortcut
 | Freeze Screen and Select | Unassigned |
 | Browse Recent Captures | `⌃⇧P` |
 | Hide / Restore All Pins | `⌃⌥P` |
+| Record Region | Unassigned |
+| Pick Colour | Unassigned |
+
+New commands are appended to the list, so existing identifiers and the settings
+bridge's order never change.
 
 A recorded shortcut requires Command, Control, or Option. Escape cancels recording;
 Delete clears it. Conflicts within ScreenWren and registration failures are shown
@@ -212,6 +220,46 @@ and 256 MB of uncompressed frame data. Finish stitches off the main interaction 
 and opens an editor; Cancel discards the session. ScreenWren never drives the source
 app and therefore needs no Accessibility permission.
 
+### Record Region
+
+Record Region uses the ordinary selector (region or window, one display). A 3-2-1
+countdown appears inside the chosen area; Escape cancels it. Recording then uses
+ScreenCaptureKit at the display's scale and 30 frames per second with the cursor
+shown. System audio and the microphone are both off. ScreenWren's own windows,
+the region outline, and the countdown are excluded from the stream.
+
+While recording, the menu-bar icon shows a red record mark, the first menu item
+is **Stop Recording**, and a thin outline sits just outside the region. Escape or
+the Record Region shortcut stops. Other capture commands report "Stop the
+recording first" instead of starting. A recording stops at 5 minutes and says so.
+If the recorded display goes away, the recording stops and keeps what it has.
+
+Frames go to one temporary H.264 file in a per-process folder under the system
+temporary folder. Nothing else touches the disk before Export.
+
+The review window loops the clip and offers trim handles (also adjustable with
+the arrow keys and as accessibility sliders), format (MP4 H.264 or GIF), size
+(Original, Half, or a chosen width; never upscaled), and GIF frame rate (10, 15,
+or 20). It encodes in the background as options change and shows the output size.
+Export opens a save panel on the Desktop with a dated name; Copy puts the file on
+the clipboard; the file icon drags it out. Format, size, and frame rate are
+remembered in ScreenWren's own preferences, not the settings bridge. Closing the
+window deletes its temporary folder; quitting deletes the process's folder; launch
+deletes folders left by copies that are no longer running.
+
+GIF export builds one palette per recording (median cut over at most 24 sampled
+frames, 255 colours plus a transparent index), then writes only the changed
+rectangle of each frame, marks pixels within a small tolerance of what is already
+shown as transparent, and merges identical frames into longer delays.
+
+### Pick Colour
+
+Pick Colour shows the system colour sampler. Clicking copies the colour's sRGB
+hex value (colours from wider spaces such as Display P3 are converted and
+clamped) and shows a brief notice with a swatch. Escape copies nothing. The last
+five picks are in a **Recent Colours** submenu for the session; choosing one
+copies it again.
+
 ## Editor
 
 The editor shows the captured image, the native PaperKit toolbar, focused finish
@@ -275,10 +323,14 @@ Unsupported or ambiguous analysis fails without changing the image.
 - Recents retain at most five images and approximately 128 MB total.
 - Pins retain at most five flattened images.
 - Scrolling capture retains at most 20 frames and 256 MB until finish or cancel.
+- A recording lives in one temporary file, plus its prepared export, until its
+  review window closes or ScreenWren quits. A copied recording stays in the
+  temporary folder until quit so the clipboard's file reference keeps working.
+- Recent colours retain at most five hex values.
 - Editors, Recents, pins, analysis results, and repeat state disappear on process
   exit; ScreenWren makes no forensic secure-erasure claim for RAM or swap.
-- Captures are not written to a private library. An image file is created only by
-  Save, a completed file drag, or a Share service chosen by the user.
+- Captures are not written to a private library. An image or video file is created
+  only by Save, Export, a completed file drag, or a Share service chosen by the user.
 - Clipboard managers, Universal Clipboard, Share services, default URL handlers,
   system swap, and protected-content behavior are outside ScreenWren's control.
 
@@ -306,8 +358,9 @@ pixels because that restriction belongs to the source/system path.
 
 ## Deliberate limits
 
-ScreenWren does not include video or GIF capture, automatic scrolling, cloud sync, accounts, a persistent library, a browser extension,
-or an updater. OCR, barcode recognition, seam detection, and foreground-subject
+ScreenWren does not include audio recording, full-screen or multi-display video,
+recordings longer than 5 minutes, automatic scrolling, cloud sync, accounts, a
+persistent library, a browser extension, or an updater. OCR, barcode recognition, seam detection, and foreground-subject
 lifting are best-effort native analysis and can fail on ambiguous imagery.
 
 ## Acceptance and proof boundaries
@@ -319,7 +372,7 @@ The following checks establish different facts and must not be conflated:
 | `swift test --parallel` | Pure helpers and native component contracts pass on the build machine | Screen Recording permission or real desktop capture |
 | `./qa.sh` | Release build, Universal 2 app/helper, property lists, nested signing, ZIP, and executable self-checks | Visual polish, login launch, or notarized public distribution |
 | `SCREENWREN_LIVE_QA=1 ./qa.sh` | A permitted signed app can acquire real pixels in the current user session | Every monitor layout, source app, or protected-content case |
-| Manual macOS QA | Permissions & Shortcuts, permission/relaunch, shortcut conflict, selector, editor, clipboard race, scrolling, and Launch at Login behavior on the tested machine | Untested hardware and OS combinations |
+| Manual macOS QA | Permissions & Shortcuts, permission/relaunch, shortcut conflict, selector, editor, clipboard race, scrolling, live recording, colour sampler, and Launch at Login behavior on the tested machine | Untested hardware and OS combinations |
 | Developer ID signing, notarization, and Gatekeeper verification | A particular release archive is suitable for public binary distribution | Correctness of a different local or rebuilt archive |
 
 A green headless run is not a claim that the permission dialog or editor has been

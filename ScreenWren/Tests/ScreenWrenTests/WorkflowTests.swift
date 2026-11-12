@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Carbon.HIToolbox
 import ImageIO
 import XCTest
@@ -304,6 +305,27 @@ final class WorkflowTests: XCTestCase {
             }
             NSGraphicsContext.restoreGraphicsState()
         }
+        // A synthetic recording for the review window: a UI-like card sliding across.
+        let recordingFolder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ScreenWrenPreview-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: recordingFolder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: recordingFolder) }
+        let writer = try RecordingWriter(url: recordingFolder.appendingPathComponent("Recording.mov"), width: 800,
+                                         height: 450, realTime: false)
+        for index in 0..<90 {
+            let frame = try RecordingPipelineTests.frame(
+                width: 800, height: 450, background: (236, 240, 246),
+                square: CGRect(x: 80 + index * 5, y: 140, width: 220, height: 150))
+            _ = writer.append(frame, at: CMTime(value: CMTimeValue(index), timescale: 30))
+        }
+        let recording = try await writer.finish(at: CMTime(value: 90, timescale: 30))
+        let previewSuite = "ScreenWrenTests.Preview." + UUID().uuidString
+        let previewDefaults = try XCTUnwrap(UserDefaults(suiteName: previewSuite))
+        defer { previewDefaults.removePersistentDomain(forName: previewSuite) }
+        let gifSuite = "ScreenWrenTests.PreviewGIF." + UUID().uuidString
+        let gifDefaults = try XCTUnwrap(UserDefaults(suiteName: gifSuite))
+        defer { gifDefaults.removePersistentDomain(forName: gifSuite) }
+        RecordingExportOptions(format: .gif, size: .width(480), gifFrameRate: 15).save(to: gifDefaults)
         let recent = RecentPickerWindow(onAction: { _, _ in }, onDelete: { _ in })
         recent.update([SessionCapture(image: fixture), SessionCapture(image: fixture)])
         let controllers: [(String, NSWindowController)] = [
@@ -315,9 +337,16 @@ final class WorkflowTests: XCTestCase {
             ("status", CaptureStatusWindow(status: ScreenWrenStatus(
                 message: "ScreenWren — Capture retained in Recents", needsAttention: true,
                 recoveryAction: .recents)) { _ in }),
+            ("colour", CaptureStatusWindow(status: ScreenWrenStatus(
+                message: "ScreenWren — #3A7BD5 copied", swatch: colour(fromHex: "#3A7BD5"))) { _ in }),
+            ("recording", RecordingReviewWindow(recording: recording, directory: recordingFolder,
+                                                defaults: previewDefaults, pasteboard: .withUniqueName())),
+            ("recording-gif", RecordingReviewWindow(recording: recording, directory: recordingFolder,
+                                                    defaults: gifDefaults, pasteboard: .withUniqueName())),
         ]
         defer { controllers.forEach { $0.1.close() } }
-        try await Task.sleep(for: .milliseconds(500))
+        // Long enough for the recording's poster frame and its first encode.
+        try await Task.sleep(for: .milliseconds(2_500))
         for (name, controller) in controllers {
             let root = try XCTUnwrap(controller.window?.contentView)
             root.layoutSubtreeIfNeeded()
@@ -345,9 +374,33 @@ final class WorkflowTests: XCTestCase {
             if let directory = ProcessInfo.processInfo.environment["SCREENWREN_FEATURE_PREVIEWS"] {
                 let folder = URL(fileURLWithPath: directory)
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                // A snapshot can't draw AVPlayerView's video layer, so show the review window's poster frame
+                // in its place, which is what the window shows until playback is ready.
+                var posters: [NSView] = [root]
+                while let view = posters.popLast() {
+                    if name.hasPrefix("recording"), let image = view as? NSImageView, image.bounds.width > 200 {
+                        image.isHidden = false
+                    }
+                    posters.append(contentsOf: view.subviews)
+                }
                 let bitmap = try XCTUnwrap(root.bitmapImageRepForCachingDisplay(in: root.bounds))
                 root.cacheDisplay(in: root.bounds, to: bitmap)
-                try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(
+                // Snapshots leave out the window's own background; paint it under the content so dark previews read.
+                let composed = try XCTUnwrap(NSBitmapImageRep(
+                    bitmapDataPlanes: nil, pixelsWide: bitmap.pixelsWide, pixelsHigh: bitmap.pixelsHigh,
+                    bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                    colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+                composed.size = bitmap.size
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: composed)
+                root.effectiveAppearance.performAsCurrentDrawingAppearance {
+                    (controller.window?.backgroundColor ?? .windowBackgroundColor).setFill()
+                    NSRect(origin: .zero, size: bitmap.size).fill()
+                }
+                bitmap.draw(in: NSRect(origin: .zero, size: bitmap.size), from: .zero, operation: .sourceOver,
+                            fraction: 1, respectFlipped: false, hints: nil)
+                NSGraphicsContext.restoreGraphicsState()
+                try XCTUnwrap(composed.representation(using: .png, properties: [:])).write(
                     to: folder.appendingPathComponent(name + ".png"))
                 if name == "export" {
                     try pngData(for: fixture).write(to: folder.appendingPathComponent("fixture.png"))
