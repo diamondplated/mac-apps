@@ -189,7 +189,10 @@ public class WindowService {
     func activate(_ app: NSRunningApplication) {
         if app.isHidden { app.unhide() }
         app.activate()
-        AXUIElementSetAttributeValue(AXUIElementCreateApplication(app.processIdentifier), kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+        let element = AXUIElementCreateApplication(app.processIdentifier)
+        // A hung app must not hold DockPeek up for the default six seconds.
+        AXUIElementSetMessagingTimeout(element, 0.5)
+        AXUIElementSetAttributeValue(element, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
     }
     
     /// Asynchronously fetches active and minimized windows with live thumbnails for the given process ID

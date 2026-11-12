@@ -9,6 +9,9 @@ final class DockClickController {
     private var tap: EventTap?
     private var installedSettings = DockClickSettings()
     private var observers: [NSObjectProtocol] = []
+    /// Scroll cycling reads and raises windows off the main thread, in order,
+    /// so a hung app cannot freeze DockPeek. `cycle` is only touched on this queue.
+    private let cycleQueue = DispatchQueue(label: "DockPeek window cycling", qos: .userInitiated)
     private var cycle = WindowCycle()
 
     // Read on the tap thread, written on the main thread.
@@ -185,14 +188,16 @@ final class DockClickController {
     }
 
     private func cycleWindows(of pid: pid_t, direction: Int) {
-        guard let app = NSRunningApplication(processIdentifier: pid) else { return }
-        let windows = windowService.cyclableWindows(for: pid)
-        guard let target = cycle.step(
-            pid: pid, windows: windows.map(\.id),
-            appIsFrontmost: NSWorkspace.shared.frontmostApplication == app,
-            direction: direction, now: ProcessInfo.processInfo.systemUptime
-        ), let window = windows.first(where: { $0.id == target }) else { return }
-        windowService.raiseWindow(window)
+        let isFrontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
+        let now = ProcessInfo.processInfo.systemUptime
+        cycleQueue.async { [weak self] in
+            guard let self else { return }
+            let windows = self.windowService.cyclableWindows(for: pid)
+            guard let target = self.cycle.step(
+                pid: pid, windows: windows.map(\.id), appIsFrontmost: isFrontmost, direction: direction, now: now
+            ), let window = windows.first(where: { $0.id == target }) else { return }
+            self.windowService.raiseWindow(window)
+        }
     }
 
     private static func postCommandN(to pid: pid_t) {

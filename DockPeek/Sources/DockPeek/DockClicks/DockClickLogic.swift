@@ -74,7 +74,10 @@ struct DockClickRouter {
 
     var settings = DockClickSettings()
     private var press: Press?
-    private var swallowMiddleUp = false
+    /// When the swallowed middle press happened; its release is swallowed too, unless
+    /// it never arrives in time (the tap was briefly disabled) and the flag goes stale.
+    private var swallowMiddleUpSince: TimeInterval?
+    static let middleReleaseTimeout: TimeInterval = 5
     private(set) var scroll = ScrollStepAccumulator()
 
     /// Modifier keys that make a click something other than a plain click.
@@ -87,7 +90,7 @@ struct DockClickRouter {
         switch event {
         case .leftDown(let clicks): return settings.hidesFrontApp && clicks == 1 && !Self.hasModifiers(flags)
         case .otherDown(let button): return settings.middleClickOpensWindow && button == Self.middleButton && !Self.hasModifiers(flags)
-        case .scroll: return settings.scrollCyclesWindows
+        case .scroll: return settings.scrollCyclesWindows && !Self.hasModifiers(flags)
         case .leftDragged, .leftUp, .otherUp: return false
         }
     }
@@ -125,16 +128,19 @@ struct DockClickRouter {
                   distance(press.location, location) <= Self.clickSlop else { return .pass }
             return DockClickDecision(consume: false, action: .hide(press.pid))
         case .otherDown(let button):
+            swallowMiddleUpSince = nil
             guard settings.middleClickOpensWindow, button == Self.middleButton, !Self.hasModifiers(flags),
                   let pid = hit?.runningAppPID else { return .pass }
-            swallowMiddleUp = true
+            swallowMiddleUpSince = time
             return DockClickDecision(consume: true, action: .newWindow(pid))
         case .otherUp(let button):
-            guard button == Self.middleButton, swallowMiddleUp else { return .pass }
-            swallowMiddleUp = false
+            guard button == Self.middleButton, let since = swallowMiddleUpSince else { return .pass }
+            swallowMiddleUpSince = nil
+            guard time - since <= Self.middleReleaseTimeout else { return .pass }
             return DockClickDecision(consume: true, action: nil)
         case .scroll:
-            guard settings.scrollCyclesWindows, let pid = hit?.runningAppPID, let scrollSample else {
+            // A modified scroll (⌃-scroll zooms) stays the system's.
+            guard settings.scrollCyclesWindows, !Self.hasModifiers(flags), let pid = hit?.runningAppPID, let scrollSample else {
                 scroll.reset()
                 return .pass
             }
@@ -200,7 +206,9 @@ struct ScrollStepAccumulator {
         // Scrolling down (negative delta) moves to the next window.
         let direction = delta < 0 ? 1 : -1
 
-        guard sample.isContinuous else {
+        // A smooth-scrolling mouse is continuous but has no gesture phases: treat it as a wheel.
+        let isGesture = sample.isContinuous && (sample.phase != 0 || sample.momentumPhase != 0)
+        guard isGesture else {
             guard delta != 0, sample.time - lastStep >= Self.wheelInterval else { return nil }
             lastStep = sample.time
             return direction

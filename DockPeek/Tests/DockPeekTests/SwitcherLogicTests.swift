@@ -263,6 +263,15 @@ final class SwitcherKeyRouterTests: XCTestCase {
         XCTAssertFalse(router.isActive)
     }
 
+    func testResetForgetsKeyUpsItWasWaitingFor() {
+        var router = SwitcherKeyRouter()
+        _ = router.handle(kind: .keyDown, keyCode: Key.tab, flags: option)
+        router.reset()
+        // The Tab release was missed; the next ordinary Tab's release must reach the app.
+        XCTAssertEqual(router.handle(kind: .keyDown, keyCode: Key.tab, flags: []), .pass)
+        XCTAssertEqual(router.handle(kind: .keyUp, keyCode: Key.tab, flags: []), .pass)
+    }
+
     func testResetEndsTheSession() {
         var router = SwitcherKeyRouter()
         _ = router.handle(kind: .keyDown, keyCode: Key.tab, flags: option)

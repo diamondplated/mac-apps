@@ -112,6 +112,23 @@ final class DockClickRouterTests: XCTestCase {
         XCTAssertEqual(router.decide(.scroll, flags: [], location: point, time: 4, hit: DockHit(subrole: "AXFolderDockItem", runningPID: nil), frontmostPID: 7, scrollSample: wheel(-1, at: 4)), .pass)
     }
 
+    func testModifiedScrollsPass() {
+        var router = router(scroll: true)
+        XCTAssertFalse(router.needsHitTest(.scroll, flags: .maskControl))
+        XCTAssertEqual(router.decide(.scroll, flags: .maskControl, location: point, time: 0, hit: app, frontmostPID: 7, scrollSample: wheel(-1, at: 0)), .pass)
+    }
+
+    func testAStaleMiddleReleaseFlagDoesNotSwallowLaterReleases() {
+        var router = router(middle: true)
+        _ = router.decide(.otherDown(button: 2), flags: [], location: point, time: 0, hit: app, frontmostPID: 7)
+        // The release was missed; a later middle press elsewhere clears the flag.
+        _ = router.decide(.otherDown(button: 2), flags: [], location: point, time: 1, hit: nil, frontmostPID: 7)
+        XCTAssertEqual(router.decide(.otherUp(button: 2), flags: [], location: point, time: 1.1, hit: nil, frontmostPID: 7), .pass)
+        // And a release long after the press is not swallowed.
+        _ = router.decide(.otherDown(button: 2), flags: [], location: point, time: 2, hit: app, frontmostPID: 7)
+        XCTAssertEqual(router.decide(.otherUp(button: 2), flags: [], location: point, time: 30, hit: nil, frontmostPID: 7), .pass)
+    }
+
     private func wheel(_ delta: Double, at time: TimeInterval) -> ScrollStepAccumulator.Sample {
         .init(deltaY: delta, deltaX: 0, isContinuous: false, phase: 0, momentumPhase: 0, time: time)
     }
@@ -163,6 +180,16 @@ final class ScrollStepAccumulatorTests: XCTestCase {
         XCTAssertNil(notch(0.05))
         XCTAssertEqual(notch(0.2), 1)
         XCTAssertNil(scroll.add(.init(deltaY: 0, deltaX: 0, isContinuous: false, phase: 0, momentumPhase: 0, time: 1), pid: 1))
+    }
+
+    func testSmoothScrollingMiceWithoutPhasesStepLikeAWheel() {
+        var scroll = ScrollStepAccumulator()
+        func tick(_ time: TimeInterval) -> Int? {
+            scroll.add(.init(deltaY: -3, deltaX: 0, isContinuous: true, phase: 0, momentumPhase: 0, time: time), pid: 1)
+        }
+        XCTAssertEqual(tick(0), 1)
+        XCTAssertNil(tick(0.05))
+        XCTAssertEqual(tick(0.2), 1)
     }
 
     func testHorizontalScrollingCountsOnSideDocks() {

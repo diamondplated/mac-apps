@@ -15,6 +15,9 @@ final class SwitcherController {
     private var captureTask: Task<Void, Never>?
     private var modifierWatch: Timer?
     private var capturesThumbnails = false
+    /// A session whose ⌥ was released before its window list arrived. It still switches
+    /// when the list arrives, even if a new ⌥Tab has started in the meantime.
+    private var deferred: (id: UUID, session: SwitcherSession)?
 
     private let routerLock = NSLock()
     private var router = SwitcherKeyRouter()
@@ -93,13 +96,24 @@ final class SwitcherController {
 
         Task { @MainActor [weak self] in
             let entries = await SwitcherWindowSource.load()
-            guard let self, self.sessionID == id else { return }
+            guard let self, self.sessionID == id || self.deferred?.id == id else { return }
             await self.loaded(entries, sessionID: id)
         }
     }
 
     @MainActor
     private func loaded(_ entries: [SwitcherEntry], sessionID id: UUID) async {
+        if let deferred, deferred.id == id {
+            self.deferred = nil
+            var session = deferred.session
+            let frontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier
+            let current = SwitcherOrdering.currentIndex(of: entries.map(\.candidate), frontmostPID: frontmost)
+            if case .switchNow(let index?) = session.load(count: entries.count, currentIndex: current) {
+                raise(entries[index])
+            }
+            if sessionID == id { finish() }
+            return
+        }
         // Cached thumbnails go in before the panel can appear; fresh ones follow.
         var cached: [CGWindowID: NSImage] = [:]
         for entry in entries where entry.candidate.id != 0 {
@@ -149,7 +163,10 @@ final class SwitcherController {
         let index = session.commit()
         self.session = session
         // Still loading: the load raises the highlighted window when it arrives.
-        guard session.phase == .finished else { return }
+        guard session.phase == .finished else {
+            deferred = (sessionID, session)
+            return
+        }
         if let index, model.entries.indices.contains(index) { raise(model.entries[index]) }
         finish()
     }
@@ -173,6 +190,14 @@ final class SwitcherController {
         modifierWatch = nil
         if resettingRouter { resetRouter() }
         panel.hide()
+        // Let go of the images and window elements once the panel has faded out.
+        let ended = sessionID
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self, self.sessionID == ended else { return }
+            self.model.entries = []
+            self.model.thumbnails = [:]
+            self.model.highlight = nil
+        }
     }
 
     /// Backs up the tap: if ⌥ is released while the tap was briefly disabled, the

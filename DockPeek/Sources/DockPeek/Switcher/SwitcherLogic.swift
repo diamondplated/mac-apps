@@ -267,6 +267,8 @@ struct SwitcherKeyRouter {
             if !isActive {
                 guard keyCode == Key.tab, Self.optionOnly(flags) else { return .pass }
                 isActive = true
+                // Key-ups missed while the tap was disabled must not linger into this session.
+                swallowedKeyUps.removeAll()
                 return swallow(keyCode, .begin(forward: !shift))
             }
             guard flags.contains(.maskAlternate) else {
@@ -292,7 +294,10 @@ struct SwitcherKeyRouter {
     }
 
     /// The panel finished another way (a click, or the app lost its permission).
-    mutating func reset() { isActive = false }
+    mutating func reset() {
+        isActive = false
+        swallowedKeyUps.removeAll()
+    }
 
     private mutating func swallow(_ keyCode: Int64, _ action: Action) -> Decision {
         swallowedKeyUps.insert(keyCode)
