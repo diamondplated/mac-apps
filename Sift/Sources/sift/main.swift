@@ -1,5 +1,6 @@
 import Foundation
 import SiftEngine
+import SiftPreview
 import SiftVerify
 
 // The `sift` CLI. Deliberately almost empty: a SwiftPM test target cannot import an
@@ -27,6 +28,16 @@ case .verify:
     let report = await runVerification { print(renderCheckResult($0)) }
     print("\n" + renderSummary(report))
     exit(report.exitCode)
+
+case .preview(let path, let output, let appearance):
+    let model = await PreviewEngine.preview(url: URL(fileURLWithPath: path))
+    let html = renderPreviewHTML(model, appearance: PreviewAppearance(rawValue: appearance) ?? .system)
+    do {
+        try html.write(toFile: output, atomically: false, encoding: .utf8)
+        print("sift: wrote \(output)")
+    } catch {
+        fail("could not write \(output)")
+    }
 
 case .open(let path, let sheet, let rows, let width, let nullPadding, let skipPreamble, let allowExtensionDownload):
     do {

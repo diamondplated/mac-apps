@@ -8,6 +8,12 @@
 #                                        universal, hardened runtime, signed with the monorepo's
 #                                        persistent identity, not registered with LaunchServices
 #
+# The app carries a sandboxed Quick Look extension (Contents/PlugIns/SiftPreview.appex) that shows a
+# data file as a table when you press Space in Finder. THIS SCRIPT NEVER REGISTERS IT: no pluginkit,
+# no qlmanage -r. A build that stays in this folder is not registered with LaunchServices either
+# (that is what makes macOS discover an extension); the system finds the extension when an installed
+# copy of the app is first opened.
+#
 # Full Xcode 27 or newer required: swift build, PlistBuddy, sips, iconutil, osascript, install_name_tool,
 # codesign and lsregister all ship with the Command Line Tools. Gatekeeper: quarantine is applied
 # by whatever *downloads* a file, so a locally built app just launches; zip it to a teammate and
@@ -74,11 +80,23 @@ if [[ "$PAYLOAD" == 1 ]]; then
   done
   lipo -create "$STAGE/SiftApp-arm64" "$STAGE/SiftApp-x86_64" -output "$STAGE/SiftApp"
   BIN="$STAGE/SiftApp"
+  echo "==> building the Quick Look extension"
+  for arch in arm64 x86_64; do
+    triple="$arch-apple-macosx14.0"
+    swift build -c release --product SiftPreviewExtension --scratch-path "$STAGE/$arch" --triple "$triple"
+    cp "$(swift build -c release --scratch-path "$STAGE/$arch" --triple "$triple" --show-bin-path)/SiftPreviewExtension" "$STAGE/SiftPreview-$arch"
+  done
+  lipo -create "$STAGE/SiftPreview-arm64" "$STAGE/SiftPreview-x86_64" -output "$STAGE/SiftPreview"
+  PREVIEW_BIN="$STAGE/SiftPreview"
 else
   swift build -c release --product SiftApp
   BIN="$HERE/.build/release/SiftApp"
+  echo "==> building the Quick Look extension"
+  swift build -c release --product SiftPreviewExtension
+  PREVIEW_BIN="$HERE/.build/release/SiftPreviewExtension"
 fi
 [[ -x "$BIN" ]] || { echo "build-app: swift build produced no binary" >&2; exit 1; }
+[[ -x "$PREVIEW_BIN" ]] || { echo "build-app: swift build produced no extension binary" >&2; exit 1; }
 
 echo "==> assembling the bundle"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
@@ -231,6 +249,41 @@ done
 iconutil --convert icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 rm -rf "$WORK"
 
+echo "==> Quick Look extension bundle"
+# Built by SwiftPM as a plain executable whose entry point is _NSExtensionMain (Package.swift), then
+# wrapped here. It does NOT carry its own libduckdb: it loads the app's copy from the parent
+# bundle's Frameworks, so the engine ships once and one signature covers it.
+APPEX="$APP/Contents/PlugIns/SiftPreview.appex"
+APPEX_PLIST="$APPEX/Contents/Info.plist"
+mkdir -p "$APPEX/Contents/MacOS"
+cp "$PREVIEW_BIN" "$APPEX/Contents/MacOS/SiftPreview"
+cp "$HERE/QuickLookExtension/Info.plist" "$APPEX_PLIST"
+$PB -c "Set :CFBundleShortVersionString $VERSION" "$APPEX_PLIST"
+$PB -c "Set :CFBundleVersion $BUILD" "$APPEX_PLIST"
+PEXE="$APPEX/Contents/MacOS/SiftPreview"
+install_name_tool -add_rpath @executable_path/../../../../Frameworks "$PEXE"
+for rp in $(otool -l "$PEXE" | awk '/LC_RPATH/ { want = 1 } want && $1 == "path" { print $2; want = 0 }' | sort -u); do
+  case "$rp" in /*/Vendor/duckdb) install_name_tool -delete_rpath "$rp" "$PEXE" ;; esac
+done
+if [[ -n "$(otool -l "$PEXE" | grep "Vendor/duckdb" || true)" ]]; then
+  echo "build-app: the extension still searches the source tree for libduckdb" >&2
+  exit 1
+fi
+# The extension starts at _NSExtensionMain, and must not carry the verifier or its loopback server.
+[[ -n "$(otool -l "$PEXE" | grep LC_MAIN || true)" ]] || { echo "build-app: the extension has no entry point" >&2; exit 1; }
+# (no `grep -q` on a pipe: under pipefail it can SIGPIPE its producer and report the wrong answer)
+if [[ -n "$(nm "$PEXE" 2>/dev/null | grep -E 'LoopbackHTTPServer|SiftVerify' || true)" ]]; then
+  echo "build-app: the extension links the verifier" >&2
+  exit 1
+fi
+plutil -lint "$APPEX_PLIST" >/dev/null
+# "Open with Sift" is only offered for a type Sift declares, so every type the extension previews
+# must be one of the app's document types.
+DOCTYPES="$(plutil -extract CFBundleDocumentTypes json -o - "$PLIST")"
+for uti in $($PB -c "Print :NSExtension:NSExtensionAttributes:QLSupportedContentTypes" "$APPEX_PLIST" | sed -n 's/^ *//p' | grep -v -e '^Array' -e '^}' -e '^$'); do
+  grep -qF "\"$uti\"" <<<"$DOCTYPES" || { echo "build-app: the extension previews $uti but Sift does not declare it as a document type" >&2; exit 1; }
+done
+
 echo "==> signing"
 # Ad-hoc signing is mandatory on Apple Silicon — the kernel refuses unsigned arm64 executables.
 # Inside-out: the nested dylib first, then the bundle, and only AFTER install_name_tool, since
@@ -248,25 +301,39 @@ if [[ "$PAYLOAD" == 1 ]]; then
 PLIST
   if [[ "$PAYLOAD_IDENTITY" == "-" ]]; then
     codesign --force --options runtime --sign - --timestamp=none "$APP/Contents/Frameworks/libduckdb.dylib"
+    codesign --force --options runtime --sign - --timestamp=none --entitlements "$HERE/QuickLookExtension/SiftPreview.entitlements" "$APPEX"
     codesign --force --options runtime --sign - --timestamp=none --entitlements "$STAGE/Sift.entitlements" "$APP"
   else
     codesign --force --options runtime --sign "$PAYLOAD_IDENTITY" "$PAYLOAD_TIMESTAMP_OPTION" "$APP/Contents/Frameworks/libduckdb.dylib"
+    codesign --force --options runtime --sign "$PAYLOAD_IDENTITY" "$PAYLOAD_TIMESTAMP_OPTION" --entitlements "$HERE/QuickLookExtension/SiftPreview.entitlements" "$APPEX"
     codesign --force --options runtime --sign "$PAYLOAD_IDENTITY" "$PAYLOAD_TIMESTAMP_OPTION" --entitlements "$STAGE/Sift.entitlements" "$APP"
   fi
   codesign --verify --deep --strict "$APP"
-  for arch in arm64 x86_64; do lipo "$APP/Contents/MacOS/Sift" -verify_arch "$arch"; done
+  for arch in arm64 x86_64; do
+    lipo "$APP/Contents/MacOS/Sift" -verify_arch "$arch"
+    lipo "$APPEX/Contents/MacOS/SiftPreview" -verify_arch "$arch"
+  done
   rm -rf "$HERE/dist/Sift.app"
   mv "$APP" "$HERE/dist/Sift.app"
   echo "Built $HERE/dist/Sift.app"
   exit 0
 fi
 codesign --force --sign - --timestamp=none "$APP/Contents/Frameworks/libduckdb.dylib"
+# The extension is the one part that always runs hardened and sandboxed, whatever the app does.
+codesign --force --options runtime --sign - --timestamp=none --entitlements "$HERE/QuickLookExtension/SiftPreview.entitlements" "$APPEX"
 codesign --force --sign - --timestamp=none "$APP"
-codesign --verify --deep --verbose=1 "$APP" 2>&1 | sed 's/^/    /'
+codesign --verify --deep --strict --verbose=1 "$APP" 2>&1 | sed 's/^/    /'
+[[ -n "$(codesign -d --entitlements - "$APPEX" 2>/dev/null | grep app-sandbox || true)" ]] || { echo "build-app: the extension is not sandboxed" >&2; exit 1; }
+[[ -n "$(codesign -dv "$APPEX" 2>&1 | grep 'flags=.*runtime' || true)" ]] || { echo "build-app: the extension is not hardened" >&2; exit 1; }
 
-echo "==> registering with LaunchServices"
-# Without this, "Open With" silently keeps showing the previous declarations.
-"$LSREGISTER" -f "$APP" || true
+if [[ "$DEST" == "$HERE" ]]; then
+  echo "==> not registering with LaunchServices (the app stays in the source folder)"
+else
+  echo "==> registering with LaunchServices"
+  # Without this, "Open With" silently keeps showing the previous declarations. This is also what
+  # lets macOS find the Quick Look extension, so it only happens for a copy installed elsewhere.
+  "$LSREGISTER" -f "$APP" || true
+fi
 
 echo
 echo "Built $APP"

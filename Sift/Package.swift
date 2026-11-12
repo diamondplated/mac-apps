@@ -24,6 +24,7 @@ let package = Package(
         .library(name: "SiftEngine", targets: ["SiftEngine"]),
         .library(name: "SiftUI", targets: ["SiftUI"]),
         .library(name: "SiftVerify", targets: ["SiftVerify"]),
+        .library(name: "SiftPreview", targets: ["SiftPreview"]),
         .executable(name: "sift", targets: ["sift"]),
     ],
     targets: [
@@ -99,12 +100,35 @@ let package = Package(
             name: "SiftVerify",
             dependencies: ["SiftEngine", "SiftCore", "DuckDBKit"]
         ),
+        // The Quick Look preview's logic: open one file read-only, sample rows, format cells,
+        // render the page. A library so the tests and `sift --preview` run the extension's own
+        // code; it depends on the engine and never on SiftVerify, so the extension cannot carry
+        // the verifier or the loopback server (sift.yml checks the symbols).
+        .target(
+            name: "SiftPreview",
+            dependencies: ["SiftEngine", "SiftCore", "DuckDBKit"]
+        ),
+        .testTarget(
+            name: "SiftPreviewTests",
+            dependencies: ["SiftPreview", "SiftEngine", "SiftCore", "DuckDBKit", "TestSupport"]
+        ),
+        // The thin shell of the Quick Look extension. An app extension's entry point is
+        // `NSExtensionMain`, not `main`, so the linker is told to start there; build-app.sh wraps
+        // the binary in a .appex. `-application-extension` keeps it to extension-safe API.
+        // (SwiftPM, not an Xcode project like Latent's: this package links libduckdb through
+        // unsafeFlags, and an Xcode project would have to repeat that wiring.)
+        .executableTarget(
+            name: "SiftPreviewExtension",
+            dependencies: ["SiftPreview"],
+            swiftSettings: [.unsafeFlags(["-application-extension"])],
+            linkerSettings: [.unsafeFlags(["-Xlinker", "-e", "-Xlinker", "_NSExtensionMain", "-application-extension"])]
+        ),
         // The headless CLI, and the reason browser mode could be deleted. Kept deliberately
         // thin: a test target cannot import an `executableTarget`, so everything it does lives
         // in SiftVerify/Verification.swift instead.
         .executableTarget(
             name: "sift",
-            dependencies: ["SiftEngine", "SiftVerify"]
+            dependencies: ["SiftEngine", "SiftVerify", "SiftPreview"]
         ),
     ]
 )
