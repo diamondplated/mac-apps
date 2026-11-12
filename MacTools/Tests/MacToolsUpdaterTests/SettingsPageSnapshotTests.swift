@@ -46,7 +46,13 @@ final class SettingsPageSnapshotTests: XCTestCase {
         ]
         let linkRoutes: [String: Any] = ["defaultBrowserIdentifier": "com.apple.Safari", "isDefaultBrowser": true, "availableBrowsers": browsers,
                                          "rules": rules, "stripsTrackingParameters": true, "unwrapsRedirects": false]
+        let scrollSplit: [String: Any] = ["enabled": true, "reverseVertical": true, "reverseHorizontal": false, "speedMultiplier": 1.5,
+                                          "smoothScrolling": true, "sideButtonsNavigate": true, "mouseAccelerationOff": false,
+                                          "mouseAccelerationAvailable": true,
+                                          "permissions": ["accessibility": true, "inputMonitoring": true, "eventTapActive": true],
+                                          "permissionsSource": "runningApp"]
         for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            try render(.scrollSplit, scrollSplit, appearance: appearance, to: directory)
             try render(.dockPeek, dockPeek, appearance: appearance, to: directory)
             try render(.linkRoutes, linkRoutes, appearance: appearance, to: directory)
         }

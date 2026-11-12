@@ -26,6 +26,13 @@ struct ToolSettingsSnapshot: Decodable {
     var reverseVertical: Bool?
     var reverseHorizontal: Bool?
     var speedMultiplier: Double?
+    // ScrollSplit's mouse fixes. Absent from older ScrollSplit builds.
+    var smoothScrolling: Bool?
+    var sideButtonsNavigate: Bool?
+    var mouseAccelerationOff: Bool?
+    /// False when this Mac cannot turn acceleration off per device. Read-only.
+    var mouseAccelerationAvailable: Bool?
+    var hasMouseFixes: Bool { smoothScrolling != nil || sideButtonsNavigate != nil || mouseAccelerationOff != nil }
     var permissions: [String: Bool]?
     var permissionsSource: String?
     var eventTapStatus: String?
