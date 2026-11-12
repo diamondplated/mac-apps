@@ -63,6 +63,13 @@ if CommandLine.arguments.contains("--self-check") {
           hyper.key(keyCode: HyperKey.f18KeyCode, isDown: false, now: 1.1, tapIsEscape: true) == .swallow,
           hyper.key(keyCode: 4, isDown: true, now: 1.2, tapIsEscape: true) == .pass,
           added == [.capsLockToF18], ledger.removing(device: 7, current: added) == [theirs],
+          {
+              var cut = FinderCut()
+              guard case .copy(let generation, let before) = cut.keyDown(keyCode: FinderCut.xKeyCode, flags: .maskCommand, isRepeat: false, enabled: true, isOwnEvent: false, frontmostBundleIdentifier: FinderCut.finderBundleIdentifier, changeCount: 1, focus: { .notText }) else { return false }
+              cut.copyFinished(generation: generation, changeCountBefore: before, changeCountNow: 2)
+              return cut.keyDown(keyCode: FinderCut.vKeyCode, flags: .maskCommand, isRepeat: false, enabled: true, isOwnEvent: false, frontmostBundleIdentifier: FinderCut.finderBundleIdentifier, changeCount: 2, focus: { .notText }) == .move
+          }(),
+          patch("{\"cutAndPasteFilesInFinder\":true}") != nil, patch("{\"cutAndPasteFilesInFinder\":1}") == nil,
           patch("{\"capsLockRemapAvailable\":true}") == nil,
           patch("{\"capsLockIsHyper\":true}", capsLock: false) == nil,
           patch("{\"shortcuts\":[{\"command\":\"pastePlainText\",\"shortcut\":\(shiftOnly)}]}") == nil,
