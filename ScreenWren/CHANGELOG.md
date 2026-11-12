@@ -8,6 +8,34 @@ is currently pre-1.0, so minor versions may include incompatible behavior change
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-12
+
+### Added
+
+- **Record Region…** records video of a chosen region or window: a 3-2-1 countdown
+  inside the area, then 30 fps at the display's scale with the cursor, and never
+  any audio. The menu-bar icon shows a red record mark, a thin outline marks the
+  region, and **Stop Recording**, `Esc`, or the shortcut again stops. Recordings
+  stop at 5 minutes and say so.
+- A recording review window loops the clip with trim handles, MP4 (H.264) or GIF,
+  Original, Half, or a chosen width, and GIF at 10, 15 or 20 fps, showing the
+  output size as options change. Export saves to the Desktop by default; Copy and
+  drag-out deliver the file. Options are remembered.
+- GIF export uses a palette built for each recording and writes only what changed
+  between frames.
+- **Pick Colour…** copies the sRGB hex value of any pixel through the system colour
+  sampler, confirms it with a swatch, and keeps the last five in **Recent Colours**
+  for the session.
+- Two new global shortcut commands, Record Region and Pick Colour, start unassigned
+  and are appended to the settings bridge's `shortcuts` list. The schema is
+  unchanged.
+
+### Privacy
+
+- A recording is held in one temporary file until export and deleted when its
+  review window closes or ScreenWren quits; leftovers from a crash are removed at
+  the next launch. Recordings turn off system audio and the microphone.
+
 ## [0.6.0] - 2026-11-11
 
 ### Changed

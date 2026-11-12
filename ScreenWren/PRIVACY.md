@@ -15,8 +15,10 @@ endpoint, or cloud service of its own.
 | Recognized text | Fulfill direct OCR and make editor text selection or Copy Text immediate; local editor analysis starts automatically for every opened image | Apple's on-device Vision/VisionKit processing; process memory, then the system clipboard only after an explicit copy | Until the image revision is replaced, its editor closes, or ScreenWren quits; copied text follows clipboard lifetime |
 | Detected code values and bounds | Make Instant Inspect code actions immediate; local detection starts automatically for every opened image | Apple's on-device Vision processing; process memory, then the system clipboard after Copy or the default app after an explicit Open action | Until the image revision is replaced, its editor closes, or ScreenWren quits; ScreenWren does not persist or fetch the value |
 | Foreground-subject analysis, mask, and image | Make Copy Subject available; local subject analysis starts automatically for every opened image | Apple's on-device VisionKit processing; process memory, then the system clipboard only after an explicit copy | Until the image revision is replaced, its editor closes, or ScreenWren quits; copied image data follows clipboard lifetime |
+| Recorded region video | Make the recording you started with Record Region; video only, never system audio or microphone | One temporary file in the system temporary folder, then the destination you choose with Export, Copy, or a file drag | The temporary file is deleted when its review window closes or ScreenWren quits; leftovers from a crash are deleted at next launch |
+| Picked colours | Copy the hex value of the colour you clicked with Pick Colour | Process memory, then the system clipboard | The last five stay in the Recent Colours menu until ScreenWren quits |
 | Edited image data | Render Copy, Save, Drag, Share, or Pin | Destination explicitly chosen by the user | Depends on the chosen destination |
-| Shortcut, capture, and export preferences | Remember global keys, delivery behavior, selection size presets, export format/quality, and readiness setup | The app's local macOS preferences domain | Until reset or the app's preferences are removed |
+| Shortcut, capture, and export preferences | Remember global keys, delivery behavior, selection size presets, export format/quality, recording export format, size and frame rate, and readiness setup | The app's local macOS preferences domain | Until reset or the app's preferences are removed |
 
 ScreenWren does not intentionally log captured pixels, recognized text, window
 titles, or capture geometry, and does not write them to its own on-disk store.
@@ -28,8 +30,13 @@ data.
 ## macOS permission
 
 ScreenWren needs the macOS permission named **Screen & System Audio Recording**
-to read screen pixels. ScreenWren captures still images only. It does not record
-audio, request microphone access, or request Accessibility access.
+to read screen pixels. ScreenWren captures still images and, when you choose
+Record Region, video of the region you selected. It never records audio of any
+kind: recordings turn off both system audio and the microphone. It does not
+request microphone access or Accessibility access.
+
+Pick Colour uses the macOS colour sampler, which reads only the colour under the
+pointer when you click.
 
 macOS controls permission approval and may require ScreenWren to be relaunched
 after a change. You can revoke access at any time in System Settings.
@@ -57,7 +64,8 @@ behaviors are outside ScreenWren's control.
 - An active scrolling-capture session retains at most 20 frames and 256 MB of
   uncompressed pixel data until it is finished, cancelled, or ScreenWren quits.
 - Text previews and redaction suggestions (including drawn masks) stay in memory. Recognition runs locally; suggested masks require review.
-- Recents, pins, open editors, previews, repeat state, and active scrolling sessions disappear
+- Recent Colours retain at most five hex values.
+- Recents, pins, open editors, previews, repeat state, recent colours, and active scrolling sessions disappear
   when the ScreenWren process exits.
 
 Releasing memory is not a claim of forensic secure erasure from RAM, swap, crash
@@ -65,13 +73,18 @@ reports, or system snapshots.
 
 ## Files and sharing
 
-ScreenWren writes image data to a user-visible destination only when you:
+ScreenWren writes image or video data to a user-visible destination only when you:
 
 - confirm Save in a PNG/JPEG export or direct PNG save;
-- complete a PNG file drag; or
+- confirm Export for a recording;
+- complete a PNG or recording file drag; or
 - choose a macOS Share service that persists or transmits the item.
 
-ScreenWren does not keep a private export copy. Share services are provided by
+A recording in progress, and the exported file the review window prepares, live
+in a per-process folder under the system temporary folder. ScreenWren deletes it
+when the review window closes or the app quits. Copying a recording puts a file
+on the clipboard, so that one file stays in the temporary folder until ScreenWren
+quits. ScreenWren does not keep a private export copy. Share services are provided by
 macOS or other installed apps and are governed by their own privacy practices.
 
 Local developer and QA commands may intentionally write build products, ZIP

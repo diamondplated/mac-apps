@@ -44,6 +44,13 @@ by the manager that started it, so the helper first asks the running app:
   0–127; modifiers permit Command, Control, Option, Shift, and require at least
   one of Command, Control, Option. Titles are informational; snapshots always
   regenerate the command title.
+- Snapshots list every shortcut command in a fixed order: `capture`, `copyText`,
+  `repeatCapture`, `frontWindow`, `freeze`, `recents`, `togglePins`,
+  `recordRegion`, `pickColour`. New commands are only ever appended, start
+  unassigned, and need no schema change; a write from an older manager that omits
+  them leaves them as they are.
+- Recording export options (format, size, GIF frame rate) are ScreenWren's own
+  preferences and are not part of the bridge.
 - `resetShortcuts: true` restores defaults and cannot accompany `shortcuts`.
 
 Login-item writes require an app directly inside `/Applications` or the current

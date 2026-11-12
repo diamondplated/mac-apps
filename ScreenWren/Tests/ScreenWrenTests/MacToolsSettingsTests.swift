@@ -41,7 +41,7 @@ final class MacToolsSettingsTests: XCTestCase {
             XCTAssertEqual(WorkflowPreferences(defaults: defaults).destination, .review)
             let decoded = try JSONDecoder().decode(MacToolsSettingsBridge.Snapshot.self,
                 from: JSONEncoder().encode(snapshot))
-            XCTAssertEqual(decoded.shortcuts.count, 7)
+            XCTAssertEqual(decoded.shortcuts.count, ShortcutCommand.allCases.count)
             let reset = try bridge.write(Data(#"{"selectionWidth":0,"selectionHeight":0,"aspectRatio":0}"#.utf8))
             XCTAssertEqual(reset.selectionWidth, 0)
             XCTAssertEqual(reset.aspectRatio, 0)

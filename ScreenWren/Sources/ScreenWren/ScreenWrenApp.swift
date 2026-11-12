@@ -252,6 +252,15 @@ func runSelfCheck() {
         fatalError("ScreenWren image self-check failed: \(error)")
     }
     precondition(timestampedPNGFilename(for: Date(timeIntervalSince1970: 0)).hasSuffix(".png"))
+    // The settings bridge lists commands in this order; new ones are only ever appended.
+    precondition(ShortcutCommand.allCases.map(\.rawValue) == [
+        "capture", "copyText", "repeatCapture", "frontWindow", "freeze", "recents", "togglePins",
+        "recordRegion", "pickColour",
+    ])
+    precondition(ShortcutCommand.recordRegion.defaultShortcut == nil && ShortcutCommand.pickColour.defaultShortcut == nil)
+    precondition(hexString(for: NSColor(srgbRed: 58 / 255, green: 123 / 255, blue: 213 / 255, alpha: 1)) == "#3A7BD5")
+    precondition(RecordingLimits.maximumDuration == 300 && RecordingLimits.frameRate == 30)
+    precondition(recordingOutputPixelSize(sourceWidth: 1601, sourceHeight: 1201, size: .original, format: .mp4) == (1600, 1200))
 
     do {
         _ = NSApplication.shared
@@ -302,6 +311,8 @@ struct ScreenWrenStatus {
     var badge: String? = nil
     var needsAttention = false
     var recoveryAction: CaptureStatusRecoveryAction? = nil
+    /// A picked colour, shown beside the message in a brief confirmation.
+    var swatch: NSColor? = nil
 }
 
 struct CaptureMenuState {
@@ -350,6 +361,8 @@ enum ScreenWrenApp {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let captureCoordinator = CaptureCoordinator()
+    private let recordingCoordinator = RecordingCoordinator()
+    private let colourPicker = ColourPicker()
     private var statusItem: NSStatusItem?
     private var shortcutManager: ShortcutManager!
     private let launchAtLogin = LaunchAtLoginController()
@@ -402,6 +415,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             .freeze: { [weak captureCoordinator] in captureCoordinator?.beginFreezeCapture() },
             .recents: { [weak captureCoordinator] in captureCoordinator?.showRecentPicker() },
             .togglePins: { [weak captureCoordinator] in captureCoordinator?.togglePins() },
+            .recordRegion: { [weak self] in self?.toggleRecording() },
+            .pickColour: { [weak self] in self?.pickColour() },
         ])
         shortcutManager.onChange = { [weak self] in
             self?.updateShortcutStatus()
@@ -416,6 +431,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             ["screenRecording": CGPreflightScreenCaptureAccess()]
         }
 
+        RecordingFiles.removeStale()
+        captureCoordinator.isRecording = { [weak recordingCoordinator] in recordingCoordinator?.isActive ?? false }
+        recordingCoordinator.selectRegion = { [weak captureCoordinator] handler in
+            captureCoordinator?.beginRecordingSelection(handler)
+        }
+        recordingCoordinator.onStatus = { [weak self] status in self?.post(status) }
+        recordingCoordinator.onStateChange = { [weak self] in
+            self?.rebuildMenu()
+            self?.refreshStatusItem()
+        }
+        recordingCoordinator.onPermissionRequired = { [weak self] in self?.showReadiness(captureWasDenied: true) }
+        colourPicker.onCopied = { [weak self] hex in
+            self?.post(ScreenWrenStatus(message: "ScreenWren — \(hex) copied", symbolName: "eyedropper",
+                                        swatch: colour(fromHex: hex)))
+        }
+        colourPicker.onCancelled = { [weak self] in
+            self?.post(ScreenWrenStatus(message: "ScreenWren — Colour pick cancelled", symbolName: "eyedropper"))
+        }
+        colourPicker.onFailed = { [weak self] in
+            NSSound.beep()
+            self?.post(ScreenWrenStatus(message: "ScreenWren — The colour couldn’t be copied", symbolName: "eyedropper",
+                                        needsAttention: true))
+        }
         captureCoordinator.onStateChange = { [weak self] in self?.rebuildMenu() }
         captureCoordinator.onStatus = { [weak self] status in self?.showStatus(status) }
         captureCoordinator.onPermissionRequired = { [weak self] captureWasDenied in
@@ -490,6 +528,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         return false
+    }
+
+    /// Recordings, their exports and copied recording files live only as long as the app.
+    func applicationWillTerminate(_ notification: Notification) {
+        recordingCoordinator.discardAll()
+    }
+
+    /// The record shortcut also cancels its own selector.
+    @objc private func toggleRecording() {
+        if !recordingCoordinator.isActive, captureCoordinator.isSelecting {
+            captureCoordinator.cancelActiveSelection()
+            return
+        }
+        recordingCoordinator.toggle()
+    }
+
+    @objc private func stopRecording() {
+        recordingCoordinator.stop()
+    }
+
+    @objc private func pickColour() {
+        guard !recordingCoordinator.isActive else {
+            NSSound.beep()
+            post(ScreenWrenStatus(message: "ScreenWren — Stop the recording first", needsAttention: true))
+            return
+        }
+        if captureCoordinator.isSelecting { captureCoordinator.cancelActiveSelection() }
+        colourPicker.pick()
+    }
+
+    @objc private func copyRecentColour(_ sender: NSMenuItem) {
+        guard let hex = sender.representedObject as? String else { return }
+        colourPicker.copy(hex)
+    }
+
+    /// Shows a status and announces it, as capture statuses are.
+    private func post(_ status: ScreenWrenStatus) {
+        showStatus(status)
+        NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested, userInfo: [
+            .announcement: status.message.replacingOccurrences(of: "ScreenWren — ", with: ""),
+            .priority: NSAccessibilityPriorityLevel.medium.rawValue,
+        ])
     }
 
     @objc private func capture() {
@@ -586,6 +666,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.removeAllItems()
         let state = captureCoordinator.menuState
 
+        if recordingCoordinator.isActive {
+            let stop = item("Stop Recording", action: #selector(stopRecording), shortcut: .recordRegion)
+            stop.image = NSImage(systemSymbolName: "stop.circle", accessibilityDescription: nil)
+            stop.isEnabled = recordingCoordinator.phase != .finishing
+            menu.addItem(stop)
+        }
         menu.addItem(captureStatusMenuItem(for: latestStatus))
         if let manager = shortcutManager, !manager.failures.isEmpty {
             let descriptions = ShortcutCommand.allCases.filter { manager.failures[$0] != nil }.map {
@@ -616,6 +702,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let repeatItem = item(state.repeatTitle, action: #selector(repeatCapture), shortcut: .repeatCapture)
         repeatItem.isEnabled = state.canRepeat && !state.isScrolling
         menu.addItem(repeatItem)
+
+        menu.addItem(.separator())
+        let recordItem = item("Record Region…", action: #selector(toggleRecording), shortcut: .recordRegion)
+        recordItem.isEnabled = !state.isScrolling && !recordingCoordinator.isActive
+        menu.addItem(recordItem)
+        let colourItem = item("Pick Colour…", action: #selector(pickColour), shortcut: .pickColour)
+        colourItem.isEnabled = !recordingCoordinator.isActive
+        menu.addItem(colourItem)
+        if !colourPicker.recent.isEmpty {
+            let recentColours = NSMenuItem(title: "Recent Colours", action: nil, keyEquivalent: "")
+            let submenu = NSMenu()
+            for hex in colourPicker.recent {
+                let entry = item(hex, action: #selector(copyRecentColour(_:)))
+                entry.representedObject = hex
+                entry.image = colour(fromHex: hex).map { colourSwatchImage($0) }
+                entry.toolTip = "Copy \(hex)"
+                submenu.addItem(entry)
+            }
+            recentColours.submenu = submenu
+            menu.addItem(recentColours)
+        }
 
         menu.addItem(.separator())
         if state.isScrolling {
@@ -682,6 +789,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let button = statusItem?.button else { return }
         let status = shortcutAwareStatus(latestStatus, hasUnavailableShortcuts: !(shortcutManager?.failures.isEmpty ?? true))
         button.toolTip = status.message
+        if recordingCoordinator.isActive {
+            button.title = ""
+            let image = NSImage(systemSymbolName: "record.circle", accessibilityDescription: "ScreenWren — Recording")
+            image?.isTemplate = true
+            button.image = image
+            button.contentTintColor = .systemRed
+            button.toolTip = "ScreenWren — Recording"
+            return
+        }
+        button.contentTintColor = nil
         if let badge = status.badge {
             button.image = nil
             button.title = badge
@@ -856,7 +973,11 @@ final class CaptureCoordinator: NSObject {
     private let pasteboard: NSPasteboard
     private let recentMemoryLimit: Int
     private let services: CaptureServices
+    private var recordingTargetHandler: ((DisplayRegion) -> Void)?
     var recentCaptures: [SessionCapture] { recents }
+    /// While a recording counts down or runs, captures wait: Esc belongs to the recording.
+    var isRecording: () -> Bool = { false }
+    var isSelecting: Bool { selectionWindow != nil }
 
     init(preferences: WorkflowPreferences = .shared, pasteboard: NSPasteboard = .general,
          recentMemoryLimit: Int = 128 * 1_024 * 1_024, services: CaptureServices = CaptureServices()) {
@@ -896,8 +1017,29 @@ final class CaptureCoordinator: NSObject {
         )
     }
 
+    /// Announces and returns true when a recording is in the way of a capture.
+    private func recordingBlocksCapture() -> Bool {
+        guard isRecording() else { return false }
+        announce("Stop the recording first", beep: true)
+        return true
+    }
+
+    func cancelActiveSelection() { cancelSelection() }
+
+    /// Opens the selector for a recording. The handler gets the region on one display.
+    func beginRecordingSelection(_ handler: @escaping (DisplayRegion) -> Void) {
+        guard !recordingBlocksCapture() else { return }
+        guard scrollingSession == nil else {
+            announce("Finish or cancel scrolling capture first", beep: true)
+            return
+        }
+        recordingTargetHandler = handler
+        beginSelection(intent: .recording)
+    }
+
     func primaryAction() {
         if selectionWindow != nil { cancelSelection() }
+        else if recordingBlocksCapture() { return }
         else if isStitching { announce("Wait for scrolling stitch to finish", beep: true) }
         else if scrollingSession != nil { addScrollingSegment() }
         else { beginSelection(intent: .image) }
@@ -917,6 +1059,7 @@ final class CaptureCoordinator: NSObject {
     }
 
     func beginTextCapture() {
+        guard !recordingBlocksCapture() else { return }
         guard scrollingSession == nil else {
             announce("Finish or cancel scrolling capture first", beep: true)
             return
@@ -925,11 +1068,13 @@ final class CaptureCoordinator: NSObject {
     }
 
     func beginScrollingCapture() {
+        guard !recordingBlocksCapture() else { return }
         guard scrollingSession == nil else { return }
         beginSelection(intent: .scrolling)
     }
 
     func captureFrontWindow() {
+        guard !recordingBlocksCapture() else { return }
         guard scrollingSession == nil else {
             announce("Finish or cancel scrolling capture first", beep: true)
             return
@@ -966,6 +1111,7 @@ final class CaptureCoordinator: NSObject {
     }
 
     func beginFreezeCapture() {
+        guard !recordingBlocksCapture() else { return }
         guard scrollingSession == nil else {
             announce("Finish or cancel scrolling capture first", beep: true)
             return
@@ -1060,14 +1206,17 @@ final class CaptureCoordinator: NSObject {
         case .image: prompt = "Drag to capture"
         case .text: prompt = "Drag around text"
         case .scrolling: prompt = "Drag the scrolling area"
+        case .recording: prompt = "Drag to record"
         }
+        if intent != .recording { recordingTargetHandler = nil }
         let allowsWindowSnap = intent != .scrolling
 
         let controller = SelectionWindowController(
             screen: screen,
             prompt: prompt,
             allowsWindows: allowsWindowSnap,
-            spansDisplays: intent != .scrolling
+            // A recording streams one display.
+            spansDisplays: intent != .scrolling && intent != .recording
         ) { [weak self] target in
             guard let self,
                   isCurrentCapture(captureGeneration, currentGeneration: self.generation) else { return }
@@ -1076,11 +1225,21 @@ final class CaptureCoordinator: NSObject {
             self.applicationToRestore = nil
             guard let target else {
                 focusRestoration.restore()
-                self.announce("Capture cancelled")
+                self.recordingTargetHandler = nil
+                self.announce(intent == .recording ? "Recording cancelled" : "Capture cancelled")
                 self.onStateChange?()
                 return
             }
             switch intent {
+            case .recording:
+                focusRestoration.restore()
+                let handler = self.recordingTargetHandler
+                self.recordingTargetHandler = nil
+                guard let region = recordingRegion(for: target) else {
+                    self.announce("Select a region on one display", beep: true)
+                    return
+                }
+                handler?(region)
             case .text:
                 focusRestoration.restore()
                 Task { @MainActor in
@@ -1163,6 +1322,7 @@ final class CaptureCoordinator: NSObject {
     }
 
     func repeatLastCapture() {
+        guard !recordingBlocksCapture() else { return }
         guard scrollingSession == nil else { return }
         selectionWindow?.cancel()
         guard requireScreenCapturePermission() else { return }
@@ -1258,7 +1418,7 @@ final class CaptureCoordinator: NSObject {
                 if rememberTarget { lastTarget = RepeatTarget(target) }
                 onStateChange?()
 
-            case .scrolling:
+            case .scrolling, .recording:
                 break
             }
         } catch is CancellationError {

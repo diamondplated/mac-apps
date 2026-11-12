@@ -6,6 +6,8 @@ enum CaptureIntent: Equatable, Sendable {
     case image
     case text
     case scrolling
+    /// Choosing the region for a recording; no image is captured.
+    case recording
 }
 
 struct DisplayRegion: Equatable, Sendable {
