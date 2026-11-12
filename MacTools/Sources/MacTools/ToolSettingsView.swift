@@ -298,9 +298,12 @@ struct ToolSettingsView: View {
 
     // MARK: ScrollSplit
 
+    @ViewBuilder
     private func scrollSettings(_ value: ToolSettingsSnapshot) -> some View {
         Section {
-            Toggle("Change mouse wheel scrolling", isOn: toggle(value.enabled ?? false, key: "enabled"))
+            // With the mouse fixes present, this one switch governs all of them.
+            Toggle(value.hasMouseFixes ? "Customize the mouse" : "Change mouse wheel scrolling",
+                   isOn: toggle(value.enabled ?? false, key: "enabled"))
             // ScrollSplit itself reverses vertical scrolling until told otherwise.
             Toggle("Reverse vertical", isOn: toggle(value.reverseVertical ?? true, key: "reverseVertical"))
             Toggle("Reverse horizontal", isOn: toggle(value.reverseHorizontal ?? false, key: "reverseHorizontal"))
@@ -316,6 +319,9 @@ struct ToolSettingsView: View {
                         .frame(width: 48, alignment: .trailing)
                 }
             }
+            if let smooth = value.smoothScrolling {
+                Toggle("Smooth scrolling", isOn: toggle(smooth, key: "smoothScrolling"))
+            }
             if value.liveEventTapActive == false {
                 LabeledContent("ScrollSplit isn’t changing scrolling yet") {
                     Button("Open ScrollSplit") { Task { await library.launch(.scrollSplit) } }
@@ -325,6 +331,23 @@ struct ToolSettingsView: View {
             Text("Mouse wheel")
         } footer: {
             footnote("Trackpad scrolling is never changed.")
+        }
+        if value.sideButtonsNavigate != nil || value.mouseAccelerationOff != nil {
+            Section {
+                if let navigate = value.sideButtonsNavigate {
+                    Toggle("Side buttons go back and forward", isOn: toggle(navigate, key: "sideButtonsNavigate"))
+                }
+                if let linear = value.mouseAccelerationOff {
+                    Toggle("Turn off pointer acceleration for mice", isOn: toggle(linear, key: "mouseAccelerationOff"))
+                        .disabled(value.mouseAccelerationAvailable == false)
+                }
+            } header: {
+                Text("Buttons and Pointer")
+            } footer: {
+                footnote(value.mouseAccelerationAvailable == false
+                    ? "Pointer acceleration can’t be changed per device on this Mac."
+                    : "The trackpad keeps its normal feel. These start off because they change how the mouse behaves.")
+            }
         }
     }
 

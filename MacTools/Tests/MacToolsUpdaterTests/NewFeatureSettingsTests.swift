@@ -21,6 +21,18 @@ final class NewFeatureSettingsTests: XCTestCase {
         XCTAssertEqual(newer.dockMiddleClickOpensWindow, false)
     }
 
+    func testScrollSplitMouseFixesAreAbsentFromAnOlderAppAndReadFromANewerOne() throws {
+        let older = try snapshot("scrollSplit", ["enabled": true, "reverseVertical": true])
+        XCTAssertFalse(older.hasMouseFixes)
+        XCTAssertNil(older.mouseAccelerationAvailable)
+        let newer = try snapshot("scrollSplit", ["enabled": true, "smoothScrolling": true, "sideButtonsNavigate": false,
+                                                 "mouseAccelerationOff": false, "mouseAccelerationAvailable": false])
+        XCTAssertTrue(newer.hasMouseFixes)
+        XCTAssertEqual(newer.smoothScrolling, true)
+        XCTAssertEqual(newer.sideButtonsNavigate, false)
+        XCTAssertEqual(newer.mouseAccelerationAvailable, false)
+    }
+
     func testSourceRulesAreOfferedOnlyWhenLinkRoutesReportsLinkCleaning() throws {
         XCTAssertFalse(try snapshot("linkRoutes").supportsSourceRules)
         let newer = try snapshot("linkRoutes", ["stripsTrackingParameters": true, "unwrapsRedirects": false])
