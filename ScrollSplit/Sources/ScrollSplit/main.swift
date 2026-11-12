@@ -37,8 +37,41 @@ if CommandLine.arguments.contains("--self-check") {
           (try? SettingsPatch(data: Data("{\"mouseAccelerationAvailable\":true}".utf8))) == nil,
           (try? SettingsPatch(data: Data("{\"smoothScrolling\":true,\"sideButtonsNavigate\":false,\"mouseAccelerationOff\":true}".utf8))) != nil
     else { exit(1) }
+    // Keyboard overrides: decisions only. No tap, hot key, key mapping, clipboard or audio device is touched.
+    let safari = QuitTarget(pid: 42, bundleIdentifier: "com.apple.Safari")
+    let finder = QuitTarget(pid: 1, bundleIdentifier: "com.apple.finder")
+    func down(_ gate: inout HoldToQuitGate, _ target: QuitTarget, repeat isRepeat: Bool = false, at now: Double = 0) -> HoldToQuitGate.Action {
+        gate.keyDown(keyCode: 12, flags: .maskCommand, isRepeat: isRepeat, enabled: true, now: now, frontmost: target, ownBundleIdentifier: nil, ownMenuOpen: false)
+    }
+    var hold = HoldToQuitGate()
+    var early = HoldToQuitGate()
+    var hyper = HyperKey()
+    var ledger = KeyMappingLedger()
+    let theirs = KeyMappingEntry(source: KeyMappingEntry.capsLock, destination: 0x7_0000_00E0)
+    let added = ledger.adding(device: 7, current: [theirs]) ?? []
+    let shortcut = "{\"keyCode\":9,\"carbonModifiers\":6144,\"keyEquivalent\":\"v\",\"keyLabel\":\"V\"}"
+    let shiftOnly = "{\"keyCode\":9,\"carbonModifiers\":512,\"keyEquivalent\":\"v\",\"keyLabel\":\"V\"}"
+    func patch(_ json: String, capsLock: Bool = true) -> SettingsPatch? { try? SettingsPatch(data: Data(json.utf8), capsLockRemapAvailable: capsLock) }
+    guard down(&hold, safari) == .begin(safari), down(&hold, safari, repeat: true, at: 0.3) == .swallow,
+          hold.tick(now: 0.5) == nil, hold.tick(now: 0.8) == safari, hold.keyUp(keyCode: 12) == .swallow,
+          down(&early, safari) == .begin(safari), early.keyUp(keyCode: 12) == .cancel(passEvent: false), early.tick(now: 1) == nil,
+          down(&early, finder) == .pass,
+          hyper.key(keyCode: HyperKey.f18KeyCode, isDown: true, now: 0, tapIsEscape: true) == .swallow,
+          hyper.key(keyCode: HyperKey.f18KeyCode, isDown: false, now: 0.1, tapIsEscape: true) == .sendEscape,
+          hyper.key(keyCode: HyperKey.f18KeyCode, isDown: true, now: 1, tapIsEscape: true) == .swallow,
+          hyper.key(keyCode: 4, isDown: true, now: 1.05, tapIsEscape: true) == .addHyper,
+          hyper.key(keyCode: HyperKey.f18KeyCode, isDown: false, now: 1.1, tapIsEscape: true) == .swallow,
+          hyper.key(keyCode: 4, isDown: true, now: 1.2, tapIsEscape: true) == .pass,
+          added == [.capsLockToF18], ledger.removing(device: 7, current: added) == [theirs],
+          patch("{\"capsLockRemapAvailable\":true}") == nil,
+          patch("{\"capsLockIsHyper\":true}", capsLock: false) == nil,
+          patch("{\"shortcuts\":[{\"command\":\"pastePlainText\",\"shortcut\":\(shiftOnly)}]}") == nil,
+          patch("{\"shortcuts\":[{\"command\":\"pastePlainText\",\"title\":\"\",\"shortcut\":\(shortcut)},{\"command\":\"toggleMicrophoneMute\",\"shortcut\":\(shortcut)}]}") == nil,
+          patch("{\"holdToQuit\":true,\"capsLockIsHyper\":true,\"capsLockTapIsEscape\":true,\"shortcuts\":[{\"command\":\"pastePlainText\",\"title\":\"\",\"shortcut\":\(shortcut)}]}") != nil
+    else { exit(1) }
     print("Pointer acceleration interface: \(PointerAcceleration.isAvailable ? "available" : "unavailable").")
-    print("ScrollSplit self-check passed (no event tap or permission prompts).")
+    print("Caps Lock remap interface: \(CapsLockRemap.isAvailable ? "available" : "unavailable").")
+    print("ScrollSplit self-check passed (no event tap, hot key, key mapping, clipboard, microphone or permission prompts).")
     exit(0)
 }
 
@@ -46,7 +79,13 @@ if CommandLine.arguments.contains("--self-check") {
 final class AppModel {
     let preferences = Preferences()
     let engine = ScrollEngine()
+    let keyboard = KeyboardEngine()
+    let hotKeys = HotKeys()
+    let microphone = Microphone()
+    private var plainPaste = PlainPaste()
+    private var pasteGeneration = 0
     private(set) var settings = ScrollSettings()
+    private(set) var shortcuts: [ShortcutCommand: KeyShortcut] = [:]
     private(set) var accessible = false
     private(set) var monitoring = false
     private var observers: [NSObjectProtocol] = []
@@ -78,6 +117,14 @@ final class AppModel {
                 ], deliverImmediately: true)
             }
         })
+        hotKeys.action = { [weak self] command in
+            MainActor.assumeIsolated {
+                switch command {
+                case .pastePlainText: self?.pastePlainText()
+                case .toggleMicrophoneMute: self?.microphone.toggle()
+                }
+            }
+        }
         observers.append(center.addObserver(forName: Preferences.changed, object: Preferences.identifier, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.reload() }
         })
@@ -86,8 +133,14 @@ final class AppModel {
 
     func reload() {
         settings = preferences.settings
+        shortcuts = preferences.shortcuts.all
         accessible = AXIsProcessTrusted(); monitoring = CGPreflightListenEventAccess()
         engine.configure(settings)
+        keyboard.configure(settings)
+        // ScrollSplit's own switch is the master for the shortcuts too, and turning it off ends a mute.
+        hotKeys.configure(settings.enabled ? shortcuts : [:])
+        if !settings.enabled && microphone.isHoldingMute { microphone.unmute() }
+        microphone.setListening(settings.enabled && shortcuts[.toggleMicrophoneMute] != nil)
         updatePoll()
         didChange?()
     }
@@ -122,6 +175,29 @@ final class AppModel {
         set("enabled", true)
     }
 
+    /// Puts only the clipboard's text on it, sends ⌘V to the frontmost app, and puts the
+    /// original back shortly after unless something else wrote to the clipboard meanwhile.
+    /// The clipboard is read only here, at the moment the shortcut is pressed.
+    private func pastePlainText() {
+        guard AXIsProcessTrusted(), let target = NSWorkspace.shared.frontmostApplication?.processIdentifier else { return }
+        let pasteboard = SystemPasteboard(.general)
+        guard plainPaste.press(pasteboard) else { return }
+        postKeyPress(9, character: "v", flags: .maskCommand, to: target)
+        pasteGeneration += 1
+        let generation = pasteGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, generation == self.pasteGeneration else { return }
+                self.plainPaste.restore(pasteboard)
+            }
+        }
+    }
+
+    /// The microphone is muted and ScrollSplit has a say in it.
+    var microphoneMuted: Bool {
+        microphone.isHoldingMute || (settings.enabled && shortcuts[.toggleMicrophoneMute] != nil && microphone.isMuted)
+    }
+
     func openPrivacy(_ pane: String) {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") { NSWorkspace.shared.open(url) }
     }
@@ -143,6 +219,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.menu = menu
         rebuildMenu(menu)
         model.didChange = { [weak self] in self?.updateIcon() }
+        model.microphone.didChange = { [weak self] in MainActor.assumeIsolated { self?.updateIcon() } }
         updateIcon()
         offerSetupOnFirstLaunch()
     }
@@ -154,17 +231,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return isWorking ? "On" : "Needs Access"
     }
 
+    private var shownMuted: Bool?
+
+    /// A crossed-out microphone while muted, so the state is always visible.
     private func updateIcon() {
-        item.button?.appearsDisabled = !isWorking
+        let muted = model.microphoneMuted
+        if shownMuted != muted {
+            shownMuted = muted
+            item.button?.image = NSImage(systemSymbolName: muted ? "mic.slash" : "computermouse",
+                                         accessibilityDescription: muted ? "ScrollSplit, Microphone Muted" : "ScrollSplit")
+        }
+        item.button?.appearsDisabled = !isWorking && !muted
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        model.keyboard.ownMenuOpen = true
         model.reload()
         rebuildMenu(menu)
     }
 
+    func menuDidClose(_ menu: NSMenu) { model.keyboard.ownMenuOpen = false }
+
     private func rebuildMenu(_ menu: NSMenu) {
         menu.removeAllItems()
+        if model.microphoneMuted {
+            let muted = NSMenuItem(title: "Microphone Muted", action: nil, keyEquivalent: "")
+            muted.isEnabled = false
+            menu.addItem(muted)
+            add("Unmute Microphone", #selector(unmuteMicrophone), to: menu)
+            menu.addItem(.separator())
+        }
         let status = NSMenuItem(title: "ScrollSplit Is \(statusTitle)", action: nil, keyEquivalent: "")
         status.isEnabled = false
         menu.addItem(status)
@@ -185,6 +281,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func toggle() {
         if model.settings.enabled { model.set("enabled", false) } else { model.enableFromUserAction() }
+    }
+
+    @objc private func unmuteMicrophone() {
+        if model.microphone.isMuted { model.microphone.toggle() } else { model.microphone.unmute() }
     }
 
     @objc private func grantAccessibility() {
@@ -260,7 +360,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSAppleEventManager.shared().currentAppleEvent?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
     }
 
-    func applicationWillTerminate(_ notification: Notification) { model.engine.stop() }
+    /// Every override ends with ScrollSplit: taps, the Caps Lock mapping, hot keys and any mute.
+    func applicationWillTerminate(_ notification: Notification) {
+        model.engine.stop()
+        model.keyboard.stop()
+        model.hotKeys.unregisterAll()
+        model.microphone.unmute()
+    }
     @objc func quitApp() { NSApplication.shared.terminate(nil) }
 }
 
