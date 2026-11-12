@@ -7,6 +7,7 @@ final class Preferences {
     static let identifier = "com.andrew.scrollsplit"
     static let changed = Notification.Name("com.andrew.mactools.settingsChanged")
     let defaults = UserDefaults.standard
+    var shortcuts: ShortcutStore { ShortcutStore(defaults: defaults) }
     var settings: ScrollSettings {
         defaults.synchronize()
         var value = ScrollSettings()
@@ -18,6 +19,9 @@ final class Preferences {
         value.smoothScrolling = defaults.bool(forKey: "smoothScrolling")
         value.sideButtonsNavigate = defaults.bool(forKey: "sideButtonsNavigate")
         value.mouseAccelerationOff = defaults.bool(forKey: "mouseAccelerationOff") && PointerAcceleration.isAvailable
+        value.holdToQuit = defaults.bool(forKey: "holdToQuit")
+        value.capsLockIsHyper = defaults.bool(forKey: "capsLockIsHyper") && CapsLockRemap.isAvailable
+        value.capsLockTapIsEscape = defaults.bool(forKey: "capsLockTapIsEscape")
         return value
     }
     func apply(_ patch: SettingsPatch) throws {
@@ -27,6 +31,7 @@ final class Preferences {
             else if !login && service.status != .notRegistered { try service.unregister() }
         }
         for (key, value) in patch.values where key != "launchAtLogin" { defaults.set(value, forKey: key) }
+        patch.shortcuts.apply(to: shortcuts)
         defaults.synchronize()
         DistributedNotificationCenter.default().postNotificationName(Self.changed, object: Self.identifier, userInfo: nil, deliverImmediately: true)
     }
@@ -70,6 +75,8 @@ final class Preferences {
                 "enabled": s.enabled, "reverseVertical": s.reverseVertical, "reverseHorizontal": s.reverseHorizontal, "speedMultiplier": s.speedMultiplier,
                 "smoothScrolling": s.smoothScrolling, "sideButtonsNavigate": s.sideButtonsNavigate,
                 "mouseAccelerationOff": s.mouseAccelerationOff, "mouseAccelerationAvailable": PointerAcceleration.isAvailable,
+                "holdToQuit": s.holdToQuit, "capsLockIsHyper": s.capsLockIsHyper, "capsLockTapIsEscape": s.capsLockTapIsEscape,
+                "capsLockRemapAvailable": CapsLockRemap.isAvailable, "shortcuts": shortcuts.snapshot,
                 "permissions": permissions, "eventTapStatus": tapStatus, "permissionsSource": tapStatus == "checked" ? "runningApp" : "currentProcess"]
     }
     static func runCommand(_ arguments: [String]) -> Int32 {
@@ -77,8 +84,11 @@ final class Preferences {
             guard arguments.count == 2, ["read", "write"].contains(arguments[1]) else { throw SettingsError.invalid("Usage: --mac-tools-settings read|write") }
             let preferences = Preferences()
             if arguments[1] == "write" {
+                preferences.defaults.synchronize()
                 try preferences.apply(SettingsPatch(data: FileHandle.standardInput.readDataToEndOfFile(),
-                                                    mouseAccelerationAvailable: PointerAcceleration.isAvailable))
+                                                    mouseAccelerationAvailable: PointerAcceleration.isAvailable,
+                                                    capsLockRemapAvailable: CapsLockRemap.isAvailable,
+                                                    currentShortcuts: preferences.shortcuts.all))
             }
             var data = try JSONSerialization.data(withJSONObject: preferences.snapshot, options: [.sortedKeys])
             data.append(10)

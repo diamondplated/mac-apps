@@ -9,22 +9,36 @@ public struct ScrollSettings: Equatable {
     public var smoothScrolling = false
     public var sideButtonsNavigate = false
     public var mouseAccelerationOff = false
+    public var holdToQuit = false
+    public var capsLockIsHyper = false
+    public var capsLockTapIsEscape = false
     public init() {}
+
+    /// The key tap exists only while a feature that needs it is on.
+    public var needsKeyTap: Bool { enabled && (holdToQuit || capsLockIsHyper) }
 }
 
 public struct SettingsPatch {
     public static let booleanKeys: Set<String> = ["enabled", "reverseVertical", "reverseHorizontal", "launchAtLogin",
-                                                  "smoothScrolling", "sideButtonsNavigate", "mouseAccelerationOff"]
+                                                  "smoothScrolling", "sideButtonsNavigate", "mouseAccelerationOff",
+                                                  "holdToQuit", "capsLockIsHyper", "capsLockTapIsEscape"]
+    public static let shortcutKeys: Set<String> = ["shortcuts", "resetShortcuts"]
+    /// Boolean and number preferences, written as they are.
     public let values: [String: Any]
-    /// `mouseAccelerationAvailable` is false when this Mac cannot change pointer
-    /// acceleration; turning `mouseAccelerationOff` on is then rejected with the rest.
-    public init(data: Data, mouseAccelerationAvailable: Bool = true) throws {
+    public let shortcuts: ShortcutPatch
+    /// `mouseAccelerationAvailable` and `capsLockRemapAvailable` are false when this Mac
+    /// lacks the private interface; turning the matching switch on is then rejected with
+    /// the rest. `currentShortcuts` is what the patch's shortcuts must not collide with.
+    public init(data: Data, mouseAccelerationAvailable: Bool = true, capsLockRemapAvailable: Bool = true,
+                currentShortcuts: [ShortcutCommand: KeyShortcut] = [:]) throws {
         guard data.count <= 65_536, let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw SettingsError.invalid("Expected a JSON object smaller than 64 KB.")
         }
         let booleans = Self.booleanKeys
-        guard Set(object.keys).isSubset(of: booleans.union(["speedMultiplier"])) else { throw SettingsError.invalid("Unknown or read-only setting.") }
-        for (key, value) in object {
+        guard Set(object.keys).isSubset(of: booleans.union(["speedMultiplier"]).union(Self.shortcutKeys)) else {
+            throw SettingsError.invalid("Unknown or read-only setting.")
+        }
+        for (key, value) in object where !Self.shortcutKeys.contains(key) {
             guard let number = value as? NSNumber else { throw SettingsError.invalid("Invalid value for \(key).") }
             if booleans.contains(key) {
                 guard CFGetTypeID(number) == CFBooleanGetTypeID() else { throw SettingsError.invalid("\(key) must be a Boolean.") }
@@ -37,7 +51,11 @@ public struct SettingsPatch {
         if !mouseAccelerationAvailable, object["mouseAccelerationOff"] as? Bool == true {
             throw SettingsError.invalid("Pointer acceleration cannot be changed on this Mac.")
         }
-        values = object
+        if !capsLockRemapAvailable, object["capsLockIsHyper"] as? Bool == true {
+            throw SettingsError.invalid("Caps Lock cannot be remapped on this Mac.")
+        }
+        shortcuts = try ShortcutPatch(shortcuts: object["shortcuts"], resetShortcuts: object["resetShortcuts"], current: currentShortcuts)
+        values = object.filter { !Self.shortcutKeys.contains($0.key) }
     }
 }
 
