@@ -11,10 +11,6 @@ import PhotoViewerCore
 extension AppState {
     // MARK: - Selection delegation
 
-    func selectNext() { selection.selectNext() }
-    func selectPrevious() { selection.selectPrevious() }
-    func selectFirst() { selection.selectFirst() }
-    func selectLast() { selection.selectLast() }
     func select(url: URL) { selection.select(url: url) }
 
     /// Revalidate immediately before any user/phone interaction that may
@@ -39,16 +35,16 @@ extension AppState {
     /// sidecar write happen in exactly one place.
     ///
     /// `VimKeymap` has already mutated its own state for the label/pick/
-    /// reject/mark cases by the time we see the action — this method's job is
-    /// navigation plus persistence.
+    /// reject cases by the time we see the action — this method's job is
+    /// navigation plus persistence. Navigation follows the visible grid, the
+    /// same list arrow keys walk; the phone clears desktop filters before it
+    /// dispatches, so for it the visible list is the whole folder.
     func dispatch(_ action: VimAction) {
         switch action {
-        case .next:  selectNext()
-        case .prev:  selectPrevious()
-        case .first: selectFirst()
-        case .last:  selectLast()
-        case .jumpToMark(let c):
-            if let url = vimKeymap.marks[c] { select(url: url) }
+        case .next:  selectNextVisible()
+        case .prev:  selectPreviousVisible()
+        case .first: selectFirstVisible()
+        case .last:  selectLastVisible()
         case .setColorLabel, .togglePick, .toggleReject:
             guard ensureActiveFolderContinuity() else { return }
             guard !isCullingPersistenceBlocked else {
@@ -68,14 +64,6 @@ extension AppState {
                 let label = vimKeymap.colorLabel(for: url)
                 Task { await phoneAccess.publish(url: url, picked: picked, rejected: rejected, label: label) }
             }
-        case .setMark:
-            // Marks are Mac-only navigation; the phone has no concept of them.
-            guard ensureActiveFolderContinuity() else { return }
-            guard !isCullingPersistenceBlocked else {
-                reportBlockedCullingEdit()
-                return
-            }
-            if let folder { vimKeymap.saveInBackground(folder: folder) }
         case .none:
             break
         }
@@ -130,8 +118,6 @@ extension AppState {
         trash.trashImages(urls)
     }
 
-
-
     func optimisticallyRemoveImages(_ urls: [URL]) {
         let trashedSet = Set(urls)
         let selectedURL = currentURL
@@ -171,9 +157,6 @@ extension AppState {
 
     func undoTrash() { trash.undoTrash() }
     var canUndoTrash: Bool { trash.canUndoTrash }
-
-    /// Select every photo in the current folder. Bound to ⌘A.
-    func selectAllPhotos() { selection.selectAll() }
 
     /// Drop the multi-selection back to single-select mode.
     func clearMultiSelection() { selection.clearMultiSelection() }

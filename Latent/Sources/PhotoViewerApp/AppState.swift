@@ -78,7 +78,7 @@ final class AppState {
     /// Owned here so trashImage / closeFolder can poke it. The prefetch
     /// window is updated by BrowserView when selectedIndex changes.
     let prefetcher = ImagePrefetcher(capacity: 5)
-    /// Vim keymap state: marks, colour labels, picks, rejects. Lives here
+    /// Vim keymap state: colour labels, picks, rejects. Lives here
     /// rather than on BrowserView because the keyboard is no longer the only
     /// input device — the phone companion dispatches the same `VimAction`
     /// values through `dispatch(_:)`. One owner, one writer.
@@ -106,6 +106,17 @@ final class AppState {
     /// Whether the folder-tree sidebar (far-left pane) is visible. Default
     /// false to keep the layout simple for new users; toolbar button toggles.
     var showFolderTree: Bool = false
+    /// Grid or map. App state so the View menu and the toolbar picker drive
+    /// the same value.
+    var browseMode: BrowseMode = .grid
+    /// The `?` cheat sheet. App state so Help > Keyboard Shortcuts can show it.
+    var showShortcutOverlay = false
+    /// The phone pairing sheet. App state so File > Phone Access can open it
+    /// and the photo menus can stand down while it is up.
+    var showPairingSheet = false
+    /// Advances when a menu command asks the browser to open search. The
+    /// search state itself lives in BrowserView, which reacts to the tick.
+    var searchRequestTick: UInt64 = 0
     /// Grid filter is app state (rather than view-local) so window-level
     /// keyboard navigation can stay inside the same visible result set.
     var photoFilter: PhotoFilter = .all
@@ -294,7 +305,7 @@ final class AppState {
         if let lastError { return lastError }
         if let trashError = trash.lastError { return trashError }
         if vimKeymap.lastPersistenceError != nil {
-            return "Latent couldn’t save this folder’s picks, rejects, labels, or marks. Your latest culling changes may not survive a relaunch."
+            return "Latent couldn’t save this folder’s picks, rejects, or labels. Your latest culling changes may not survive a relaunch."
         }
         return nil
     }
@@ -316,10 +327,10 @@ final class AppState {
             reportUnverifiedCullingState()
             return
         }
-        lastError = "Saved culling state for this folder couldn’t be safely read or migrated. Picks, rejects, labels, and marks are disabled so Latent won’t overwrite that data. Reopen the folder with a compatible version or repair its saved state first."
+        lastError = "Saved culling state for this folder couldn’t be safely read or migrated. Picks, rejects, and labels are disabled so Latent won’t overwrite that data. Reopen the folder with a compatible version or repair its saved state first."
     }
 
-    static let unverifiedCullingStateMessage = "Latent found older saved picks, rejects, labels, or marks, but this folder changed afterward and its identity can’t be proven. Choose Use Saved Culls only if this is the same folder; otherwise keep culling disabled so the older data remains untouched."
+    static let unverifiedCullingStateMessage = "Latent found older saved picks, rejects, or labels, but this folder changed afterward and its identity can’t be proven. Choose Use Saved Culls only if this is the same folder; otherwise keep culling disabled so the older data remains untouched."
 
     func reportUnverifiedCullingState() {
         lastError = Self.unverifiedCullingStateMessage
@@ -354,20 +365,6 @@ final class AppState {
     /// AVFoundation can take a swing at. The actual playback decision is
     /// made later by `MediaTyping.detect` per file.
     nonisolated static var imageExtensions: Set<String> { MediaTyping.allMediaExts }
-
-    /// Where macOS saves screenshots. Reads the `com.apple.screencapture`
-    /// `location` default that's set by ⌘⇧5 → Options → Save to. Falls
-    /// back to `~/Desktop` (the system default). Used by the empty-state
-    /// "Screenshots" quick-access button so triaging your screen capture
-    /// pile is one click away.
-    static var screenshotsFolderURL: URL {
-        let defaults = UserDefaults(suiteName: "com.apple.screencapture")
-        if let raw = defaults?.string(forKey: "location"), !raw.isEmpty {
-            let expanded = NSString(string: raw).expandingTildeInPath
-            return URL(fileURLWithPath: expanded)
-        }
-        return URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Desktop")
-    }
 
     // Note: no deinit cancellation of the folder watchers — main-actor
     // isolation prevents accessing them from a nonisolated deinit. AppState

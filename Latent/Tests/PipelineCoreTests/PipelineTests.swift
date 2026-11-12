@@ -174,7 +174,7 @@ final class SidecarTests: XCTestCase {
         let appended = EnhanceSidecar.SidecarStep(
             stageID: "upscale",
             enabled: true,
-            parameters: try ParameterBag(Upscale.Params(scale: 4))
+            parameters: try ParameterBag(Upscale.Params())
         )
 
         let updated = original.replacingSteps(with: [replacement, appended])

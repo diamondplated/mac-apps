@@ -3,50 +3,32 @@ import AppKit
 
 struct ContentView: View {
     @Bindable var state: AppState
-    /// Hoisted to the window level so Export Copy remains available through
-    /// Command-S even while its optional side panel is closed.
-    @State private var enhanceState = EnhancementState()
+    /// Owned by the app so File > Export Enhanced Copy remains available
+    /// while the optional side panel is closed.
+    @Bindable var enhanceState: EnhancementState
     /// Window-level arrow-key monitor. Lives at the ContentView level so it
     /// installs as soon as the app launches, not only after a folder opens —
     /// otherwise arrow keys do nothing on the first folder you load (the
     /// monitor's host view is still in empty state).
     @State private var keyMonitor = NavigationKeyMonitor()
-    @State private var showPairing = false
+    @State private var isDropTargeted = false
 
     var body: some View {
         Group {
             if state.folder == nil && state.loadPhase == nil {
-                EmptyStateView(state: state)
+                StartView(state: state, isDropTargeted: isDropTargeted)
             } else {
                 BrowserView(state: state, enhanceState: enhanceState)
             }
         }
-        .toolbar {
-            ToolbarItem(placement: .navigation) {
-                Button {
-                    state.openFolder()
-                } label: {
-                    Label("Open Folder…", systemImage: "folder")
-                }
-                .keyboardShortcut("o", modifiers: .command)
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    showPairing = true
-                } label: {
-                    Label("Phone access", systemImage: "iphone")
-                }
-                .help("Use your phone to cull this folder")
-            }
-        }
         // The displayed pairing code dies with the sheet, so a photo of the
         // screen taken after it closes is worth nothing.
-        .sheet(isPresented: $showPairing, onDismiss: {
+        .sheet(isPresented: $state.showPairingSheet, onDismiss: {
             Task { await state.phoneAccess.closePairingSheet() }
         }) {
             PairingSheet(controller: state.phoneAccess, ui: state.phoneAccess.ui)
         }
-        .onAppear { keyMonitor.install(state: state, enhancementState: enhanceState) }
+        .onAppear { keyMonitor.install(state: state) }
         .onDisappear {
             // Closing the window can destroy this view (and therefore its
             // termination subscription) before the process itself exits. The
@@ -70,18 +52,17 @@ struct ContentView: View {
         // here. Works for both folders (open as a folder) and individual
         // images (open the parent folder, jump to the clicked image).
         .onOpenURL { url in
-            Task { await openExternal(url: url) }
+            Task { await state.openURL(url) }
         }
         // Drag a folder, archive, or image from Finder onto the Latent
-        // window → open it. Same routing logic as Open With (openExternal
-        // handles directories vs files vs archives transparently). Works
-        // both from the empty state and while a folder is already loaded
-        // (drop replaces the current view).
+        // window → open it. Same routing as Open With. Works both from the
+        // start screen and while a folder is already loaded (drop replaces
+        // the current view).
         .dropDestination(for: URL.self) { urls, _ in
             guard let first = urls.first else { return false }
-            Task { await openExternal(url: first) }
+            Task { await state.openURL(first) }
             return true
-        }
+        } isTargeted: { isDropTargeted = $0 }
         .alert(
             "Latent couldn’t complete that action",
             isPresented: Binding(
@@ -99,213 +80,166 @@ struct ContentView: View {
             Text(state.userError ?? "")
         }
     }
-
-    @MainActor
-    private func openExternal(url: URL) async {
-        await state.openURL(url)
-    }
 }
 
-struct EmptyStateView: View {
+/// The window before any folder is open: the app's mark, one Open button,
+/// and the recent folders as a grouped list.
+struct StartView: View {
     @Bindable var state: AppState
+    let isDropTargeted: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 16) {
-                hero
-                quickAccess
-                    .padding(.top, 16)
-                if !state.recents.entries.isEmpty {
-                    recentsList
-                        .padding(.top, 24)
+        GeometryReader { geo in
+            ScrollView {
+                VStack(spacing: Theme.Spacing.section) {
+                    hero
+                    if !state.recents.entries.isEmpty {
+                        recentsList
+                    }
                 }
+                .frame(maxWidth: 460)
+                .padding(.horizontal, 40)
+                .padding(.vertical, 56)
+                // Centred in the window when it fits; scrolls when it doesn't.
+                .frame(maxWidth: .infinity, minHeight: geo.size.height)
             }
-            .frame(maxWidth: 520)
-            .padding(40)
-            .frame(maxWidth: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.background)
+        .overlay {
+            // Drop affordance: a quiet accent outline while a folder hovers.
+            Theme.shape(Theme.Radius.panel)
+                .strokeBorder(Color.accentColor, lineWidth: 2)
+                .padding(Theme.Spacing.regular)
+                .opacity(isDropTargeted ? 1 : 0)
+                .latentAnimation(isDropTargeted, reduceMotion: reduceMotion, duration: Theme.Motion.quick)
+                .allowsHitTesting(false)
+        }
         .onAppear {
-            // Re-check existence in the background each time the empty
-            // state surfaces (folders may have been moved while a folder
-            // was open).
+            // Re-check existence in the background each time the start
+            // screen surfaces (folders may have moved while one was open).
             Task { await state.recents.refreshExistence() }
         }
     }
 
     private var hero: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "photo.stack")
-                .font(.system(size: 64))
-                .foregroundStyle(.secondary)
-            Text("Open a folder of photos to begin")
-                .font(.title2)
-            Text("Latent browses folders directly — no library import.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Button("Open Folder…") { state.openFolder() }
-                .controlSize(.large)
-                .padding(.top, 8)
-        }
-    }
-
-    /// Pinned shortcuts. Currently just "Screenshots" — opens whatever
-    /// folder ⌘⇧5 saves to (Desktop by default). Triaging the screenshot
-    /// pile is the most-frequent "I have a folder of images and need to
-    /// browse / trash / share them" workflow on a Mac.
-    private var quickAccess: some View {
-        HStack(spacing: 10) {
-            QuickAccessTile(
-                symbol: "camera.viewfinder",
-                title: "Screenshots",
-                subtitle: prettyScreenshotsLocation()
-            ) {
-                Task { await state.loadFolder(AppState.screenshotsFolderURL) }
+        VStack(spacing: Theme.Spacing.regular) {
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: 96, height: 96)
+                .accessibilityHidden(true)
+            VStack(spacing: Theme.Spacing.tight) {
+                Text("Latent")
+                    .font(.largeTitle.weight(.semibold))
+                Text("Open a folder or archive of photos.")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
             }
+            Button {
+                state.openFolder()
+            } label: {
+                Text("Open…")
+                    .frame(minWidth: 120)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .padding(.top, Theme.Spacing.small)
+            Text("Or drop a folder onto this window.")
+                .font(.footnote)
+                .foregroundStyle(.tertiary)
         }
-    }
-
-    /// Abbreviate the home directory, so the subtitle reads "~/Desktop"
-    /// rather than the full "/Users/<you>/Desktop".
-    private func prettyScreenshotsLocation() -> String {
-        let path = AppState.screenshotsFolderURL.path
-        let home = NSHomeDirectory()
-        if path.hasPrefix(home) { return "~" + path.dropFirst(home.count) }
-        return path
     }
 
     private var recentsList: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
+        VStack(alignment: .leading, spacing: Theme.Spacing.small) {
+            HStack(alignment: .firstTextBaseline) {
                 Text("Recent")
                     .font(.headline)
                 Spacer()
-                Button("Clear All") { state.recents.removeAll() }
-                    .buttonStyle(.borderless)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Button("Clear") { state.recents.removeAll() }
+                    .buttonStyle(.link)
+                    .font(.callout)
             }
+            .padding(.horizontal, Theme.Spacing.tight)
 
-            VStack(spacing: 4) {
-                ForEach(state.recents.entries, id: \.self) { url in
+            VStack(spacing: 0) {
+                let entries = state.recents.entries
+                ForEach(Array(entries.enumerated()), id: \.element) { index, url in
                     RecentRow(
                         url: url,
                         isStale: state.recents.stale.contains(url),
                         onOpen: { Task { await state.loadFolder(url) } },
                         onRemove: { state.recents.remove(url) }
                     )
+                    if index < entries.count - 1 {
+                        Divider().padding(.leading, 44)
+                    }
                 }
             }
+            .background(.background.secondary)
+            .clipShape(Theme.shape(Theme.Radius.card))
+            .overlay(Theme.shape(Theme.Radius.card).strokeBorder(.separator, lineWidth: 0.5))
         }
     }
 }
 
-/// Quick-access tile shown above the Recents in the empty state. Visual
-/// cousin to RecentRow but pinned/curated rather than MRU. Clicking
-/// invokes the action (typically `loadFolder` on a system path).
-struct QuickAccessTile: View {
-    let symbol: String
-    let title: String
-    let subtitle: String
-    let onOpen: () -> Void
-
-    @State private var hovered: Bool = false
-
-    var body: some View {
-        Button(action: onOpen) {
-            HStack(spacing: 12) {
-                Image(systemName: symbol)
-                    .font(.system(size: 22))
-                    .foregroundStyle(Color.accentColor)
-                    .frame(width: 36, height: 36)
-                    .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.body.weight(.medium))
-                        .foregroundStyle(.primary)
-                    Text(subtitle)
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(hovered ? Color.secondary.opacity(0.10) : Color.secondary.opacity(0.05))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(Color.secondary.opacity(0.15), lineWidth: 0.5)
-            )
-        }
-        .buttonStyle(.plain)
-        .onHover { hovered = $0 }
-    }
-}
-
-/// One row in the empty-state recent list. Click anywhere → open. The X on
-/// the right is a separate target that removes without opening.
+/// One row in the start screen's recent list. Click anywhere to open; the
+/// remove button appears on hover.
 struct RecentRow: View {
     let url: URL
     let isStale: Bool
     let onOpen: () -> Void
     let onRemove: () -> Void
 
-    @State private var hovered: Bool = false
+    @State private var hovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: isStale ? "questionmark.folder" : "folder")
-                .font(.system(size: 16))
-                .foregroundStyle(isStale ? .secondary : Color.accentColor)
-                .frame(width: 20)
+        HStack(spacing: Theme.Spacing.regular) {
+            Image(systemName: isStale ? "questionmark.folder" : "folder.fill")
+                .font(.title3)
+                .foregroundStyle(isStale ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.accentColor))
+                .frame(width: 22)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 1) {
                 Text(url.lastPathComponent)
-                    .font(.body.weight(.medium))
+                    .font(.body)
                     .foregroundStyle(isStale ? .secondary : .primary)
                     .lineLimit(1)
-                Text(prettyParentPath(url))
-                    .font(.system(.caption, design: .monospaced))
+                Text(isStale ? "Folder not found" : prettyParentPath(url))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
 
-            Spacer()
+            Spacer(minLength: Theme.Spacing.small)
 
-            // Show the X only on hover so the row stays clean visually but
-            // remove is one click away when needed.
-            if hovered {
-                Button(action: onRemove) {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help("Remove from recents")
+            Button(action: onRemove) {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.tertiary)
             }
+            .buttonStyle(.plain)
+            .help("Remove from Recent")
+            .accessibilityLabel("Remove \(url.lastPathComponent) from Recent")
+            .opacity(hovered ? 1 : 0)
+            .latentAnimation(hovered, reduceMotion: reduceMotion, duration: Theme.Motion.quick)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.horizontal, Theme.Spacing.regular)
+        .padding(.vertical, Theme.Spacing.small)
         .contentShape(Rectangle())
-        .background(hovered ? Color.secondary.opacity(0.08) : .clear,
-                    in: RoundedRectangle(cornerRadius: 6))
+        .background(hovered && !isStale ? Color.primary.opacity(0.05) : .clear)
         .onHover { hovered = $0 }
-        .opacity(isStale ? 0.55 : 1.0)
         .onTapGesture {
-            // Don't open a stale entry — likely just confuses the loader
-            // with a missing path.
+            // A stale entry would only confuse the loader with a missing path.
             guard !isStale else { return }
             onOpen()
         }
         .help(isStale ? "Folder no longer exists" : url.path)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
     }
 
     private func prettyParentPath(_ url: URL) -> String {

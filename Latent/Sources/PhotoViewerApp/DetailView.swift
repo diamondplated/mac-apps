@@ -5,8 +5,8 @@ import PipelineCore
 
 struct DetailView: View {
     let state: AppState
-    /// EnhancementState now lives at the BrowserView level (so the keypress
-    /// handler can drive `blinking`). Passed in as @Bindable.
+    /// App-owned enhancement state, so the keypress handler can drive
+    /// `blinking` and File > Export works with the panel closed.
     @Bindable var enhanceState: EnhancementState
     /// Shared zoom/pan across single-pane and side-by-side modes. Reset on
     /// selection change so each new photo opens at fit-to-window.
@@ -14,6 +14,7 @@ struct DetailView: View {
     @State private var pan: CGSize = .zero
     @GestureState private var transientPan: CGSize = .zero
     @GestureState private var transientZoom: CGFloat = 1.0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var currentURL: URL? {
         guard let i = state.selectedIndex, i < state.imageURLs.count else { return nil }
@@ -35,7 +36,7 @@ struct DetailView: View {
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
-        .animation(.easeInOut(duration: 0.18), value: state.showEnhancementPanel)
+        .latentAnimation(state.showEnhancementPanel, reduceMotion: reduceMotion)
         .task(id: MediaContentIdentity(
             url: currentURL,
             revision: state.selectedMediaContentTick
@@ -112,7 +113,6 @@ struct DetailView: View {
             // the image where clicks did nothing.
             .contentShape(Rectangle())
             .overlay(alignment: .topLeading) { infoBar }
-            .overlay(alignment: .bottomTrailing) { positionBadge }
             .overlay(alignment: .topTrailing) { showingOriginalBadge }
             .overlay(alignment: .bottom) { zoomHint }
 
@@ -215,18 +215,12 @@ struct DetailView: View {
                     ))
             }
         case (_, .unsupported):
-            VStack(spacing: 6) {
-                Image(systemName: "questionmark.square.dashed")
-                    .font(.system(size: 48))
-                    .foregroundStyle(.secondary)
-                Text("Unsupported file type")
-                    .foregroundStyle(.secondary)
-                if let url = currentURL {
-                    Text(url.lastPathComponent)
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.tertiary)
-                }
-            }
+            ContentUnavailableView(
+                "Can’t Preview This File",
+                systemImage: "questionmark.square.dashed",
+                description: currentURL.map { Text($0.lastPathComponent) }
+            )
+            .colorScheme(.dark)
         default:
             paneView(image: imageForDisplay, label: nil)
         }
@@ -269,17 +263,18 @@ struct DetailView: View {
                             y: pan.height + transientPan.height)
                     .id(ObjectIdentifier(cg))
             } else if currentURL == nil {
-                Text("Select a photo")
-                    .foregroundStyle(.secondary)
-            } else if let error = enhanceState.lastError {
-                VStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 36))
-                    Text(error)
-                        .multilineTextAlignment(.center)
+                if !state.isLoading {
+                    Text("No Selection")
+                        .font(.title3)
+                        .foregroundStyle(.white.opacity(0.45))
                 }
-                .foregroundStyle(.secondary)
-                .padding()
+            } else if let error = enhanceState.lastError {
+                ContentUnavailableView(
+                    "Can’t Open This Photo",
+                    systemImage: "exclamationmark.triangle",
+                    description: Text(error)
+                )
+                .colorScheme(.dark)
             } else {
                 PhotoSkeleton()
             }
@@ -289,11 +284,11 @@ struct DetailView: View {
         .overlay(alignment: .topLeading) {
             if let label {
                 Text(label)
-                    .font(.system(.caption2, design: .monospaced).weight(.bold))
+                    .font(.caption2.weight(.semibold))
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)
                     .background(.thinMaterial, in: Capsule())
-                    .padding(8)
+                    .padding(Theme.Spacing.small)
             }
         }
     }
@@ -329,31 +324,21 @@ struct DetailView: View {
             if let url = currentURL {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(url.lastPathComponent)
-                        .font(.system(.callout, design: .monospaced))
+                        .font(.callout.weight(.medium))
                         .lineLimit(1)
+                        .truncationMode(.middle)
                     if let dims = imageDimensions {
                         Text("\(dims.width) × \(dims.height)")
                             .font(.caption)
+                            .monospacedDigit()
                             .foregroundStyle(.secondary)
                     }
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6))
-                .padding(12)
-            }
-        }
-    }
-
-    private var positionBadge: some View {
-        Group {
-            if let i = state.selectedIndex, !state.imageURLs.isEmpty {
-                Text("\(i + 1) / \(state.imageURLs.count)")
-                    .font(.system(.caption, design: .monospaced))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 4))
-                    .padding(12)
+                .background(.thinMaterial, in: Theme.shape(Theme.Radius.control))
+                .environment(\.colorScheme, .dark)
+                .padding(Theme.Spacing.regular)
             }
         }
     }
@@ -365,12 +350,12 @@ struct DetailView: View {
         Group {
             if enhanceState.displayMode == .original && enhanceState.originalBuffer != nil {
                 Text(enhanceState.blinking ? "BLINK" : "ORIGINAL")
-                    .font(.system(.caption2, design: .monospaced).weight(.bold))
+                    .font(.caption2.weight(.bold))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(Color.yellow.opacity(0.85), in: Capsule())
                     .foregroundStyle(.black)
-                    .padding(12)
+                    .padding(Theme.Spacing.regular)
             }
         }
     }
@@ -382,11 +367,13 @@ struct DetailView: View {
             let effective = zoom * transientZoom
             if supportsZoomInteractions && abs(effective - 1.0) > 0.001 {
                 Text(String(format: "%.2f×", effective))
-                    .font(.system(.caption2, design: .monospaced))
+                    .font(.caption)
+                    .monospacedDigit()
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
                     .background(.thinMaterial, in: Capsule())
-                    .padding(12)
+                    .environment(\.colorScheme, .dark)
+                    .padding(Theme.Spacing.regular)
             }
         }
     }
@@ -440,14 +427,4 @@ struct DetailView: View {
 private struct MediaContentIdentity: Hashable {
     let url: URL?
     let revision: UInt64
-}
-
-// MARK: - Bridge so BrowserView can drive blink + view-mode without
-//         knowing the internals of EnhancementState.
-
-extension DetailView {
-    /// Read-only view into EnhancementState's current display intent. Currently
-    /// unused — present so future feature additions (e.g. status bar in
-    /// ContentView) can read display state without a fresh wiring pass.
-    var compareMode: CompareMode { enhanceState.compareMode }
 }

@@ -133,31 +133,46 @@ final class EnhancementParameterCorrectnessTests: XCTestCase {
         XCTAssertNil(object["qualityHint"])
     }
 
-    func testUpscaleSidecarWithOutOfRangeValuesIsClampedInsteadOfTrapping() throws {
-        func decode(_ json: String) throws -> Upscale.Params {
-            try JSONDecoder().decode(Upscale.Params.self, from: Data(json.utf8))
+    /// Older builds offered 4x, a SwinIR model and a tile-size slider, and
+    /// sidecars travel with folders. Every value they could write, and the
+    /// malformed ones a hand-edited sidecar could hold, must load as the one
+    /// supported configuration rather than failing the whole recipe.
+    func testLegacyUpscaleSidecarsFallBackToTheSupportedConfiguration() async throws {
+        let legacy = [
+            #"{"scale":4,"model":"swinIRLarge","tileSize":256}"#,
+            #"{"scale":4,"model":"realESRGANx4plus","tileSize":1024}"#,
+            #"{"scale":2,"model":"swinIRLarge","tileSize":512}"#,
+            #"{"scale":0,"model":"realESRGANx4plus","tileSize":64}"#,
+            #"{"scale":"four","model":7}"#,
+            #"{}"#,
+        ]
+        for json in legacy {
+            let sidecar = EnhanceSidecar(steps: [
+                .init(stageID: "upscale", enabled: true, parameters: try JSONDecoder().decode(ParameterBag.self, from: Data(json.utf8))),
+            ])
+            let params = try sidecar.steps[0].parameters.decode(as: Upscale.Params.self)
+            XCTAssertEqual(params, Upscale.Params(), json)
+            XCTAssertEqual(params.scale, 2, json)
+            XCTAssertEqual(params.tileSize, 512, json)
         }
-        let zero = try decode(#"{"scale":0,"model":"realESRGANx4plus","tileSize":512}"#)
-        XCTAssertEqual(zero.scale, 2)
-        let three = try decode(#"{"scale":3,"model":"realESRGANx4plus","tileSize":512}"#)
-        XCTAssertTrue(three.scale == 2 || three.scale == 4)
-        let huge = try decode(#"{"scale":1000,"model":"realESRGANx4plus","tileSize":512}"#)
-        XCTAssertEqual(huge.scale, 4)
-        let tinyTile = try decode(#"{"scale":2,"model":"realESRGANx4plus","tileSize":64}"#)
-        XCTAssertEqual(tinyTile.tileSize, Upscale.Params.tileSizeRange.lowerBound)
-        let hugeTile = try decode(#"{"scale":2,"model":"realESRGANx4plus","tileSize":1000000}"#)
-        XCTAssertEqual(hugeTile.tileSize, Upscale.Params.tileSizeRange.upperBound)
 
-        // The clamped values are ones TileExecutor accepts with process()'s overlap.
-        for params in [zero, three, huge, tinyTile, hugeTile] {
-            _ = TileExecutor(tileSize: params.tileSize, overlap: 32, scale: params.scale)
-        }
+        // A legacy 4x recipe still runs as the 2x Lanczos fallback.
+        let input = makeWorkingBuffer(width: 3, height: 2, pixels: Array(repeating: [0.2, 0.4, 0.6, 1], count: 6))
+        let params = try JSONDecoder().decode(Upscale.Params.self, from: Data(legacy[0].utf8))
+        let output = try await Upscale().process(input: input, params: params, progress: .noop)
+        XCTAssertEqual(output.width, 6)
+        XCTAssertEqual(output.height, 4)
+    }
 
-        // Valid sidecars round-trip unchanged.
-        let valid = Upscale.Params(scale: 4, model: .realESRGANx4plus, tileSize: 256)
-        let roundTripped = try JSONDecoder().decode(Upscale.Params.self, from: JSONEncoder().encode(valid))
-        XCTAssertEqual(roundTripped.scale, 4)
-        XCTAssertEqual(roundTripped.tileSize, 256)
+    /// Sidecars written now must still open in a build that predates the
+    /// simplification, which decodes all three keys as required values.
+    func testUpscaleSidecarKeepsTheOlderThreeKeyShape() throws {
+        let encoded = try JSONEncoder().encode(Upscale.Params())
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        XCTAssertEqual(object["scale"] as? Int, 2)
+        XCTAssertEqual(object["model"] as? String, "realESRGANx4plus")
+        XCTAssertEqual(object["tileSize"] as? Int, 512)
+        XCTAssertEqual(object.count, 3)
     }
 }
 

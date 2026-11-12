@@ -3,8 +3,6 @@ import Foundation
 /// Model identifiers known to the registry. Adding a new model = adding a case.
 public enum ModelID: String, Sendable, CaseIterable {
     case upscaleRealESRGANx2 = "upscale-realesrgan-x2"
-    case upscaleRealESRGANx4 = "upscale-realesrgan-x4"
-    case upscaleSwinIRLarge = "upscale-swinir-large"
     case denoiseNAFNet = "denoise-nafnet"
     case artifactRemovalFBCNN = "artifact-removal-fbcnn"
     case openCLIPImageEncoder = "openclip-vitb32-image"

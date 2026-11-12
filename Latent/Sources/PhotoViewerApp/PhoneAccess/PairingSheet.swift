@@ -156,7 +156,7 @@ struct PairingSheet: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+        .background(Color.accentColor.opacity(0.12), in: Theme.shape(Theme.Radius.card))
     }
 
     // MARK: - Actions

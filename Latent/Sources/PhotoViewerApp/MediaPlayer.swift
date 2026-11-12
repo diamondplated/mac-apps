@@ -311,7 +311,7 @@ struct IndexedMoviePlaybackView: View {
                                 .fixedSize(horizontal: false, vertical: true)
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 6)
-                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+                                .background(.ultraThinMaterial, in: Theme.shape(Theme.Radius.card))
                                 .frame(maxWidth: 460)
                                 .padding(.horizontal, 16)
                                 .padding(.top, 52)

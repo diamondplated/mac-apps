@@ -1,39 +1,26 @@
 import SwiftUI
 import EnhancementStages
 
-// One concrete control view per stage. Generics over StageParameters would
-// require a non-trivial view-builder shim because each stage has a different
-// number and type of fields; concrete views keep the binding paths obvious
-// and let SwiftUI's diffing avoid spurious rebuilds.
+// The rows inside each enhancement inspector section. The section header
+// owns the stage's on/off switch (see `EnhancementPanel`); these views hold
+// only the stage's parameters, as label / slider / value rows.
 //
-// Every view follows the same shape:
-//   - Toggle("Enabled") on first row
-//   - Sliders/Pickers for each Param field, dimmed when disabled
-//   - Each control calls `state.runPipeline()` on commit so the result
-//     refreshes after the user releases the mouse.
+// Each slider calls `state.runPipeline()` when the user releases it, so a
+// drag doesn't start a pipeline run for every tick.
 
 @MainActor
 struct ArtifactRemovalControls: View {
     @Bindable var state: EnhancementState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Toggle("Enabled", isOn: Binding(
-                get: { state.artifactRemovalEnabled },
-                set: { state.artifactRemovalEnabled = $0; state.runPipeline() }
-            ))
-            sliderRow(
-                label: "Strength",
-                value: Binding(
-                    get: { state.artifactRemovalParams.strength },
-                    set: { state.artifactRemovalParams.strength = $0 }
-                ),
-                range: 0...1,
-                format: "%.2f",
-                onCommit: { state.runPipeline() }
-            )
-            .disabled(!state.artifactRemovalEnabled)
-        }
+        ParameterSlider(
+            label: "Strength",
+            value: $state.artifactRemovalParams.strength,
+            range: 0...1,
+            format: "%.2f",
+            onCommit: { state.runPipeline() }
+        )
+        .disabled(!state.artifactRemovalEnabled)
     }
 }
 
@@ -42,88 +29,38 @@ struct DenoiseControls: View {
     @Bindable var state: EnhancementState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Toggle("Enabled", isOn: Binding(
-                get: { state.denoiseEnabled },
-                set: { state.denoiseEnabled = $0; state.runPipeline() }
-            ))
-            Group {
-                sliderRow(
-                    label: "Strength",
-                    value: Binding(
-                        get: { state.denoiseParams.strength },
-                        set: { state.denoiseParams.strength = $0 }
-                    ),
-                    range: 0...1,
-                    format: "%.2f",
-                    onCommit: { state.runPipeline() }
-                )
-                sliderRow(
-                    label: "Preserve detail",
-                    value: Binding(
-                        get: { state.denoiseParams.preserveDetailBias },
-                        set: { state.denoiseParams.preserveDetailBias = $0 }
-                    ),
-                    range: 0...1,
-                    format: "%.2f",
-                    onCommit: { state.runPipeline() }
-                )
-            }
-            .disabled(!state.denoiseEnabled)
+        Group {
+            ParameterSlider(
+                label: "Strength",
+                value: $state.denoiseParams.strength,
+                range: 0...1,
+                format: "%.2f",
+                onCommit: { state.runPipeline() }
+            )
+            ParameterSlider(
+                label: "Keep Detail",
+                value: $state.denoiseParams.preserveDetailBias,
+                range: 0...1,
+                format: "%.2f",
+                onCommit: { state.runPipeline() }
+            )
         }
+        .disabled(!state.denoiseEnabled)
     }
 }
 
+/// Upscale has no parameters: it is always 2×, through Real-ESRGAN when the
+/// model is installed and Lanczos otherwise. One read-only row says so.
 @MainActor
 struct UpscaleControls: View {
     @Bindable var state: EnhancementState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Toggle("Enabled", isOn: Binding(
-                get: { state.upscaleEnabled },
-                set: { state.upscaleEnabled = $0; state.runPipeline() }
-            ))
-            Group {
-                HStack {
-                    Text("Scale").frame(width: 110, alignment: .leading)
-                    // Upscale.Params validates 2 or 4 in its initializer; pick a
-                    // segmented Picker so the user can't enter an invalid value.
-                    Picker("Scale", selection: Binding(
-                        get: { state.upscaleParams.scale },
-                        set: { state.upscaleParams.scale = $0; state.runPipeline() }
-                    )) {
-                        Text("2×").tag(2)
-                        Text("4×").tag(4)
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                }
-                HStack {
-                    Text("Model").frame(width: 110, alignment: .leading)
-                    Picker("Model", selection: Binding(
-                        get: { state.upscaleParams.model },
-                        set: { state.upscaleParams.model = $0; state.runPipeline() }
-                    )) {
-                        Text("Real-ESRGAN x4+").tag(Upscale.Model.realESRGANx4plus)
-                        Text("SwinIR Large").tag(Upscale.Model.swinIRLarge)
-                    }
-                    .labelsHidden()
-                }
-                sliderRow(
-                    label: "Tile size",
-                    value: Binding(
-                        get: { Double(state.upscaleParams.tileSize) },
-                        set: { state.upscaleParams.tileSize = Int($0) }
-                    ),
-                    range: 128...1024,
-                    step: 64,
-                    format: "%.0f",
-                    onCommit: { state.runPipeline() }
-                )
-            }
-            .disabled(!state.upscaleEnabled)
+        LabeledContent("Scale") {
+            Text("\(Upscale.Params.supportedScale)×")
+                .monospacedDigit()
         }
+        .foregroundStyle(state.upscaleEnabled ? .primary : .secondary)
     }
 }
 
@@ -132,86 +69,64 @@ struct SharpenControls: View {
     @Bindable var state: EnhancementState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Toggle("Enabled", isOn: Binding(
-                get: { state.sharpenEnabled },
-                set: { state.sharpenEnabled = $0; state.runPipeline() }
-            ))
-            Group {
-                sliderRow(
-                    label: "Amount",
-                    value: Binding(
-                        get: { state.sharpenParams.amount },
-                        set: { state.sharpenParams.amount = $0 }
-                    ),
-                    range: 0...2,
-                    format: "%.2f",
-                    onCommit: { state.runPipeline() }
-                )
-                sliderRow(
-                    label: "Radius",
-                    value: Binding(
-                        get: { state.sharpenParams.radius },
-                        set: { state.sharpenParams.radius = $0 }
-                    ),
-                    range: 0.1...10,
-                    format: "%.2f",
-                    onCommit: { state.runPipeline() }
-                )
-                sliderRow(
-                    label: "Threshold",
-                    value: Binding(
-                        get: { state.sharpenParams.threshold },
-                        set: { state.sharpenParams.threshold = $0 }
-                    ),
-                    range: 0...0.5,
-                    format: "%.3f",
-                    onCommit: { state.runPipeline() }
-                )
-            }
-            .disabled(!state.sharpenEnabled)
+        Group {
+            ParameterSlider(
+                label: "Amount",
+                value: $state.sharpenParams.amount,
+                range: 0...2,
+                format: "%.2f",
+                onCommit: { state.runPipeline() }
+            )
+            ParameterSlider(
+                label: "Radius",
+                value: $state.sharpenParams.radius,
+                range: 0.1...10,
+                format: "%.1f",
+                onCommit: { state.runPipeline() }
+            )
+            ParameterSlider(
+                label: "Threshold",
+                value: $state.sharpenParams.threshold,
+                range: 0...0.5,
+                format: "%.2f",
+                onCommit: { state.runPipeline() }
+            )
         }
+        .disabled(!state.sharpenEnabled)
     }
 }
 
-// MARK: - Slider helper
+// MARK: - Slider row
 
-/// Label + slider + numeric readout in a fixed-width row. `onCommit` fires
-/// when the user releases the slider so we don't kick off a pipeline run for
-/// every tick of an active drag.
+/// Label, slider and numeric value in fixed columns, so every row in every
+/// section lines up. `onCommit` fires when the user releases the slider.
 @MainActor
-fileprivate func sliderRow(
-    label: String,
-    value: Binding<Double>,
-    range: ClosedRange<Double>,
-    step: Double? = nil,
-    format: String,
-    onCommit: @escaping () -> Void
-) -> some View {
-    HStack(spacing: 8) {
-        Text(label)
-            .frame(width: 110, alignment: .leading)
-        if let step {
-            Slider(
-                value: value,
-                in: range,
-                step: step,
-                onEditingChanged: { editing in if !editing { onCommit() } }
-            )
-            .accessibilityLabel(Text(label))
-            .accessibilityValue(Text(String(format: format, value.wrappedValue)))
-        } else {
-            Slider(
-                value: value,
-                in: range,
-                onEditingChanged: { editing in if !editing { onCommit() } }
-            )
-            .accessibilityLabel(Text(label))
-            .accessibilityValue(Text(String(format: format, value.wrappedValue)))
+struct ParameterSlider: View {
+    let label: String
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let format: String
+    let onCommit: () -> Void
+
+    var body: some View {
+        LabeledContent {
+            HStack(spacing: Theme.Spacing.small) {
+                Slider(value: $value, in: range) { editing in
+                    if !editing { onCommit() }
+                }
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityLabel(Text(label))
+                .accessibilityValue(Text(String(format: format, value)))
+                Text(String(format: format, value))
+                    .font(.callout)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .frame(width: 34, alignment: .trailing)
+                    .accessibilityHidden(true)
+            }
+        } label: {
+            Text(label)
         }
-        Text(String(format: format, value.wrappedValue))
-            .font(.system(.caption, design: .monospaced))
-            .frame(width: 56, alignment: .trailing)
-            .foregroundStyle(.secondary)
     }
 }

@@ -48,7 +48,7 @@ struct DesktopSearchBar: View {
             }
             .padding(.horizontal, 9)
             .padding(.vertical, 7)
-            .background(.quaternary.opacity(0.55), in: RoundedRectangle(cornerRadius: 7))
+            .background(.quaternary.opacity(0.55), in: Theme.shape(Theme.Radius.control))
 
             if state.isIndexing {
                 indexingProgress
@@ -210,7 +210,7 @@ struct DesktopSearchBar: View {
             HStack(spacing: 10) {
                 Link(
                     "Setup guide…",
-                    destination: URL(string: "https://github.com/diamondplated/mac-apps/tree/main/Latent#quick-start")!
+                    destination: ModelInstallHelp.url
                 )
                 // Re-checking reads local files and clears Core ML's negative
                 // cache. The link above is the only network-capable action and
@@ -223,7 +223,7 @@ struct DesktopSearchBar: View {
             .font(.caption2)
         }
         .padding(7)
-        .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+        .background(Color.orange.opacity(0.08), in: Theme.shape(Theme.Radius.control))
     }
 
     private func canFindSimilar(_ url: URL) -> Bool {

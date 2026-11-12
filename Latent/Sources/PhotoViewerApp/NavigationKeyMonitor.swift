@@ -23,12 +23,12 @@ final class NavigationKeyMonitor {
     private var lastEscape: Date?
     private let escapeDoubleTapWindow: TimeInterval = 0.45
 
-    func install(state: AppState, enhancementState: EnhancementState) {
+    func install(state: AppState) {
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
-            [weak self, weak state, weak enhancementState] event in
-            guard let self, let state, let enhancementState else { return event }
-            return self.handle(event: event, state: state, enhancementState: enhancementState)
+            [weak self, weak state] event in
+            guard let self, let state else { return event }
+            return self.handle(event: event, state: state)
         }
     }
 
@@ -55,11 +55,7 @@ final class NavigationKeyMonitor {
     ///
     /// Modal panels (Open, Save) still bail unconditionally so the user can
     /// arrow-key around the sidebar.
-    private func handle(
-        event: NSEvent,
-        state: AppState,
-        enhancementState: EnhancementState
-    ) -> NSEvent? {
+    private func handle(event: NSEvent, state: AppState) -> NSEvent? {
         // Modal sheets / Open / Save dialogs keep their own keyboard semantics.
         if event.window is NSPanel { return event }
 
@@ -74,12 +70,20 @@ final class NavigationKeyMonitor {
         // undoing trash, deleting, or navigating photos.
         if state.isSearchFieldFocused { return event }
 
+        // Any key dismisses the cheat sheet. A bare key does nothing else, so
+        // an arrow or Delete pressed to close it never moves or trashes a
+        // photo; a ⌘ shortcut (⌘Q, ⌘W, ⌘O) still reaches the menu bar.
+        if state.showShortcutOverlay {
+            state.showShortcutOverlay = false
+            return event.modifierFlags.contains(.command) ? event : nil
+        }
+
         let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let onlyCmd = (mods == .command)
 
         // Cmd-shortcuts we own. Handled BEFORE the general cmd-bail below
-        // so SwiftUI's keyboardShortcut wiring doesn't have to fight the
-        // window-level monitor for these particular keys.
+        // so they keep their photo meaning outside text fields. Every other
+        // command shortcut, including Export (⌘S), belongs to the menu bar.
         if onlyCmd {
             switch event.keyCode {
             case 6:  // ⌘Z — undo trash
@@ -87,12 +91,6 @@ final class NavigationKeyMonitor {
                 return nil
             case 0:  // ⌘A — select all items visible under the active filter
                 state.selectAllVisible()
-                return nil
-            case 1:  // ⌘S — export the current still, panel open or closed
-                guard !state.isBrowsingArchive,
-                      enhancementState.canEnhanceCurrentMedia,
-                      !enhancementState.isExporting else { return event }
-                Task { await enhancementState.saveEnhanced() }
                 return nil
             default:
                 break

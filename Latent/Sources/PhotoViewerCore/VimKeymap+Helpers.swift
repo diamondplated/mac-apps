@@ -52,9 +52,9 @@ extension VimKeymap {
             folderIdentity: target.resourceIdentity,
             folderCreationTimestamp: target.creationDate?.timeIntervalSince1970,
             updatedAt: Date(),
-            marks: marks.reduce(into: [:]) { acc, kv in
-                acc[String(kv.key)] = Self.relativePath(of: kv.value, under: folder)
-            },
+            // Marks were removed; the key stays (always empty) because older
+            // builds require it to load the file.
+            marks: [:],
             colorLabels: colorLabels.reduce(into: [:]) { acc, kv in
                 acc[Self.relativePath(of: kv.key, under: folder)] = kv.value
             },
@@ -162,7 +162,10 @@ extension VimKeymap {
         let folderIdentity: String?
         let folderCreationTimestamp: Double?
         let updatedAt: Date
-        let marks: [String: String]          // mark-letter -> relative path
+        /// Retired: vim marks no longer exist. Older builds wrote letters to
+        /// relative paths here and still require the key, so it is always
+        /// written empty and ignored on load.
+        let marks: [String: String]
         let colorLabels: [String: Int]       // relative path -> 0-9
         let picks: [String]                  // sorted relative paths
         let rejects: [String]                // sorted relative paths
