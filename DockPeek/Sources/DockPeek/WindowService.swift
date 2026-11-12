@@ -397,14 +397,4 @@ public class WindowService {
             AXUIElementPerformAction(closeButton as! AXUIElement, kAXPressAction as CFString)
         }
     }
-    
-    /// Minimize a window via Accessibility action
-    public func minimizeWindow(_ window: WindowInfo) {
-        guard let axWindow = window.axElement else { return }
-        var minButtonValue: AnyObject?
-        if AXUIElementCopyAttributeValue(axWindow, kAXMinimizeButtonAttribute as CFString, &minButtonValue) == .success,
-           let minButton = minButtonValue {
-            AXUIElementPerformAction(minButton as! AXUIElement, kAXPressAction as CFString)
-        }
-    }
 }

@@ -1,12 +1,14 @@
 # ScrollSplit
 
-A small native menu-bar app for independent mouse-wheel direction and speed. macOS 14 or later; universal Apple Silicon and Intel. ScrollSplit starts disabled. Open its settings and choose **Enable** when ready.
+A small native menu-bar app for independent mouse-wheel direction and speed. macOS 14 or later; universal Apple Silicon and Intel. ScrollSplit starts off. Choose **Turn On** from its menu when ready.
+
+The menu shows whether ScrollSplit is On, Off or Needs Access, with **Turn On** / **Turn Off**, **Grant Accessibility…** and **Grant Input Monitoring…** (only while missing), **Settings…** and **Quit**. **Settings…** (⌘,) opens ScrollSplit's page in Mac Tools (`mactools://app/scrollSplit`), where every setting lives; if that page cannot open, it opens Mac Tools, and failing that asks you to install it. On its very first launch (once ever, and never when started as a login item) it offers the same alert. Opening ScrollSplit again while it is off or lacks access offers to turn it on; while it is working, nothing happens. Permissions are polled only while access is missing.
 
 Discrete mouse-wheel events can reverse vertical and horizontal direction independently, with a 0.25×–4× speed multiplier. Fractional wheel ticks accumulate so slow speeds keep small movements. Continuous scrolling, scroll phases, modifier flags, source identity, and third-axis values stay unchanged. Settings apply live.
 
 ## Permissions and hardware limits
 
-Enabling in the app requests the native Accessibility and Input Monitoring permissions. Review these in System Settings → Privacy & Security. macOS may require reopening ScrollSplit after approval. Startup and the Mac Tools settings bridge never open consent prompts. Stable signing helps macOS retain grants across updates.
+Turning on from the menu requests the native Accessibility and Input Monitoring permissions. Review these in System Settings → Privacy & Security. macOS may require reopening ScrollSplit after approval. Startup and the Mac Tools settings bridge never open consent prompts. Stable signing helps macOS retain grants across updates.
 
 Public Quartz wheel events identify continuous scrolling, not physical mouse-versus-trackpad hardware. Trackpads and some high-resolution mice (including many smooth-scrolling drivers) both emit continuous events. ScrollSplit leaves all of those untouched. It customizes discrete wheel mice; it does not claim per-device identification. The speed multiplier scales incoming wheel deltas, not pointer acceleration. Secure Input, third-party drivers, or competing event taps can prevent custom scrolling. Disabling or quitting removes the tap. macOS timeout-disabled taps are re-enabled while consent and the enabled preference remain valid.
 

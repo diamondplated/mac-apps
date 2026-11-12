@@ -27,6 +27,22 @@ struct PreviewLayout {
     }
 }
 
+/// The suite's corner-radius scale: 6 for controls, 10 for cards, 14 for panels.
+enum PreviewRadius {
+    static let control: CGFloat = 6
+    static let card: CGFloat = 10
+    static let panel: CGFloat = 14
+}
+
+private func roundedShape(_ radius: CGFloat) -> RoundedRectangle {
+    RoundedRectangle(cornerRadius: radius, style: .continuous)
+}
+
+/// Short ease for anything that appears, disappears or changes state on hover.
+private func hoverEase(_ reduceMotion: Bool) -> Animation? {
+    reduceMotion ? nil : .easeOut(duration: 0.15)
+}
+
 public struct PreviewView: View {
     public let appName: String
     public let appIcon: NSImage?
@@ -36,6 +52,7 @@ public struct PreviewView: View {
     public let onSelectTab: (TabInfo, WindowInfo) -> Void
     private let tabListHeight: CGFloat
     @State private var hoveredWindowID: CGWindowID?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public init(
         appName: String,
@@ -70,12 +87,13 @@ public struct PreviewView: View {
                         .frame(width: 20, height: 20)
                 }
                 Text(appName)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.headline)
                     .lineLimit(1)
                 Spacer(minLength: 4)
                 Text(countLabel)
-                    .font(.system(size: 11))
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
                     .fixedSize()
             }
             .padding(.horizontal, 14)
@@ -92,19 +110,18 @@ public struct PreviewView: View {
             }
         }
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(Color.white.opacity(0.18), lineWidth: 1)
-                )
-                .shadow(color: Color.black.opacity(0.28), radius: 18, x: 0, y: 8)
+            roundedShape(PreviewRadius.panel)
+                .fill(.regularMaterial)
+                .overlay(roundedShape(PreviewRadius.panel).strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1))
         )
+        // The window draws the shadow, so nothing here is clipped by the panel bounds.
+        .clipShape(roundedShape(PreviewRadius.panel))
     }
 
     private func windowCard(for win: WindowInfo) -> some View {
         let isHovered = hoveredWindowID == win.id
         let width = PreviewLayout.contentWidth(for: win)
+        let title = win.title.isEmpty ? appName : win.title
 
         return VStack(spacing: 6) {
             ZStack(alignment: .topTrailing) {
@@ -113,11 +130,11 @@ public struct PreviewView: View {
                         thumbnail(for: win)
                             .frame(width: width, height: 135)
                             .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(isHovered ? Color.accentColor : Color.white.opacity(0.12), lineWidth: isHovered ? 2 : 1)
+                                roundedShape(PreviewRadius.control)
+                                    .strokeBorder(isHovered ? Color.accentColor : Color(nsColor: .separatorColor), lineWidth: isHovered ? 2 : 1)
                             )
-                        Text(win.title.isEmpty ? appName : win.title)
-                            .font(.system(size: 11, weight: .medium))
+                        Text(title)
+                            .font(.subheadline.weight(.medium))
                             .foregroundStyle(isHovered ? .primary : .secondary)
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -126,20 +143,22 @@ public struct PreviewView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("Show window: \(win.title.isEmpty ? appName : win.title)")
+                .help("Show window: \(title)")
 
-                if isHovered {
-                    Button { onCloseWindow(win) } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 16))
-                            .foregroundStyle(.white)
-                            .background(Circle().fill(Color.red.opacity(0.85)))
-                    }
-                    .buttonStyle(.plain)
-                    .help("Close window")
-                    .accessibilityLabel("Close window")
-                    .padding(6)
+                Button { onCloseWindow(win) } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(Color.primary, Color(nsColor: .windowBackgroundColor))
+                        .font(.title3)
+                        .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
                 }
+                .buttonStyle(.plain)
+                .help("Close window")
+                .accessibilityLabel("Close window")
+                .padding(6)
+                .opacity(isHovered ? 1 : 0)
+                .allowsHitTesting(isHovered)
+                .accessibilityHidden(!isHovered)
             }
 
             if !win.tabs.isEmpty {
@@ -148,9 +167,8 @@ public struct PreviewView: View {
                     HStack {
                         Text("\(win.tabs.count) open tab\(win.tabs.count == 1 ? "" : "s")")
                         Spacer()
-                        Image(systemName: "rectangle.on.rectangle")
                     }
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.subheadline.weight(.medium))
                     .foregroundStyle(.secondary)
                     .frame(height: 14)
                     ScrollView(.vertical) {
@@ -167,9 +185,10 @@ public struct PreviewView: View {
         }
         .padding(6)
         .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(isHovered ? Color.white.opacity(0.1) : Color.clear)
+            roundedShape(PreviewRadius.card)
+                .fill(Color.primary.opacity(isHovered ? 0.08 : 0))
         )
+        .animation(hoverEase(reduceMotion), value: isHovered)
         .onHover { hovering in
             if hovering {
                 hoveredWindowID = win.id
@@ -182,32 +201,33 @@ public struct PreviewView: View {
     private func thumbnail(for win: WindowInfo) -> some View {
         ZStack(alignment: .bottomLeading) {
             ZStack {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.black.opacity(0.25))
+                roundedShape(PreviewRadius.control)
+                    .fill(Color.primary.opacity(0.06))
                 if let thumb = win.thumbnail {
                     Image(nsImage: thumb)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
-                        .cornerRadius(6)
+                        .clipShape(roundedShape(PreviewRadius.control))
                         .padding(4)
                 } else {
                     VStack(spacing: 8) {
                         if let icon = win.appIcon {
                             Image(nsImage: icon).resizable().frame(width: 48, height: 48)
                         }
-                        Text(win.isMinimized ? "Minimized" : "No Preview Available")
-                            .font(.system(size: 10))
+                        Text("No Preview")
+                            .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
                 }
             }
             if win.isMinimized {
                 Label("Minimized", systemImage: "arrow.down.right.and.arrow.up.left")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.95))
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)
-                    .background(Color.black.opacity(0.65), in: RoundedRectangle(cornerRadius: 4))
+                    .background(.regularMaterial, in: roundedShape(PreviewRadius.control))
+                    .overlay(roundedShape(PreviewRadius.control).strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1))
                     .padding(6)
             }
         }
@@ -218,31 +238,38 @@ private struct TabRow: View {
     let tab: TabInfo
     let onSelect: () -> Void
     @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var fill: Color {
+        if isHovered { return Color.primary.opacity(0.08) }
+        return tab.isSelected ? Color.accentColor.opacity(0.14) : Color.clear
+    }
 
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: 7) {
-                Image(systemName: tab.isSelected ? "checkmark.circle.fill" : "rectangle.on.rectangle")
-                    .foregroundStyle(tab.isSelected ? Color.accentColor : Color.secondary)
+                // Only the active tab carries a mark; the rest align with it.
+                Image(systemName: "checkmark")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .opacity(tab.isSelected ? 1 : 0)
                     .frame(width: 14)
                 Text(tab.title)
-                    .font(.system(size: 11, weight: tab.isSelected ? .semibold : .regular))
+                    .font(.subheadline.weight(tab.isSelected ? .semibold : .regular))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 7)
             .frame(height: PreviewLayout.tabRowHeight)
-            .background(
-                isHovered ? Color.primary.opacity(0.1) : (tab.isSelected ? Color.accentColor.opacity(0.12) : Color.clear),
-                in: RoundedRectangle(cornerRadius: 6)
-            )
+            .background(fill, in: roundedShape(PreviewRadius.control))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help(tab.fullTitle)
         .accessibilityLabel(tab.fullTitle)
         .accessibilityValue(tab.isSelected ? "Active tab" : "")
+        .animation(hoverEase(reduceMotion), value: isHovered)
         .onHover { isHovered = $0 }
     }
 }

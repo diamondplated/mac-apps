@@ -12,12 +12,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate, DockObserverDelegate,
     private var permissionsPollTimer: Timer?
     private var previewRequestID = UUID()
     private let preferences = ToolPreferences.shared
+    private var statusAnswerer: NSObjectProtocol?
     
     public func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
         setupPreviewPanel()
         
         dockObserver.delegate = self
+        statusAnswerer = RunningAppPermissions.startAnswering()
         DistributedNotificationCenter.default().addObserver(
             self, selector: #selector(settingsDidChange),
             name: ToolPreferences.changedNotification, object: ToolPreferences.bundleIdentifier
@@ -69,68 +71,31 @@ public class AppDelegate: NSObject, NSApplicationDelegate, DockObserverDelegate,
     private func updateMenu() {
         permissions.checkPermissions()
         statusMenu.removeAllItems()
-        
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development"
-        let titleItem = NSMenuItem(title: "DockPeek \(version)", action: nil, keyEquivalent: "")
-        titleItem.isEnabled = false
-        statusMenu.addItem(titleItem)
-        
-        let isFullyAuthorized = (permissions.accessibilityStatus == .granted && permissions.screenCaptureStatus == .granted)
-        let statusText = !preferences.previewsEnabled ? "Paused" : (isFullyAuthorized ? "● Ready & Active" : "⚠️ Permissions Required")
-        let statusDescItem = NSMenuItem(title: "Status: \(statusText)", action: nil, keyEquivalent: "")
-        statusDescItem.isEnabled = false
-        statusMenu.addItem(statusDescItem)
-        
-        statusMenu.addItem(NSMenuItem.separator())
-        
-        let permHeader = NSMenuItem(title: "Permissions:", action: nil, keyEquivalent: "")
-        permHeader.isEnabled = false
-        statusMenu.addItem(permHeader)
-        
-        // Accessibility Permission
-        let axStatusText = permissions.accessibilityStatus == .granted ? "✓ Granted" : "⚠️ Needs Permission (Click to open)"
-        let axItem = NSMenuItem(
-            title: "  Accessibility: \(axStatusText)",
-            action: #selector(handleAccessibilityAction),
-            keyEquivalent: ""
-        )
-        axItem.target = self
-        statusMenu.addItem(axItem)
-        
-        // Screen Recording Permission
-        let screenStatusText = permissions.screenCaptureStatus == .granted ? "✓ Granted" : "⚠️ Needs Permission (Click to open)"
-        let screenItem = NSMenuItem(
-            title: "  Screen Recording: \(screenStatusText)",
-            action: #selector(handleScreenCaptureAction),
-            keyEquivalent: ""
-        )
-        screenItem.target = self
-        statusMenu.addItem(screenItem)
-        
-        statusMenu.addItem(NSMenuItem.separator())
-        
-        // Restart (Crucial on macOS because Screen Recording permission requires process restart to take effect)
-        let restartItem = NSMenuItem(title: "Restart DockPeek", action: #selector(restartApp), keyEquivalent: "r")
-        restartItem.target = self
-        statusMenu.addItem(restartItem)
-        
-        let managerItem = NSMenuItem(title: "Manage in Mac Tools…", action: #selector(openMacTools), keyEquivalent: "")
-        managerItem.target = self
-        statusMenu.addItem(managerItem)
 
-        // Open System Settings
-        let settingsItem = NSMenuItem(title: "Open Privacy & Security...", action: #selector(openSettings), keyEquivalent: ",")
-        settingsItem.target = self
-        statusMenu.addItem(settingsItem)
-        
-        statusMenu.addItem(NSMenuItem.separator())
-        
-        // Quit
-        let quitItem = NSMenuItem(title: "Quit DockPeek", action: #selector(quitApp), keyEquivalent: "q")
-        quitItem.target = self
-        statusMenu.addItem(quitItem)
+        let axGranted = permissions.accessibilityStatus == .granted
+        let screenGranted = permissions.screenCaptureStatus == .granted
+        let statusText = !preferences.previewsEnabled ? "Previews Paused" : (axGranted && screenGranted ? "Previews On" : "Needs Permission")
+        let statusItem = NSMenuItem(title: statusText, action: nil, keyEquivalent: "")
+        statusItem.isEnabled = false
+        statusMenu.addItem(statusItem)
+
+        if !axGranted || !screenGranted {
+            statusMenu.addItem(.separator())
+            if !axGranted { addItem("Grant Accessibility…", #selector(handleAccessibilityAction)) }
+            if !screenGranted { addItem("Grant Screen Recording…", #selector(handleScreenCaptureAction)) }
+        }
+
+        statusMenu.addItem(.separator())
+        addItem("Settings…", #selector(openSettings), key: ",")
+        statusMenu.addItem(.separator())
+        addItem("Quit DockPeek", #selector(quitApp), key: "q")
     }
-    
+
+    private func addItem(_ title: String, _ action: Selector, key: String = "") {
+        let item = statusMenu.addItem(withTitle: title, action: action, keyEquivalent: key)
+        item.target = self
+    }
+
     private func setupPreviewPanel() {
         dockObserver.previewPanel = previewPanel
         let recheckPointer: () -> Void = { [weak self] in
@@ -215,17 +180,29 @@ public class AppDelegate: NSObject, NSApplicationDelegate, DockObserverDelegate,
         updateMenu()
     }
 
-    @objc private func openMacTools() {
-        let candidates = [URL(fileURLWithPath: "/Applications/Mac Tools.app"),
-                          FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Mac Tools.app")]
-        if let manager = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) {
-            NSWorkspace.shared.openApplication(at: manager, configuration: .init())
-        } else {
-            let alert = NSAlert()
-            alert.messageText = "Install Mac Tools to manage DockPeek"
-            alert.informativeText = "Place Mac Tools in Applications, then open it to change DockPeek settings."
-            alert.runModal()
+    /// Opens DockPeek's page in Mac Tools. Older managers do not answer the page
+    /// URL, so fall back to opening the manager, then to an install alert.
+    @objc private func openSettings() {
+        guard let page = URL(string: "mactools://app/dockPeek") else { return }
+        NSWorkspace.shared.open(page, configuration: NSWorkspace.OpenConfiguration()) { [weak self] _, error in
+            guard error != nil else { return }
+            DispatchQueue.main.async { self?.openManager() }
         }
+    }
+
+    private func openManager() {
+        guard let manager = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.andrew.mactools") else { return showInstallAlert() }
+        NSWorkspace.shared.openApplication(at: manager, configuration: NSWorkspace.OpenConfiguration()) { [weak self] _, error in
+            if error != nil { DispatchQueue.main.async { self?.showInstallAlert() } }
+        }
+    }
+
+    private func showInstallAlert() {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Install Mac Tools"
+        alert.informativeText = "Mac Tools holds DockPeek's settings. Place it in Applications, then open it."
+        alert.runModal()
     }
 
     // MARK: - Actions
@@ -240,19 +217,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate, DockObserverDelegate,
         permissions.requestScreenCapture()
         permissions.openScreenCaptureSettings()
         updateMenu()
-    }
-    
-    @objc private func openSettings() {
-        permissions.openAccessibilitySettings()
-    }
-    
-    @objc private func restartApp() {
-        let bundleURL = Bundle.main.bundleURL
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        task.arguments = ["-n", bundleURL.path]
-        try? task.run()
-        NSApplication.shared.terminate(nil)
     }
     
     @objc private func quitApp() {

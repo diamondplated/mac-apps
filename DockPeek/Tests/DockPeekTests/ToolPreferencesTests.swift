@@ -10,7 +10,7 @@ final class ToolPreferencesTests: XCTestCase {
     override func setUp() {
         suite = "DockPeekTests.\(UUID().uuidString)"
         defaults = UserDefaults(suiteName: suite)!
-        preferences = ToolPreferences(defaults: defaults, permissionState: { ["accessibility": true, "screenRecording": false] })
+        preferences = ToolPreferences(defaults: defaults, permissionState: { ["accessibility": true, "screenRecording": false] }, runningAppPermissions: { nil })
     }
     override func tearDown() {
         defaults.removePersistentDomain(forName: suite)
