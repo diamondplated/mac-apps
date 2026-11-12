@@ -91,6 +91,7 @@ import ServiceManagement
     let model = LinkModel()
     var statusItem: NSStatusItem?
     private var alertShowing = false
+    private var receivedURL = false
 
     override init() {
         super.init(); Self.shared = self
@@ -105,9 +106,11 @@ import ServiceManagement
         menu.delegate = self
         item.menu = menu; statusItem = item
         rebuildMenu(menu)
+        let loginItem = NSAppleEventManager.shared().currentAppleEvent?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
+        offerSetupOnFirstLaunch(launchedAsLoginItem: loginItem)
     }
 
-    func application(_ application: NSApplication, open urls: [URL]) { model.open(urls) }
+    func application(_ application: NSApplication, open urls: [URL]) { receivedURL = true; model.open(urls) }
 
     // MARK: Menu
 
@@ -190,7 +193,13 @@ import ServiceManagement
     /// default browser when it is not, and do nothing when it already is.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         model.reload()
-        guard !alertShowing, !model.isDefault else { return false }
+        offerSetup()
+        return false
+    }
+
+    /// The one setup alert, shared by reopen and the first launch.
+    private func offerSetup() {
+        guard !alertShowing, !model.isDefault else { return }
         alertShowing = true
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
@@ -201,6 +210,19 @@ import ServiceManagement
         let choice = alert.runModal()
         alertShowing = false
         if choice == .alertFirstButtonReturn { changeDefault() }
-        return false
+    }
+
+    /// Once ever, so an update relaunch or a deliberately-declined app never nags.
+    /// Waits briefly so a link that launched the app is routed instead of interrupted.
+    private func offerSetupOnFirstLaunch(launchedAsLoginItem: Bool) {
+        let defaults = UserDefaults.standard
+        let alreadyOffered = defaults.bool(forKey: "hasOfferedSetup")
+        defaults.set(true, forKey: "hasOfferedSetup")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [self] in
+            model.reload()
+            let offer = SetupOffer.shouldOffer(alreadyOffered: alreadyOffered, launchedAsLoginItem: launchedAsLoginItem,
+                                               isWorking: model.isDefault, receivedLink: receivedURL)
+            if offer { offerSetup() }
+        }
     }
 }

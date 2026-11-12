@@ -119,6 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         rebuildMenu(menu)
         model.didChange = { [weak self] in self?.updateIcon() }
         updateIcon()
+        offerSetupOnFirstLaunch()
     }
 
     private var isWorking: Bool { model.settings.enabled && model.hasAccess && model.isActive }
@@ -202,7 +203,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// scrolling on when it is not working, and do nothing when it is.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         model.reload()
-        guard !alertShowing, !isWorking else { return false }
+        offerSetup()
+        return false
+    }
+
+    /// The one setup alert, shared by reopen and the first launch.
+    private func offerSetup() {
+        guard !alertShowing, !isWorking else { return }
         alertShowing = true
         defer { alertShowing = false }
         NSApp.activate(ignoringOtherApps: true)
@@ -213,7 +220,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         alert.addButton(withTitle: needsAccess ? "Grant Access" : "Turn On")
         alert.addButton(withTitle: "Not Now")
         if alert.runModal() == .alertFirstButtonReturn { model.enableFromUserAction() }
-        return false
+    }
+
+    /// Once ever, so an update relaunch or a deliberately-off app never nags.
+    private func offerSetupOnFirstLaunch() {
+        let defaults = UserDefaults.standard
+        let offer = SetupOffer.shouldOffer(alreadyOffered: defaults.bool(forKey: "hasOfferedSetup"),
+                                           launchedAsLoginItem: launchedAsLoginItem, isWorking: isWorking)
+        defaults.set(true, forKey: "hasOfferedSetup")
+        if offer { offerSetup() }
+    }
+
+    private var launchedAsLoginItem: Bool {
+        NSAppleEventManager.shared().currentAppleEvent?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
     }
 
     func applicationWillTerminate(_ notification: Notification) { model.engine.stop() }

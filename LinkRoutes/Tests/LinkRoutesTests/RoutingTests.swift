@@ -73,3 +73,13 @@ final class RoutingTests: XCTestCase {
         XCTAssertEqual(Routing.profiles(data: data, root: root), [BrowserProfile(directory: "Default", name: "Personal")])
     }
 }
+
+final class SetupOfferTests: XCTestCase {
+    func testSetupIsOfferedOnlyOnTheFirstLaunchWhenNotDefault() {
+        XCTAssertTrue(SetupOffer.shouldOffer(alreadyOffered: false, launchedAsLoginItem: false, isWorking: false, receivedLink: false))
+        XCTAssertFalse(SetupOffer.shouldOffer(alreadyOffered: true, launchedAsLoginItem: false, isWorking: false, receivedLink: false))
+        XCTAssertFalse(SetupOffer.shouldOffer(alreadyOffered: false, launchedAsLoginItem: true, isWorking: false, receivedLink: false))
+        XCTAssertFalse(SetupOffer.shouldOffer(alreadyOffered: false, launchedAsLoginItem: false, isWorking: true, receivedLink: false))
+        XCTAssertFalse(SetupOffer.shouldOffer(alreadyOffered: false, launchedAsLoginItem: false, isWorking: false, receivedLink: true))
+    }
+}

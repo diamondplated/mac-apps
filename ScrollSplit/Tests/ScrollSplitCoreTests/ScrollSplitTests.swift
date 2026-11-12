@@ -87,3 +87,12 @@ extension ScrollSplitTests {
         }
     }
 }
+
+extension ScrollSplitTests {
+    func testSetupIsOfferedOnlyOnTheFirstLaunchWhenNotWorking() {
+        XCTAssertTrue(SetupOffer.shouldOffer(alreadyOffered: false, launchedAsLoginItem: false, isWorking: false))
+        XCTAssertFalse(SetupOffer.shouldOffer(alreadyOffered: true, launchedAsLoginItem: false, isWorking: false))
+        XCTAssertFalse(SetupOffer.shouldOffer(alreadyOffered: false, launchedAsLoginItem: true, isWorking: false))
+        XCTAssertFalse(SetupOffer.shouldOffer(alreadyOffered: false, launchedAsLoginItem: false, isWorking: true))
+    }
+}
