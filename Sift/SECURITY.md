@@ -100,6 +100,21 @@ If you find a way to break one of these, that's a vulnerability and worth report
 - **One `Session` per data home.** A second engine on the same `~/.sift` is refused outright — two
   would be two databases silently overwriting each other's writes.
 
+- **The Quick Look extension can read one file and do nothing else.** `SiftPreview.appex` is
+  sandboxed (read-only access to the file Quick Look hands it, nothing else), runs under the
+  hardened runtime, and opens its DuckDB with `enable_external_access=false`, the one file as the
+  only allowed path, a 256 MB memory limit and a locked configuration. That setting refuses every
+  other path, every write (spill files included), network access, `INSTALL` and `LOAD`, and a
+  later `SET` cannot undo it; `PreviewTests` run those statements against a probe database and
+  watch each refusal. It reads no `connections.json`, has no Keychain access and writes nothing, so
+  a remote-enabled Sift does not make previews remote. Excel and Delta are refused before any
+  database exists, because reading them may need an extension download. A preview is cut off after
+  about two seconds and the worker is interrupted. It is new attack surface: a malformed
+  CSV, Parquet or JSON file is parsed by DuckDB inside that sandbox every time Finder shows it,
+  including when you only select the file. A crash there is the extension's, not Sift's, and
+  macOS restarts it on the next preview. The extension carries `disable-library-validation` so it
+  can load the app's own `libduckdb`, and links neither the verifier nor the loopback server.
+
 ## Known and accepted
 
 **A `SELECT` can read any local file you could `cat`.** DuckDB's file-reading functions are

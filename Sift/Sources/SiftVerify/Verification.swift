@@ -2050,6 +2050,8 @@ func trimTrailing(_ s: String) -> String {
 public enum SiftCommand: Sendable, Equatable {
     case help
     case verify
+    /// Render the Quick Look preview of a file to an HTML file: the extension's own code path.
+    case preview(path: String, output: String, appearance: String)
     case open(
         path: String, sheet: String?, rows: Int, width: Int,
         nullPadding: Bool, skipPreamble: Bool, allowExtensionDownload: Bool = false
@@ -2074,9 +2076,11 @@ public let siftUsage = """
     Usage:
       sift <path> [--sheet NAME] [--rows N] [--width N]
                   [--null-padding | --no-skip-preamble] [--allow-extension-download]
+      sift --preview <path> [--out FILE.html] [--appearance light|dark]
       sift --verify
       sift --help
 
+      --preview      write the Quick Look preview of a data file as an HTML page
       --sheet NAME   which sheet of a workbook to open (default: the first non-empty one)
       --rows N       rows to preview (default: 10)
       --width N      terminal width to lay the grid out for (default: 100)
@@ -2099,6 +2103,31 @@ public func parseArguments(_ args: [String]) -> SiftCommand {
             return .usageError("--verify takes no other arguments")
         }
         return .verify
+    }
+
+    if args.first == "--preview" {
+        var path: String?
+        var output = "preview.html"
+        var appearance = "system"
+        var j = 1
+        while j < args.count {
+            switch args[j] {
+            case "--out", "--appearance":
+                guard j + 1 < args.count else { return .usageError("\(args[j]) needs a value") }
+                if args[j] == "--out" { output = args[j + 1] } else { appearance = args[j + 1] }
+                j += 1
+            default:
+                if args[j].hasPrefix("-") { return .usageError("unknown option \(args[j])") }
+                guard path == nil else { return .usageError("--preview takes one file") }
+                path = args[j]
+            }
+            j += 1
+        }
+        guard let path else { return .usageError("--preview needs a file") }
+        guard ["system", "light", "dark"].contains(appearance) else {
+            return .usageError("--appearance must be light, dark or system")
+        }
+        return .preview(path: path, output: output, appearance: appearance)
     }
 
     var path: String?

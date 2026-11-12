@@ -74,14 +74,37 @@ jobs:
         run: swift run sift --verify
 
       # The verifier and its loopback HTTP server live in SiftVerify, which only the CLI and the
-      # tests link. If the app ever depends on it again, its binary carries those symbols.
-      - name: App does not link the verifier
+      # tests link. If the app or the Quick Look extension ever depends on it again, its binary
+      # carries those symbols.
+      - name: App and extension do not link the verifier
         shell: bash
         run: |
-          app="$(swift build --show-bin-path)/SiftApp"
-          test -f "$app"
-          if nm "$app" 2>/dev/null | grep -qE 'LoopbackHTTPServer|SiftVerify'; then
-            echo "SiftApp links the verifier" >&2
+          swift build --product SiftApp --product SiftPreviewExtension
+          for product in SiftApp SiftPreviewExtension; do
+            bin="$(swift build --show-bin-path)/$product"
+            test -f "$bin"
+            if [ -n "$(nm "$bin" 2>/dev/null | grep -E 'LoopbackHTTPServer|SiftVerify' || true)" ]; then
+              echo "$product links the verifier" >&2
+              exit 1
+            fi
+          done
+
+      # The bundle the app ships, built the way users build it. The Quick Look extension must be
+      # inside, sandboxed, hardened, and sealed under the app's own signature. This step builds
+      # in place, which does not register anything with LaunchServices or the extension database.
+      - name: Build the app with its Quick Look extension
+        shell: bash
+        run: |
+          ./build-app.sh
+          app=Sift.app
+          appex="$app/Contents/PlugIns/SiftPreview.appex"
+          test -x "$appex/Contents/MacOS/SiftPreview"
+          codesign --verify --deep --strict "$app"
+          test -n "$(codesign -d --entitlements - "$appex" 2>/dev/null | grep 'com.apple.security.app-sandbox' || true)"
+          test -n "$(codesign -dv "$appex" 2>&1 | grep 'flags=.*runtime' || true)"
+          test "$(plutil -extract NSExtension.NSExtensionPointIdentifier raw "$appex/Contents/Info.plist")" = com.apple.quicklook.preview
+          if [ -n "$(nm "$appex/Contents/MacOS/SiftPreview" "$app/Contents/MacOS/Sift" 2>/dev/null | grep -E 'LoopbackHTTPServer|SiftVerify' || true)" ]; then
+            echo "the built bundle links the verifier" >&2
             exit 1
           fi
 

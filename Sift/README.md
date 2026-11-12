@@ -107,6 +107,25 @@ alone no longer compile it. No Python, no Node, no third-party Swift dependencie
 | **`.xlsx` / `.xlsm`** | sheet picker with per-sheet dimensions. `.xls` is refused with a "re-save" message |
 | **A URL** | `https://`, `s3://`, `az://`, `abfss://` — once you have turned remote sources on |
 
+### Quick Look
+
+Select a CSV, TSV, JSON, NDJSON or Parquet file in Finder and press Space: the preview is a table
+instead of raw text. It shows the file name, row count, column count and size, then the first 200
+rows with each column's name and type, numbers right-aligned and nulls shown as in the app. A file
+too large to count instantly shows Sift's own estimate, labelled as one. **Open with Sift** is
+offered when Sift handles the type.
+
+Quick Look never opens an Excel workbook or a Delta folder (reading them can need a DuckDB
+extension download) and never touches the network. A preview that takes more than about two seconds
+shows the header and "Preview took too long" instead. The preview runs in a sandboxed extension that
+can read only the file Finder hands it; macOS finds it the first time the installed app is opened.
+Compressed files (`.csv.gz`, `.zst`) open in Sift but are not previewed in Finder, because their
+type is a generic archive.
+
+```sh
+sift --preview data.parquet --out preview.html --appearance dark   # the same page, as a file
+```
+
 ---
 
 ## What you get
@@ -153,7 +172,8 @@ tool holding on to", with sizes, last-used times, and a purge button.
 
 ```
 sift/
-  build-app.sh          builds Sift.app (icon drawn with the Cocoa that ships in macOS)
+  build-app.sh          builds Sift.app and its Quick Look extension (icon drawn with the Cocoa that ships in macOS)
+  QuickLookExtension/   the extension's Info.plist and sandbox entitlements
   scripts/fetch-duckdb.sh   downloads + checksum-verifies the pinned libduckdb
   Sources/
     CDuckDB/            the module map over duckdb.h
@@ -163,6 +183,8 @@ sift/
     SiftUI/             every view and view model
     SiftApp/            @main, menus, LaunchServices — nothing with a decision in it
     SiftVerify/         `--verify` and its loopback HTTP oracle; the CLI and tests link it, the app does not
+    SiftPreview/        the Quick Look preview: open read-only, sample rows, render the page (a library, so it is tested)
+    SiftPreviewExtension/  the thin Quick Look extension shell; build-app.sh embeds it as a sandboxed .appex
     sift/               the CLI
   Tests/                Swift Testing suites; the spec
 ```
