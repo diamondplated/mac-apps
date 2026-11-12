@@ -3,18 +3,26 @@ import XCTest
 
 /// Stands in for Launch Services; never the real one.
 final class FakeDefaults: FileDefaultsService {
+    /// Keyed by content type. An ordinary extension is its own type; aliases share one.
     var defaults: [String: String] = [:]
+    var aliases = ["jpeg": "jpg", "text": "txt", "htm": "html"]
+    var undeclared: Set<String> = ["zzqx"]
     var installed: Set<String> = ["com.example.editor", "com.example.viewer", "com.example.old", "com.example.other"]
     var candidates: [String: [String]] = [:]
     var failingExtensions: Set<String> = []
     var setLog: [String] = []
-    func defaultApplication(forExtension ext: String) -> String? { defaults[ext] }
-    func setDefaultApplication(_ id: String, forExtension ext: String) throws {
-        if failingExtensions.contains(ext) { throw RouteError.invalid("refused") }
-        defaults[ext] = id; setLog.append("\(ext)=\(id)")
+    var canonicalizer: (String) -> String? = { _ in nil }
+    var beforeSet: (String) -> Void = { _ in }
+    func typeIdentifier(forExtension ext: String) -> String? { undeclared.contains(ext) ? nil : (aliases[ext] ?? ext) }
+    func defaultApplication(forType type: String) -> String? { defaults[type] }
+    func setDefaultApplication(_ id: String, forType type: String) throws {
+        beforeSet(type)
+        if failingExtensions.contains(type) { throw RouteError.invalid("refused") }
+        defaults[type] = id; setLog.append("\(type)=\(id)")
     }
     func isInstalled(_ id: String) -> Bool { id != applicationIdentifier && installed.contains(id) }
-    func candidateApplications(forExtension ext: String) -> [String] { candidates[ext] ?? [] }
+    func candidateApplications(forType type: String) -> [String] { candidates[type] ?? [] }
+    func canonicalPath(_ path: String) -> String? { canonicalizer(path) }
 }
 
 final class FileRoutingTests: XCTestCase {
@@ -218,6 +226,86 @@ final class FileRoutingTests: XCTestCase {
         fake.candidates = [:]
         let stuck = try FileTakeover.apply(rules: [], to: FileRoutingState(rules: [], taken: ["md": TakenType(fallback: "com.example.old")]), service: fake)
         XCTAssertEqual(stuck.failures, ["md"])
+    }
+
+    // MARK: Types, records and volumes
+
+    func testExtensionsOfOneTypeShareOneRecordAndOneTakeOver() throws {
+        fake.defaults["jpg"] = "com.example.old"
+        let state = try FileTakeover.apply(rules: [rule("1", "jpg"), rule("2", "jpeg")], to: FileRoutingState(), service: fake).state
+        XCTAssertEqual(fake.setLog, ["jpg=\(applicationIdentifier)"])
+        XCTAssertEqual(Array(state.taken.keys), ["jpg"])
+        XCTAssertEqual(state.taken["jpg"]?.fallback, "com.example.old")
+        XCTAssertEqual(FileTakeover.takenOver(state, service: fake), ["jpeg", "jpg"])
+    }
+    func testTypeIsReleasedOnlyWhenNoExtensionOfItHasARule() throws {
+        fake.defaults["jpg"] = "com.example.old"
+        var state = try FileTakeover.apply(rules: [rule("1", "jpg"), rule("2", "jpeg")], to: FileRoutingState(), service: fake).state
+        state = try FileTakeover.apply(rules: [rule("2", "jpeg")], to: state, service: fake).state
+        XCTAssertEqual(fake.defaults["jpg"], applicationIdentifier, "jpeg still has a rule")
+        XCTAssertNotNil(state.taken["jpg"])
+        state = try FileTakeover.apply(rules: [], to: state, service: fake).state
+        XCTAssertEqual(fake.defaults["jpg"], "com.example.old")
+        XCTAssertTrue(state.taken.isEmpty)
+    }
+    func testFileOfAnotherExtensionOfTheTypeOpensInRecordedFallback() {
+        let fallbacks = ["jpg": TakenType(fallback: "com.example.old")]
+        XCTAssertEqual(decide("/x/a.jpeg", [rule("1", "jpg", app: "com.example.viewer")], fallbacks: fallbacks), .open(application: "com.example.old", usedFallback: true))
+        XCTAssertEqual(decide("/x/a.jpg", [rule("1", "jpg", app: "com.example.viewer")], fallbacks: fallbacks), .open(application: "com.example.viewer", usedFallback: false))
+    }
+    func testRecordIsOnDiskBeforeTheSystemIsAskedAndRemovedWhenRefused() throws {
+        let store = FileRoutingStore(defaults: suite())
+        fake.defaults["md"] = "com.example.old"
+        var recordedBeforeSet: String??
+        fake.beforeSet = { type in recordedBeforeSet = .some(store.load().taken[type]?.fallback) }
+        try store.replace(rules: [rule("1")], service: fake)
+        XCTAssertEqual(recordedBeforeSet, .some("com.example.old"), "the fallback must be saved before the default changes")
+        try store.stopRouting(service: fake)
+        fake.failingExtensions = ["md"]
+        XCTAssertThrowsError(try store.replace(rules: [rule("1")], service: fake))
+        XCTAssertEqual(store.load(), FileRoutingState(), "a refused take-over leaves no record")
+        XCTAssertEqual(fake.defaults["md"], "com.example.old")
+    }
+    func testInterruptedTakeOverIsRecoverableThroughStopRouting() throws {
+        let store = FileRoutingStore(defaults: suite())
+        // Crash after the record was written, before the default changed.
+        fake.defaults["md"] = "com.example.old"
+        try store.save(FileRoutingState(rules: [], taken: ["md": TakenType(fallback: "com.example.old")]))
+        try store.stopRouting(service: fake)
+        XCTAssertEqual(fake.defaults["md"], "com.example.old")
+        XCTAssertEqual(store.load(), FileRoutingState())
+        // Crash after the default changed, before the rules were saved.
+        fake.defaults["md"] = applicationIdentifier
+        try store.save(FileRoutingState(rules: [], taken: ["md": TakenType(fallback: "com.example.old")]))
+        XCTAssertEqual(FileTakeover.ownedTypes(store.load(), service: fake), ["md"], "the menu must still offer Stop Routing Files")
+        try store.stopRouting(service: fake)
+        XCTAssertEqual(fake.defaults["md"], "com.example.old")
+        XCTAssertEqual(store.load(), FileRoutingState())
+    }
+    func testFolderMatchFollowsTheVolumesCaseRules() {
+        let rules = [rule("1", folder: "~/Notes")]
+        guard case .unavailable = decide("/Users/tester/notes/a.md", rules) else { return XCTFail("case differs and the volume is case-sensitive") }
+        fake.canonicalizer = { $0.lowercased() }  // a case-insensitive volume spells both the same way
+        XCTAssertEqual(decide("/Users/tester/notes/a.md", rules), .open(application: "com.example.editor", usedFallback: false))
+        XCTAssertEqual(decide("/Users/tester/NOTES/deep/a.md", rules), .open(application: "com.example.editor", usedFallback: false))
+        XCTAssertThrowsError(try validate([rule("1", folder: "~/Notes"), rule("2", folder: "~/notes")]), "same folder on that volume")
+    }
+    func testRealCanonicalPathIsUsedWhenTheFolderExists() throws {
+        let canonical = LaunchServicesFileDefaults().canonicalPath(root.path)
+        XCTAssertNotNil(canonical)
+        XCTAssertNil(LaunchServicesFileDefaults().canonicalPath(root.path + "/missing"))
+    }
+    func testTypeConformanceBlocksEvenWithoutTheList() {
+        for ext in ["app", "dmg", "pkg", "sparseimage", "iso"] { XCTAssertTrue(FileRouting.isBlockedByType(ext), ext) }
+        for ext in ["py", "rb", "js", "md", "txt", "json"] {
+            XCTAssertFalse(FileRouting.isBlockedByType(ext), ext)
+            XCTAssertNoThrow(try FileRouting.normalizedExtension(ext), ext)
+        }
+    }
+    func testExtensionWithNoDeclaredTypeIsRejected() {
+        XCTAssertThrowsError(try validate([rule("1", "zzqx")])) { XCTAssertTrue($0.localizedDescription.contains("zzqx")) }
+        XCTAssertNil(LaunchServicesFileDefaults().typeIdentifier(forExtension: "zzqx9"))
+        XCTAssertEqual(LaunchServicesFileDefaults().typeIdentifier(forExtension: "jpg"), LaunchServicesFileDefaults().typeIdentifier(forExtension: "jpeg"))
     }
 
     // MARK: Store and stop

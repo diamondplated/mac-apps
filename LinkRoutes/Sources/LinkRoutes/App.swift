@@ -8,6 +8,7 @@ import ServiceManagement
     private(set) var fallbackName = ""
     private(set) var busy = false
     private(set) var takenOverExtensions: [String] = []
+    private(set) var ownsFileTypes = false
     private var observer: NSObjectProtocol?
     var didChange: (() -> Void)?
     /// Called with a reason when a link cannot be opened.
@@ -27,6 +28,8 @@ import ServiceManagement
         isDefault = snapshot.isDefaultBrowser
         fallbackName = snapshot.availableBrowsers.first { $0.identifier == snapshot.defaultBrowserIdentifier }?.name ?? ""
         takenOverExtensions = snapshot.takenOverExtensions
+        // Also true for a type left owned by an interrupted take-over, which has no rule.
+        ownsFileTypes = !FileTakeover.ownedTypes(Preferences.shared.fileStore.load(), service: LaunchServicesFileDefaults()).isEmpty
         didChange?()
     }
 
@@ -172,7 +175,7 @@ import ServiceManagement
         }
         let toggle = menu.addItem(withTitle: title, action: #selector(changeDefault), keyEquivalent: "")
         toggle.target = self
-        if !model.takenOverExtensions.isEmpty {
+        if model.ownsFileTypes {
             menu.addItem(withTitle: "Stop Routing Files…", action: #selector(stopRoutingFiles), keyEquivalent: "").target = self
         }
         menu.addItem(.separator())

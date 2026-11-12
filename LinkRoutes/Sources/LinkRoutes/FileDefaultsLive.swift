@@ -3,8 +3,6 @@ import UniformTypeIdentifiers
 
 /// The real Launch Services. Used by the app and the settings bridge, never by tests.
 struct LaunchServicesFileDefaults: FileDefaultsService {
-    private func type(_ ext: String) -> UTType? { UTType(filenameExtension: ext) }
-
     private func bundleIdentifier(of url: URL) -> String? { Bundle(url: url)?.bundleIdentifier }
 
     private func applicationURL(_ identifier: String) -> URL? {
@@ -15,8 +13,13 @@ struct LaunchServicesFileDefaults: FileDefaultsService {
         return NSWorkspace.shared.urlForApplication(withBundleIdentifier: identifier)
     }
 
-    func defaultApplication(forExtension ext: String) -> String? {
-        guard let type = type(ext), let url = NSWorkspace.shared.urlForApplication(toOpen: type) else { return nil }
+    func typeIdentifier(forExtension ext: String) -> String? {
+        guard let type = UTType(filenameExtension: ext), !type.isDynamic else { return nil }
+        return type.identifier
+    }
+
+    func defaultApplication(forType type: String) -> String? {
+        guard let type = UTType(type), let url = NSWorkspace.shared.urlForApplication(toOpen: type) else { return nil }
         return bundleIdentifier(of: url)
     }
 
@@ -24,13 +27,17 @@ struct LaunchServicesFileDefaults: FileDefaultsService {
         bundleIdentifier == applicationIdentifier ? false : NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) != nil
     }
 
-    func candidateApplications(forExtension ext: String) -> [String] {
-        guard let type = type(ext) else { return [] }
+    func candidateApplications(forType type: String) -> [String] {
+        guard let type = UTType(type) else { return [] }
         return NSWorkspace.shared.urlsForApplications(toOpen: type).compactMap(bundleIdentifier(of:))
     }
 
-    func setDefaultApplication(_ bundleIdentifier: String, forExtension ext: String) throws {
-        guard let type = type(ext), let url = applicationURL(bundleIdentifier) else { throw RouteError.invalid("The app is unavailable.") }
+    func canonicalPath(_ path: String) -> String? {
+        try? URL(fileURLWithPath: path).resourceValues(forKeys: [.canonicalPathKey]).canonicalPath
+    }
+
+    func setDefaultApplication(_ bundleIdentifier: String, forType type: String) throws {
+        guard let type = UTType(type), let url = applicationURL(bundleIdentifier) else { throw RouteError.invalid("The app is unavailable.") }
         final class Box: @unchecked Sendable { let lock = NSLock(); var finished = false; var error: Error? }
         let box = Box()
         NSWorkspace.shared.setDefaultApplication(at: url, toOpen: type) { error in

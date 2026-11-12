@@ -18,10 +18,12 @@ enum SelfCheck {
 
     /// File rules, against a stand-in for Launch Services.
     private struct StandInDefaults: FileDefaultsService {
-        func defaultApplication(forExtension ext: String) -> String? { "com.example.old" }
-        func setDefaultApplication(_ bundleIdentifier: String, forExtension ext: String) throws {}
+        func typeIdentifier(forExtension ext: String) -> String? { ext }
+        func defaultApplication(forType type: String) -> String? { "com.example.old" }
+        func canonicalPath(_ path: String) -> String? { nil }
+        func setDefaultApplication(_ bundleIdentifier: String, forType type: String) throws {}
         func isInstalled(_ bundleIdentifier: String) -> Bool { bundleIdentifier != applicationIdentifier }
-        func candidateApplications(forExtension ext: String) -> [String] { [] }
+        func candidateApplications(forType type: String) -> [String] { [] }
     }
     private static func files() -> Bool {
         let service = StandInDefaults()
