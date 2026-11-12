@@ -39,6 +39,7 @@ snapshot_tool_login() {
             io.github.diamondplated.ScreenWren) executable=ScreenWren; app_key=screenWren ;;
             com.andrew.scrollsplit) executable=ScrollSplit; app_key=scrollSplit ;;
             com.andrew.linkroutes) executable=LinkRoutes; app_key=linkRoutes ;;
+            com.andrew.staylit) executable=StayLit; app_key=stayLit ;;
             *) continue ;;
         esac
         [ "$(plutil -extract MacToolsSettingsProtocolVersion raw "$app/Contents/Info.plist" 2>/dev/null || true)" = 1 ] || continue

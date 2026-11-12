@@ -3,7 +3,7 @@
 - Preserve Andrew's selected model and reasoning effort; keep work bounded and
   reuse successful verification unless subsequent changes justify repeating it.
 - This repository owns Mac Tools, DockPeek, ScreenWren, ScrollSplit, LinkRoutes,
-  Latent, and Sift. Do not make new development changes in the previous standalone
+  StayLit, Latent, and Sift. Do not make new development changes in the previous standalone
   ScreenWren, Latent, or Sift repositories; they are archived.
 - Latent and Sift are standalone apps that Mac Tools also embeds and installs.
   Follow `Latent/CLAUDE.md` and `Sift/AGENTS.md` inside those folders. Their tests

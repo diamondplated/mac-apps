@@ -3,7 +3,7 @@
 Andrew's native macOS apps, one repository:
 
 - **Mac Tools**, one app to install, update, open, and configure **DockPeek**,
-  **ScreenWren**, **ScrollSplit**, and **LinkRoutes**, and to install, update, and
+  **ScreenWren**, **ScrollSplit**, **LinkRoutes**, and **StayLit**, and to install, update, and
   open **Latent** and **Sift**. Public downloads and automatic updates use
   [diamondplated/mac-tools-releases](https://github.com/diamondplated/mac-tools-releases/releases),
   a separate repository containing release artifacts, not app source.
@@ -22,12 +22,13 @@ Everything here is MIT licensed.
 | App | What it does | Requires |
 | --- | --- | --- |
 | Mac Tools | Install apps and manage all tool settings | macOS 14+ |
-| [DockPeek](DockPeek/README.md) | Live Dock window previews, switching, and browser tabs | macOS 14+ |
-| [ScreenWren](ScreenWren/README.md) | Precise screenshots, markup, redaction, and text recognition | macOS 26+ |
-| [ScrollSplit](ScrollSplit/README.md) | Mouse-wheel direction and speed without changing trackpad gestures | macOS 14+ |
-| [LinkRoutes](LinkRoutes/README.md) | Send websites to chosen browsers and supported profiles | macOS 14+ |
-| [Latent](Latent/README.md) | Folder-first photo viewer with keyboard culling and local enhancement | macOS 14+ |
-| [Sift](Sift/README.md) | Explore CSV, Parquet, JSON, and Excel files instantly | macOS 14+ |
+| [DockPeek](DockPeek/README.md) | Dock window previews, an ⌥Tab window switcher, Dock click actions, and window layouts that survive display changes | macOS 14+ |
+| [ScreenWren](ScreenWren/README.md) | Precise screenshots, region recording, markup, redaction, text recognition, and a colour picker | macOS 26+ |
+| [ScrollSplit](ScrollSplit/README.md) | Mouse fixes (wheel direction, speed, smoothing, side buttons, pointer acceleration) and keyboard overrides | macOS 14+ |
+| [LinkRoutes](LinkRoutes/README.md) | Send links to chosen browsers and profiles by site or source app, and files to chosen apps by folder | macOS 14+ |
+| [StayLit](StayLit/README.md) | Keep the Mac awake on your terms, and use the brightness and volume keys with an external display | macOS 14+ |
+| [Latent](Latent/README.md) | Folder-first photo viewer with keyboard culling, burst grouping, and local enhancement | macOS 14+ |
+| [Sift](Sift/README.md) | Explore CSV, Parquet, JSON, and Excel files instantly, with a Quick Look preview in Finder | macOS 14+ |
 
 ## Use the manager
 
@@ -140,9 +141,9 @@ instructions remain in its own README.
 ./verify.sh
 ```
 
-This tests all five packages, builds the suite, checks app identities, deployment
+This tests all six packages, builds the suite, checks app identities, deployment
 targets, Universal 2 architectures, nested signatures, archive extraction, and
-ScreenWren, ScrollSplit, and LinkRoutes headless self-checks. Use `./verify.sh --no-build` to verify a package
+ScreenWren, ScrollSplit, LinkRoutes, and StayLit headless self-checks. Use `./verify.sh --no-build` to verify a package
 that was just built. Live screen captures are opt-in in ScreenWren's QA workflow.
 GitHub Actions uses only Andrew's self-hosted macOS runners, with no hosted fallback
 and no installation step.
@@ -158,6 +159,7 @@ process checks are only a preflight; the final evidence comes from your next log
 - `ScreenWren/`: complete screenshot app, login helper, resources, and tests.
 - `ScrollSplit/`: menu-bar scrolling app, settings bridge, icon, and event tests.
 - `LinkRoutes/`: browser routing app, settings bridge, icon, and rule tests.
+- `StayLit/`: keep-awake and external display keys, settings bridge, icon, and tests.
 - `Latent/`: standalone photo viewer, with its own README, CLAUDE.md, and CI (`latent.yml`).
 - `Sift/`: standalone data explorer, with its own README, AGENTS.md, and CI (`sift.yml`).
 - Root scripts and `.github/`: suite packaging, installation, and shared CI.

@@ -105,9 +105,7 @@ public final class AppManager {
         let store = store
         if app == .linkRoutes {
             let snapshot = try await Task.detached(priority: .userInitiated) { try store.settings(app) }.value
-            if let values = try JSONSerialization.jsonObject(with: snapshot) as? [String: Any], values["isDefaultBrowser"] as? Bool == true {
-                throw AppManagerError.message("LinkRoutes is your default link handler. Open its settings and choose another default browser before removing it.")
-            }
+            if let reason = Self.uninstallBlocker(for: app, snapshot: snapshot) { throw AppManagerError.message(reason) }
         }
         try await Task.detached(priority: .userInitiated) {
             guard try store.existing(app) != nil else { throw AppManagerError.message("\(app.name) is not installed.") }
@@ -120,6 +118,20 @@ public final class AppManager {
             try await self.terminateApplications(app)
             try await Task.detached(priority: .userInitiated) { try store.uninstall(app) }.value
         })
+    }
+
+    /// Why an app must not be removed yet, or nil. LinkRoutes may own web links and file
+    /// types; removing it first would leave them opening nothing.
+    nonisolated static func uninstallBlocker(for app: ManagedApp, snapshot: Data) -> String? {
+        guard app == .linkRoutes, let values = try? JSONSerialization.jsonObject(with: snapshot) as? [String: Any] else { return nil }
+        if values["isDefaultBrowser"] as? Bool == true {
+            return "LinkRoutes is your default browser. In its menu bar menu, restore another browser as the default before removing it."
+        }
+        if let extensions = values["takenOverExtensions"] as? [String], !extensions.isEmpty {
+            let list = ListFormatter.localizedString(byJoining: extensions.sorted().map { "." + $0 })
+            return "LinkRoutes is the default app for \(list) files. On its page, choose Stop Routing Files before removing it."
+        }
+        return nil
     }
 
     /// Unregister while the bundle still exists. Refuse removal if the bridge cannot

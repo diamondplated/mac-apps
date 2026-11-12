@@ -51,6 +51,21 @@ final class NewFeatureSettingsTests: XCTestCase {
         XCTAssertEqual(files.takenOverExtensions, ["md"])
     }
 
+    func testStayLitSnapshotIsRead() throws {
+        let value = try snapshot("stayLit", ["keepAwake": true, "keepAwakeApps": ["com.apple.dt.Xcode"], "keepsDisplayAwake": false,
+                                             "brightnessKeysControlDisplays": true, "volumeKeysControlDisplays": false,
+                                             "awakeReason": "Awake while Xcode is running",
+                                             "externalDisplays": [["name": "Studio Monitor", "controllable": true]],
+                                             "permissions": ["accessibility": true], "permissionsSource": "runningApp"])
+        XCTAssertEqual(value.keepAwakeApps, ["com.apple.dt.Xcode"])
+        XCTAssertEqual(value.awakeReason, "Awake while Xcode is running")
+        XCTAssertEqual(value.externalDisplays, [ExternalDisplay(name: "Studio Monitor", controllable: true)])
+        XCTAssertEqual(value.permission("accessibility"), true)
+        let idle = try snapshot("stayLit", ["keepAwake": false, "keepAwakeApps": [String](), "awakeReason": NSNull()])
+        XCTAssertNil(idle.awakeReason)
+        XCTAssertNil(idle.externalDisplays)
+    }
+
     func testAFileRuleIsTidiedBeforeItIsSaved() throws {
         let rule = FileRouteRule(id: "1", fileExtension: " *.MD ", folder: "   ", applicationIdentifier: "com.example.editor")
         let ready = rule.readyToSave

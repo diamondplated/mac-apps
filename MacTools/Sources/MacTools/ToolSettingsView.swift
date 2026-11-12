@@ -33,6 +33,7 @@ struct ToolSettingsView: View {
             case .linkRoutes:
                 linkSettings(snapshot)
                 fileSettings(snapshot)
+            case .stayLit: stayLitSettings(snapshot)
             case .latent, .sift: EmptyView()
             }
             general(snapshot)
@@ -95,6 +96,7 @@ struct ToolSettingsView: View {
         case .dockPeek: return [accessibility, screen]
         case .screenWren: return [screen]
         case .scrollSplit: return [accessibility, input]
+        case .stayLit: return [accessibility]
         case .linkRoutes, .latent, .sift: return []
         }
     }
@@ -387,6 +389,71 @@ struct ToolSettingsView: View {
                 footnote(value.capsLockRemapAvailable == false
                     ? "Caps Lock can’t be remapped on this Mac."
                     : "While Caps Lock is a Hyper key it no longer locks capitals.")
+            }
+        }
+    }
+
+    // MARK: StayLit
+
+    @ViewBuilder
+    private func stayLitSettings(_ value: ToolSettingsSnapshot) -> some View {
+        let apps = value.keepAwakeApps ?? []
+        Section {
+            Toggle("Keep the Mac awake", isOn: toggle(value.keepAwake ?? false, key: "keepAwake"))
+            Toggle("Keep the display on too", isOn: toggle(value.keepsDisplayAwake ?? false, key: "keepsDisplayAwake"))
+            if let reason = value.awakeReason {
+                LabeledContent("Right now", value: reason)
+            }
+        } header: {
+            Text("Keep Awake")
+        } footer: {
+            footnote("Use StayLit’s menu bar menu to keep the Mac awake for a set time. On battery below 20 percent it lets the Mac sleep.")
+        }
+        Section {
+            ForEach(apps, id: \.self) { identifier in
+                LabeledContent(SourceApps.name(for: identifier)) {
+                    Button("Remove \(SourceApps.name(for: identifier))", systemImage: "minus.circle", role: .destructive) {
+                        editAwakeApps(from: apps) { $0.filter { $0 != identifier } }
+                    }.labelStyle(.iconOnly).buttonStyle(.borderless)
+                }
+            }
+            Menu("Add App") {
+                let choices = SourceApps.choices(running: SourceApps.running(), current: nil,
+                                                 excluding: Set(apps).union([ManagedApp.stayLit.bundleIdentifier, Bundle.main.bundleIdentifier ?? ""]),
+                                                 nameFor: SourceApps.name(for:))
+                if choices.isEmpty { Text("No other apps are open") }
+                ForEach(choices) { choice in
+                    Button(choice.name) { editAwakeApps(from: apps) { $0 + [choice.identifier] } }
+                }
+            }.fixedSize()
+        } header: {
+            Text("Awake While These Apps Run")
+        } footer: {
+            footnote("Open an app to add it here.")
+        }
+        Section {
+            Toggle("Brightness keys control an external display", isOn: toggle(value.brightnessKeysControlDisplays ?? false, key: "brightnessKeysControlDisplays"))
+            Toggle("Volume keys control an external display", isOn: toggle(value.volumeKeysControlDisplays ?? false, key: "volumeKeysControlDisplays"))
+            ForEach(value.externalDisplays ?? []) { display in
+                LabeledContent(display.name) {
+                    Text(display.controllable ? "Can be controlled" : "Doesn’t accept control").foregroundStyle(.secondary)
+                }
+            }
+        } header: {
+            Text("External Displays")
+        } footer: {
+            footnote((value.externalDisplays ?? []).isEmpty
+                ? "No external display is connected. The keys work on the display the pointer is on; the built-in display is left to macOS."
+                : "The keys work on the display the pointer is on; the built-in display is left to macOS.")
+        }
+    }
+
+    /// Changes the list starting from whatever is saved when this edit's turn comes.
+    private func editAwakeApps(from shown: [String], _ change: @escaping ([String]) -> [String]) {
+        let selectedApp = app
+        Task {
+            await settings.save(app: selectedApp, library: library) { latest in
+                ["keepAwakeApps": change(latest?.keepAwakeApps ?? shown)]
             }
         }
     }

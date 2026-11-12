@@ -8,7 +8,7 @@ case "${1:-}" in
     --no-build) [ "$#" -eq 1 ] || exit 64; BUILD=0 ;;
     *) echo "Usage: $0 [--no-build]" >&2; exit 64 ;;
 esac
-for script in build-app.sh install-app.sh verify.sh DockPeek/build_app.sh ScrollSplit/build-app.sh LinkRoutes/build-app.sh Latent/scripts/build_app.sh Sift/build-app.sh Sift/scripts/fetch-duckdb.sh scripts/release.sh scripts/check-signing.sh; do
+for script in build-app.sh install-app.sh verify.sh DockPeek/build_app.sh ScrollSplit/build-app.sh LinkRoutes/build-app.sh StayLit/build-app.sh Latent/scripts/build_app.sh Sift/build-app.sh Sift/scripts/fetch-duckdb.sh scripts/release.sh scripts/check-signing.sh; do
     bash -n "$PROJECT_DIR/$script"
 done
 for script in build-app.sh install-app.sh qa.sh; do
@@ -19,7 +19,7 @@ sh -n "$PROJECT_DIR/scripts/verify-login.sh" "$PROJECT_DIR/scripts/install-login
 python3 "$PROJECT_DIR/scripts/compare-bundles.py" --self-test
 "$PROJECT_DIR/scripts/check-signing.sh" --self-test
 python3 "$PROJECT_DIR/scripts/verify-release-draft.py" --self-test
-for package in "$PROJECT_DIR/DockPeek" "$PROJECT_DIR/ScreenWren" "$PROJECT_DIR/ScrollSplit" "$PROJECT_DIR/LinkRoutes" "$PROJECT_DIR/MacTools"; do
+for package in "$PROJECT_DIR/DockPeek" "$PROJECT_DIR/ScreenWren" "$PROJECT_DIR/ScrollSplit" "$PROJECT_DIR/LinkRoutes" "$PROJECT_DIR/StayLit" "$PROJECT_DIR/MacTools"; do
     swift test --package-path "$package" --parallel
 done
 if [ "$BUILD" = 1 ]; then "$PROJECT_DIR/build-app.sh"; fi
@@ -40,7 +40,7 @@ test "$(plutil -extract CFBundleIdentifier raw "$PLIST")" = com.andrew.mactools
 test "$(plutil -extract CFBundleExecutable raw "$PLIST")" = MacTools
 test "$(plutil -extract LSMinimumSystemVersion raw "$PLIST")" = 14.0
 codesign --verify --deep --strict "$APP"
-for name in MacTools DockPeek ScreenWren ScreenWrenLoginItem ScrollSplit LinkRoutes Latent Sift; do
+for name in MacTools DockPeek ScreenWren ScreenWrenLoginItem ScrollSplit LinkRoutes StayLit Latent Sift; do
     # Latent is Apple silicon only (Float16 pipeline); Mac Tools refuses it on Intel.
     architectures="arm64 x86_64"
     case "$name" in
@@ -49,6 +49,7 @@ for name in MacTools DockPeek ScreenWren ScreenWrenLoginItem ScrollSplit LinkRou
         ScreenWren) bundle="$APP/Contents/Resources/Applications/ScreenWren.app"; identifier=io.github.diamondplated.ScreenWren; minimum=26.0 ;;
         ScrollSplit) bundle="$APP/Contents/Resources/Applications/ScrollSplit.app"; identifier=com.andrew.scrollsplit; minimum=14.0 ;;
         LinkRoutes) bundle="$APP/Contents/Resources/Applications/LinkRoutes.app"; identifier=com.andrew.linkroutes; minimum=14.0 ;;
+        StayLit) bundle="$APP/Contents/Resources/Applications/StayLit.app"; identifier=com.andrew.staylit; minimum=14.0 ;;
         Latent) bundle="$APP/Contents/Resources/Applications/Latent.app"; identifier=com.diamondplated.latent; minimum=14.0; architectures=arm64 ;;
         Sift) bundle="$APP/Contents/Resources/Applications/Sift.app"; identifier=io.github.diamondplated.sift; minimum=14.0 ;;
         ScreenWrenLoginItem) bundle="$APP/Contents/Resources/Applications/ScreenWren.app/Contents/Library/LoginItems/ScreenWrenLoginItem.app"; identifier=io.github.diamondplated.ScreenWren.LoginItem; minimum=26.0 ;;
@@ -64,7 +65,7 @@ for name in MacTools DockPeek ScreenWren ScreenWrenLoginItem ScrollSplit LinkRou
         test "$binary_minimum" = "$minimum"
     done
 done
-for name in ScreenWren ScrollSplit LinkRoutes; do
+for name in ScreenWren ScrollSplit LinkRoutes StayLit; do
     "$APP/Contents/Resources/Applications/$name.app/Contents/MacOS/$name" --self-check
 done
 # Latent's model weights are third-party and user-installed; Mac Tools must never redistribute them.
