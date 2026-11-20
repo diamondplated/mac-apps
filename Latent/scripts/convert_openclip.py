@@ -14,7 +14,7 @@ Usage:
     pip install -r scripts/requirements.txt
     python3 scripts/convert_openclip.py
 
-Tested with: Python 3.12, torch 2.14.1, coremltools 9.0, open_clip_torch 3.3.0.
+Tested with: Python 3.12, torch 2.14.1, coremltools 9.0, open_clip_torch 4.2.1.
 
 Notes:
 - ViT-B/32 is the smallest "good" CLIP variant — 86M params, 224×224 input,
@@ -49,7 +49,7 @@ def load_model():
     import open_clip
 
     download_verified(WEIGHTS_URL, WEIGHTS_FILE, WEIGHTS_SHA256)
-    # open_clip 3.3.0 dispatches .safetensors to safetensors.torch.load_file;
+    # open_clip 3.x and 4.x dispatch .safetensors to safetensors.torch.load_file;
     # no pickle deserialization or unpinned pretrained-tag download occurs.
     model, _, _ = open_clip.create_model_and_transforms(
         "ViT-B-32", pretrained=str(WEIGHTS_FILE),
@@ -102,8 +102,9 @@ def trace(model_module, example):
     """Trace for coremltools without PyTorch's fused attention kernel.
 
     open_clip 3.x builds every attention layer from nn.MultiheadAttention with
-    batch_first=True. Under no_grad, PyTorch routes that through its fast path,
-    so the trace records `_native_multi_head_attention`, which coremltools 9.0
+    batch_first=True (4.x moved to F.scaled_dot_product_attention, where this is
+    a no-op). Under no_grad, PyTorch routes that through its fast path, so the
+    trace records `_native_multi_head_attention`, which coremltools 9.0
     has no converter for. With the fast path off, the trace holds the plain
     attention math, which converts. The outputs are the same either way.
     """
