@@ -16,8 +16,16 @@
 torch==2.14.1
 coremltools==9.0
 # open_clip 3.x needs the trace in convert_openclip.py that skips PyTorch's
-# fused attention kernel; coremltools 9.0 can't convert that op.
-open_clip_torch==3.3.0
+# fused attention kernel; coremltools 9.0 can't convert that op. 4.x builds
+# attention on F.scaled_dot_product_attention instead, which converts, so that
+# trace is no longer load-bearing but stays harmless.
+#
+# 4.2.1 is checked against 3.3.0 on the same laion2B weights: identical
+# state_dict, plain GELU in both, and the converted CoreML encoders agree
+# (cosine >= 0.999999 on 8 fixed images and 8 fixed prompts). That comparison is
+# the gate for any further bump here, since a changed activation or attention
+# path changes embeddings without raising an error.
+open_clip_torch==4.2.1
 # Stays below 2: coremltools 9.0's torch frontend calls int() on one-element
 # arrays, which NumPy 2.4 and 2.5 reject, so OpenCLIP conversion fails.
 numpy<2.0
